@@ -882,6 +882,56 @@ impl Nexus {
         self.db_datastore.project_delete_instance(&instance.id()).await
     }
 
+    pub async fn project_migrate_instance(
+        self: &Arc<Self>,
+        organization_name: &Name,
+        project_name: &Name,
+        instance_name: &Name,
+        params: params::InstanceMigrate,
+    ) -> UpdateResult<db::model::Instance> {
+        let organization_id = self
+            .db_datastore
+            .organization_lookup_id_by_name(organization_name)
+            .await?;
+        let project_id = self
+            .db_datastore
+            .project_lookup_id_by_name(&organization_id, project_name)
+            .await?;
+        let instance = self
+            .db_datastore
+            .instance_fetch_by_name(&project_id, instance_name)
+            .await?;
+
+        let (template_name, saga_template) =
+            if instance.runtime_state.sled_uuid == params.dst_sled_uuid {
+                // Migrate the instance within the same sled
+                (
+                    sagas::SAGA_INSTANCE_MIGRATE_INPLACE_NAME,
+                    Arc::clone(&sagas::SAGA_INSTANCE_MIGRATE_INPLACE_TEMPLATE),
+                )
+            } else {
+                // Migrate the instance to a different sled altogether
+                (
+                    sagas::SAGA_INSTANCE_MIGRATE_NAME,
+                    Arc::clone(&sagas::SAGA_INSTANCE_MIGRATE_TEMPLATE),
+                )
+            };
+
+        // Kick off the migration saga
+        let saga_params = Arc::new(sagas::ParamsInstanceMigrate {
+            project_id,
+            instance_name: instance_name.clone().into(),
+            migrate_params: params,
+        });
+        self.execute_saga(saga_template, template_name, saga_params).await?;
+
+        // TODO correctness TODO robustness TODO design
+        // Should we lookup the instance again here?
+        // See comment in project_create_instance.
+        let instance = self.db_datastore.instance_fetch(&instance.id()).await?;
+        Ok(instance)
+    }
+
     pub async fn project_lookup_instance(
         &self,
         organization_name: &Name,
@@ -1111,6 +1161,7 @@ impl Nexus {
                 &sled_agent_client::types::InstanceEnsureBody {
                     initial: instance_hardware,
                     target: requested.into(),
+                    migrate: None,
                 },
             )
             .await

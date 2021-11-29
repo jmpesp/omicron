@@ -9,6 +9,7 @@ use omicron_common::api::{
     external::Error, internal::nexus::DiskRuntimeState,
     internal::nexus::InstanceRuntimeState,
     internal::sled_agent::InstanceHardware,
+    internal::sled_agent::InstanceMigrateParams,
     internal::sled_agent::InstanceRuntimeStateRequested,
 };
 
@@ -52,8 +53,9 @@ impl SledAgent {
         instance_id: Uuid,
         initial: InstanceHardware,
         target: InstanceRuntimeStateRequested,
+        migrate: Option<InstanceMigrateParams>,
     ) -> Result<InstanceRuntimeState, Error> {
-        self.instances.ensure(instance_id, initial, target).await
+        self.instances.ensure(instance_id, initial, target, migrate).await
     }
 
     /// Idempotently ensures that the given Disk is attached (or not) as
