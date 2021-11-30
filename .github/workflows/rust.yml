@@ -127,4 +127,4 @@ jobs:
       # rebuild here.
       # Put "./cockroachdb/bin" and "./clickhouse" on the PATH for the test
       # suite.
-      run: PATH="$PATH:$PWD/cockroachdb/bin:$PWD/clickhouse" RUSTFLAGS="-D warnings" RUSTDOCFLAGS="-D warnings" cargo +${{ matrix.toolchain }} test --workspace --locked --verbose ${{matrix.extra_test_args }}
+      run: ./tools/test-wrapper.sh ${{ matrix.toolchain }} ${{ matrix.extra_test_args }}
