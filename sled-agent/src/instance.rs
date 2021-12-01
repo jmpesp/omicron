@@ -583,7 +583,8 @@ impl Instance {
         Ok(())
     }
 
-    #[cfg(not(test))]
+    // TODO: add test exercising migrate
+    #[cfg_attr(test, allow(dead_code))]
     pub async fn migrate(
         &self,
         initial_hardware: InstanceHardware,
