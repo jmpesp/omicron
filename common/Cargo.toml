@@ -11,7 +11,7 @@ futures = "0.3.18"
 http = "0.2.5"
 hyper = "0.14"
 ipnetwork = "0.18"
-propolis-server = { git = "https://github.com/oxidecomputer/propolis", branch = "live-migrate" }
+propolis-server = { git = "https://github.com/oxidecomputer/propolis", rev = "5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c" }
 rayon = "1.5"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 ring = "0.16"

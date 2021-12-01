@@ -168,7 +168,7 @@ dependencies = [
 [[package]]
 name = "bhyve_api"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 dependencies = [
  "bitflags",
  "libc",
@@ -630,9 +630,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28e98c534e9c8a0483aa01d6f6913bc063de254311bd267c9cf535e9b70e15b2"
+checksum = "79b71cca7d95d7681a4b3b9cdf63c8dbc3730d0584c2c74e31416d64a90493f4"
 dependencies = [
  "const-oid",
 ]
@@ -736,7 +736,7 @@ checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
 [[package]]
 name = "dladm"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 dependencies = [
  "libc",
  "num_enum",
@@ -2563,7 +2563,7 @@ dependencies = [
 [[package]]
 name = "propolis"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 dependencies = [
  "anyhow",
  "bhyve_api",
@@ -2589,7 +2589,7 @@ dependencies = [
 [[package]]
 name = "propolis-client"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 dependencies = [
  "reqwest",
  "ring",
@@ -2605,15 +2605,19 @@ dependencies = [
 [[package]]
 name = "propolis-server"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 dependencies = [
  "anyhow",
+ "bytes",
  "const_format",
  "dropshot",
  "futures",
  "hyper",
+ "num_enum",
  "propolis",
  "propolis-client",
+ "ron",
+ "semver 1.0.4",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2622,6 +2626,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "toml",
  "uuid",
 ]
@@ -2847,6 +2852,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b861ecaade43ac97886a512b360d01d66be9f41f3c61088b42cedf92e03d678"
+dependencies = [
+ "base64",
+ "bitflags",
+ "serde",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,6 +3040,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f301af10236f6df4160f7c3f04eec6dbc70ace82d23326abad5edee88801c6b6"
 dependencies = [
  "semver-parser 0.10.2",
+]
+
+[[package]]
+name = "semver"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "568a8e6258aa33c13358f81fd834adb854c6f7c9468520910a9b1e8fac068012"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -4241,7 +4266,7 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "viona_api"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/propolis?branch=live-migrate#fc5cdf3d9add4daa944a041afbf07bb1e675a5a9"
+source = "git+https://github.com/oxidecomputer/propolis?rev=5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c#5d293a7b13ed6c84cb9c722be26d4ab2ffc8389c"
 
 [[package]]
 name = "vsss-rs"
