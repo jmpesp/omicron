@@ -2,27 +2,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Trust quorum protocol for share retrieval over TCP
-//!
-//! Sled1                                      Sled2
-//! =====                                      =====
-//!  ||  ------- Multicast Discovery -------->  ||
-//!  ||                                         ||
-//!  ||  <-------- Respond with IP -----------  ||
-//!  ||                                         ||
-//!  ||  <--- Connect to TrustQuorum port ----  ||
-//!  ||                                         ||
-//!  ||  <-------- SPDM Requests -------------  ||
-//!  ||                                         ||
-//!  ||  --------- SPDM Responses ----------->  ||
-//!  ||                                         ||
-//!  ||  ----- SPDM Channel Established ------  ||
-//!  ||                                         ||
-//!  ||  --------- Request Share ------------>  ||
-//!  ||                                         ||
-//!  ||  <----------- Share ------------------  ||
-//!
-
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
@@ -31,6 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use vsss_rs::Share;
 
+use super::msgs::{Request, Response};
 use super::rack_secret::Verifier;
 use crate::bootstrap::{agent::BootstrapError, spdm};
 
@@ -60,6 +40,10 @@ impl Server {
             Some(socket2::Protocol::TCP),
         )?;
         sock.set_only_v6(true)?;
+
+        // Allow rebinding during linger
+        sock.set_reuse_address(true)?;
+
         sock.bind(&addr.into())?;
         sock.listen(5)?;
         sock.set_nonblocking(true)?;
@@ -111,11 +95,13 @@ async fn run_responder(
 
     info!(log, "Sending share to {}", addr);
 
-    // TODO: Wait for a `RequestShare` message and respond with a `Share`
-    // message.
+    let req = transport.recv(&log).await?;
+    // There's only one possible request
+    let _ = bincode::deserialize(&req)?;
 
-    let share = bincode::serialize(&share)?;
-    transport.send(&share).await?;
+    let rsp = Response::Share(share);
+    let rsp = bincode::serialize(&rsp)?;
+    transport.send(&rsp).await?;
 
     Ok(())
 }
@@ -124,6 +110,7 @@ async fn run_responder(
 mod test {
     use super::super::rack_secret::RackSecret;
     use super::*;
+    use assert_matches::assert_matches;
 
     #[tokio::test]
     async fn send_share() {
@@ -147,10 +134,12 @@ mod test {
         // Complete SPDM negotiation and return a "secure" transport.
         let mut transport = spdm::requester::run(log, transport).await.unwrap();
 
-        // Receive a share and ensure it's what we expect
-        let share = transport.recv(&log2).await.unwrap();
-        let share: Share = bincode::deserialize(&share).unwrap();
-        assert_eq!(share, shares[0]);
+        // Request a share and receive it, validating it's what we expect.
+        let req = bincode::serialize(&Request::Share).unwrap();
+        transport.send(&req).await.unwrap();
+        let rsp = transport.recv(&log2).await.unwrap();
+        let rsp: Response = bincode::deserialize(&rsp).unwrap();
+        assert_matches!(rsp, Response::Share(share) if share == shares[0]);
 
         join_handle.await.unwrap().unwrap();
     }

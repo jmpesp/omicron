@@ -28,5 +28,6 @@
 //!  ||  <----------- Share ------------------  ||
 //!
 
+mod msgs;
 mod rack_secret;
 mod server;
