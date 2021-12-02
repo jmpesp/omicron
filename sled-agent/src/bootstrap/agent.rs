@@ -52,6 +52,9 @@ pub enum BootstrapError {
 
     #[error("Not enough peers to unlock storage")]
     NotEnoughPeers,
+
+    #[error("Bincode (de)serialization error: {0}")]
+    Bincode(#[from] Box<bincode::ErrorKind>),
 }
 
 impl From<BootstrapError> for ExternalError {

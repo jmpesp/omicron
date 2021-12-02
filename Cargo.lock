@@ -1887,6 +1887,8 @@ dependencies = [
  "signal-hook",
  "signal-hook-tokio",
  "slog",
+ "slog-async",
+ "slog-term",
  "structopt",
  "subprocess",
  "tempfile",

@@ -117,7 +117,10 @@ impl Ctx {
 /// header. Requesters and Responders are decoupled from whether the endpoint of
 /// a socket is a TCP client or server.
 #[allow(dead_code)]
-pub async fn run(log: Logger, transport: Transport) -> Result<(), SpdmError> {
+pub async fn run(
+    log: Logger,
+    transport: Transport,
+) -> Result<Transport, SpdmError> {
     let mut ctx = Ctx::new(log, transport);
 
     info!(ctx.log, "Responder starting version negotiation");
@@ -131,5 +134,5 @@ pub async fn run(log: Logger, transport: Transport) -> Result<(), SpdmError> {
 
     info!(ctx.log, "Responder completed negotiation phase");
     debug!(ctx.log, "Responder transcript: {:x?}\n", ctx.transcript.get());
-    Ok(())
+    Ok(ctx.transport)
 }

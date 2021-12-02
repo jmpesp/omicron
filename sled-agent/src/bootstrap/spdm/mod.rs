@@ -5,8 +5,8 @@
 //! header for framing.
 
 mod error;
-mod requester;
-mod responder;
+pub mod requester;
+pub mod responder;
 
 use std::io::{Error, ErrorKind};
 
