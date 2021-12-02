@@ -125,8 +125,11 @@ mod test {
 
     #[tokio::test]
     async fn send_share() {
+        // Create a rack secret and some shares
         let secret = RackSecret::new();
         let (shares, verifier) = secret.split(2, 2).unwrap();
+
+        // Start a trust quorum server, but only accept one connection
         let log = omicron_test_utils::dev::test_slog_logger(
             "trust_quorum::send_share",
         );
@@ -134,14 +137,17 @@ mod test {
             Server::new(&log, shares[0].clone(), verifier).unwrap();
         let join_handle = tokio::spawn(async move { server.accept().await });
 
+        // Connect a client to the trust quorum server and setup message framing
         let log2 = log.clone();
         let sock = TcpStream::connect("::1:7645").await.unwrap();
         let transport = spdm::Transport::new(sock);
+
+        // Complete SPDM negotiation and return a "secure" transport.
         let mut transport = spdm::requester::run(log, transport).await.unwrap();
+
+        // Receive a share and ensure it's what we expect
         let share = transport.recv(&log2).await.unwrap();
-
         let share: Share = bincode::deserialize(&share).unwrap();
-
         assert_eq!(share, shares[0]);
 
         join_handle.await.unwrap().unwrap();
