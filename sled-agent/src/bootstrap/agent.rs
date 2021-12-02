@@ -19,6 +19,7 @@ use slog::Logger;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
+use std::net::SocketAddr;
 use std::path::Path;
 use tar::Archive;
 use thiserror::Error;
@@ -55,6 +56,12 @@ pub enum BootstrapError {
 
     #[error("Bincode (de)serialization error: {0}")]
     Bincode(#[from] Box<bincode::ErrorKind>),
+
+    #[error("Invalid secret share received from {0}")]
+    InvalidShare(SocketAddr),
+
+    #[error("Invalid message received from {0}")]
+    InvalidMsg(SocketAddr),
 }
 
 impl From<BootstrapError> for ExternalError {

@@ -41,7 +41,7 @@ impl Server {
         )?;
         sock.set_only_v6(true)?;
 
-        // Allow rebinding during linger
+        // Allow rebinding during TIME_WAIT
         sock.set_reuse_address(true)?;
 
         sock.bind(&addr.into())?;
@@ -108,6 +108,7 @@ async fn run_responder(
 
 #[cfg(test)]
 mod test {
+    use super::super::client::Client;
     use super::super::rack_secret::RackSecret;
     use super::*;
     use assert_matches::assert_matches;
@@ -123,23 +124,12 @@ mod test {
             "trust_quorum::send_share",
         );
         let mut server =
-            Server::new(&log, shares[0].clone(), verifier).unwrap();
+            Server::new(&log, shares[0].clone(), verifier.clone()).unwrap();
         let join_handle = tokio::spawn(async move { server.accept().await });
 
-        // Connect a client to the trust quorum server and setup message framing
-        let log2 = log.clone();
-        let sock = TcpStream::connect("::1:7645").await.unwrap();
-        let transport = spdm::Transport::new(sock);
-
-        // Complete SPDM negotiation and return a "secure" transport.
-        let mut transport = spdm::requester::run(log, transport).await.unwrap();
-
-        // Request a share and receive it, validating it's what we expect.
-        let req = bincode::serialize(&Request::Share).unwrap();
-        transport.send(&req).await.unwrap();
-        let rsp = transport.recv(&log2).await.unwrap();
-        let rsp: Response = bincode::deserialize(&rsp).unwrap();
-        assert_matches!(rsp, Response::Share(share) if share == shares[0]);
+        let client = Client::new(&log, verifier, "[::1]:7645".parse().unwrap());
+        let share = client.get_share().await.unwrap();
+        assert_eq!(share, shares[0]);
 
         join_handle.await.unwrap().unwrap();
     }
