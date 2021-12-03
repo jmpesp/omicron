@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use vsss_rs::Share;
 
@@ -42,11 +42,9 @@ impl Config {
         }
     }
 
-    pub fn write(&self, dir: &str) {
-        let mut path = PathBuf::from_str(dir).unwrap();
-        path.push(FILENAME);
+    pub fn write(&self, file: &Path) {
         let json = serde_json::to_string(&self).unwrap();
-        fs::write(path.to_str().unwrap(), &json).unwrap();
+        fs::write(file, &json).unwrap();
     }
 
     pub fn read(dir: &str) -> Result<Config, BootstrapError> {
@@ -64,13 +62,15 @@ mod tests {
     #[test]
     fn write_and_read_config() {
         let mut dir = std::env::temp_dir();
-        let config = Config::new(3, 5);
-        config.write(dir.to_str().unwrap());
+        dir.push(FILENAME);
 
-        let read_config = Config::read(dir.to_str().unwrap()).unwrap();
+        let config = Config::new(3, 5);
+        config.write(&dir);
+
+        let read_config =
+            Config::read(dir.parent().unwrap().to_str().unwrap()).unwrap();
         assert_eq!(config, read_config);
 
-        dir.push(FILENAME);
         std::fs::remove_file(dir.as_path()).unwrap();
     }
 }

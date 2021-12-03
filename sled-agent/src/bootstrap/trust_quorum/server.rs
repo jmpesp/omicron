@@ -10,8 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use vsss_rs::Share;
 
-use super::msgs::{Request, Response};
-use super::rack_secret::Verifier;
+use super::msgs::Response;
 use crate::bootstrap::{agent::BootstrapError, spdm};
 
 // TODO: Get port from config
@@ -24,16 +23,11 @@ pub const PORT: u16 = 12346;
 pub struct Server {
     log: Logger,
     share: Share,
-    verifier: Verifier,
     listener: TcpListener,
 }
 
 impl Server {
-    pub fn new(
-        log: &Logger,
-        share: Share,
-        verifier: Verifier,
-    ) -> io::Result<Self> {
+    pub fn new(log: &Logger, share: Share) -> io::Result<Self> {
         let addr = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, PORT, 0, 0);
         let sock = socket2::Socket::new(
             socket2::Domain::IPV6,
@@ -52,7 +46,6 @@ impl Server {
         Ok(Server {
             log: log.clone(),
             share,
-            verifier,
             listener: TcpListener::from_std(sock.into())?,
         })
     }
@@ -72,12 +65,11 @@ impl Server {
         let (sock, addr) = self.listener.accept().await?;
         debug!(self.log, "Accepted connection from {}", addr);
         let share = self.share.clone();
-        let verifier = self.verifier.clone();
         let log = self.log.clone();
 
-        Ok(tokio::spawn(async move {
-            run_responder(log, addr, sock, share, verifier).await
-        }))
+        Ok(tokio::spawn(
+            async move { run_responder(log, addr, sock, share).await },
+        ))
     }
 }
 
@@ -86,7 +78,6 @@ async fn run_responder(
     addr: SocketAddr,
     sock: TcpStream,
     share: Share,
-    verifier: Verifier,
 ) -> Result<(), BootstrapError> {
     let transport = spdm::Transport::new(sock);
 
@@ -113,7 +104,6 @@ mod test {
     use super::super::client::Client;
     use super::super::rack_secret::RackSecret;
     use super::*;
-    use assert_matches::assert_matches;
 
     #[tokio::test]
     async fn send_share() {
@@ -125,8 +115,7 @@ mod test {
         let log = omicron_test_utils::dev::test_slog_logger(
             "trust_quorum::send_share",
         );
-        let mut server =
-            Server::new(&log, shares[0].clone(), verifier.clone()).unwrap();
+        let mut server = Server::new(&log, shares[0].clone()).unwrap();
         let join_handle = tokio::spawn(async move { server.accept().await });
 
         let client =

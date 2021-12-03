@@ -4,8 +4,6 @@
 
 //! Bootstrap-related APIs.
 
-use super::client::types as bootstrap_types;
-use super::client::Client as BootstrapClient;
 use super::discovery;
 use super::spdm::SpdmError;
 use super::trust_quorum::{self, RackSecret};
@@ -234,14 +232,23 @@ impl Agent {
         Ok(())
     }
 
+    async fn run_trust_quorum_server(&self) -> Result<(), BootstrapError> {
+        let my_share_index = self.trust_quorum_config.sled_index;
+        let my_share = self.trust_quorum_config.shares[my_share_index].clone();
+        let mut server = trust_quorum::Server::new(&self.log, my_share)?;
+        tokio::spawn(async move { server.run().await });
+        Ok(())
+    }
+
     /// Performs device initialization:
     ///
-    /// - TODO: Communicates with other sled agents to establish a trust quorum.
+    /// - Communicates with other sled agents to establish a trust quorum.
     /// - Verifies, unpacks, and launches other services.
     pub async fn initialize(&self) -> Result<(), BootstrapError> {
         info!(&self.log, "bootstrap service initializing");
 
         if self.trust_quorum_config.enabled {
+            self.run_trust_quorum_server().await?;
             self.establish_sled_quorum().await?;
         }
 

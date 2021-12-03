@@ -41,7 +41,6 @@ vsss-rs = { version = "2.0.0-pre0", features = ["std"] }
 zone = "0.1"
 
 [dev-dependencies]
-assert_matches = "1.5"
 expectorate = "1.0.4"
 mockall = "0.10"
 omicron-test-utils = { path = "../test-utils" }
@@ -62,4 +61,9 @@ doc = false
 
 [[bin]]
 name = "sled-agent"
+doc = false
+
+# TODO: Remove when rack secrets are generated dynamically
+[[bin]]
+name = "gen-trust-quorum-config"
 doc = false

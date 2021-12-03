@@ -13,5 +13,5 @@ mod multicast;
 mod params;
 pub mod server;
 mod spdm;
-mod trust_quorum;
+pub mod trust_quorum;
 mod views;

@@ -2,12 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::io;
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::SocketAddr;
 
 use slog::Logger;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::task::JoinHandle;
+use tokio::net::TcpStream;
 use vsss_rs::Share;
 
 use super::msgs::{Request, Response};
@@ -47,14 +45,11 @@ impl Client {
         let rsp = transport.recv(&self.log).await.unwrap();
         let rsp: Response = bincode::deserialize(&rsp)?;
 
-        if let Response::Share(share) = rsp {
-            if self.verifier.verify(&share) {
-                Ok(share)
-            } else {
-                Err(BootstrapError::InvalidShare(self.addr.clone()))
-            }
+        let Response::Share(share) = rsp;
+        if self.verifier.verify(&share) {
+            Ok(share)
         } else {
-            Err(BootstrapError::InvalidMsg(self.addr.clone()))
+            Err(BootstrapError::InvalidShare(self.addr.clone()))
         }
     }
 }
