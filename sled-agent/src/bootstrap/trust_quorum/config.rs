@@ -8,7 +8,7 @@ use vsss_rs::Share;
 use super::rack_secret::{RackSecret, Verifier};
 use crate::bootstrap::agent::BootstrapError;
 
-const FILENAME: &'static str = "config.json";
+const FILENAME: &'static str = "trust-quorum-config.json";
 
 // This is a short term mechanism for initializing sleds with their own shares,
 // verifiers, and ancillary information.

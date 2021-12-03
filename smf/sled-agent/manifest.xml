@@ -46,7 +46,7 @@
     <propval name='nexus_addr' type='astring' value='127.0.0.1:12221' />
     <!-- This is only temporary. Rack secrets will be generated dynamically and
     shares distributed automatically in the future. -->
-    <propval name='rack_secret_dir' type='astring' value='/opt/oxide/sled-agent/rack_secret' />
+    <propval name='rack_secret_dir' type='astring' value='/opt/oxide/sled-agent/pkg' />
   </property_group>
 
   <property_group name='startd' type='framework'>
