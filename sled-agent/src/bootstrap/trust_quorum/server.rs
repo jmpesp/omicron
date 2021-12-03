@@ -14,6 +14,11 @@ use super::msgs::{Request, Response};
 use super::rack_secret::Verifier;
 use crate::bootstrap::{agent::BootstrapError, spdm};
 
+// TODO: Get port from config
+// TODO: Get IpAddr from local router:
+//   See https://github.com/oxidecomputer/omicron/issues/443
+pub const PORT: u16 = 12346;
+
 /// A TCP server over which a secure SPDM channel will be established and an
 /// application level trust protocol will run.
 pub struct Server {
@@ -29,11 +34,7 @@ impl Server {
         share: Share,
         verifier: Verifier,
     ) -> io::Result<Self> {
-        // TODO: Get port from config
-        // TODO: Get IpAddr from local router:
-        //   See https://github.com/oxidecomputer/omicron/issues/443
-        let port: u16 = 7645;
-        let addr = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0);
+        let addr = SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, PORT, 0, 0);
         let sock = socket2::Socket::new(
             socket2::Domain::IPV6,
             socket2::Type::STREAM,
@@ -95,6 +96,7 @@ async fn run_responder(
 
     info!(log, "Sending share to {}", addr);
 
+    // TODO: Add a receive timeout
     let req = transport.recv(&log).await?;
     // There's only one possible request
     let _ = bincode::deserialize(&req)?;
@@ -127,7 +129,8 @@ mod test {
             Server::new(&log, shares[0].clone(), verifier.clone()).unwrap();
         let join_handle = tokio::spawn(async move { server.accept().await });
 
-        let client = Client::new(&log, verifier, "[::1]:7645".parse().unwrap());
+        let client =
+            Client::new(&log, verifier, "[::1]:12346".parse().unwrap());
         let share = client.get_share().await.unwrap();
         assert_eq!(share, shares[0]);
 

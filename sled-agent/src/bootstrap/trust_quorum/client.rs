@@ -25,6 +25,10 @@ impl Client {
         Client { log: log.clone(), verifier, addr }
     }
 
+    pub fn addr(&self) -> &SocketAddr {
+        &self.addr
+    }
+
     // Connect to a trust quorum server, establish an SPDM channel, and retrieve
     // a share.
     pub async fn get_share(&self) -> Result<Share, BootstrapError> {

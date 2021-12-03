@@ -68,6 +68,9 @@ enum Args {
 
         #[structopt(long = "vlan")]
         vlan: Option<VlanID>,
+
+        #[structopt(name = "RACK_SECRET_DIR", parse(try_from_str))]
+        rack_secret_dir: String,
     },
 }
 
@@ -98,6 +101,7 @@ async fn do_run() -> Result<(), CmdError> {
             sled_agent_addr,
             nexus_addr,
             vlan,
+            rack_secret_dir,
         } => {
             // Configure and run the Bootstrap server.
             let config = BootstrapConfig {
@@ -109,6 +113,7 @@ async fn do_run() -> Result<(), CmdError> {
                 log: ConfigLogging::StderrTerminal {
                     level: ConfigLoggingLevel::Info,
                 },
+                rack_secret_dir,
             };
             let boot_server = bootstrap_server::Server::start(&config)
                 .await
