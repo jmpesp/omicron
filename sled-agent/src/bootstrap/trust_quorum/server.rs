@@ -16,7 +16,7 @@ use crate::bootstrap::{agent::BootstrapError, spdm};
 // TODO: Get port from config
 // TODO: Get IpAddr from local router:
 //   See https://github.com/oxidecomputer/omicron/issues/443
-pub const PORT: u16 = 12346;
+pub const PORT: u16 = 12347;
 
 /// A TCP server over which a secure SPDM channel will be established and an
 /// application level trust protocol will run.
@@ -119,7 +119,7 @@ mod test {
         let join_handle = tokio::spawn(async move { server.accept().await });
 
         let client =
-            Client::new(&log, verifier, "[::1]:12346".parse().unwrap());
+            Client::new(&log, verifier, "[::1]:12347".parse().unwrap());
         let share = client.get_share().await.unwrap();
         assert_eq!(share, shares[0]);
 
