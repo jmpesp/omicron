@@ -159,7 +159,7 @@ impl Agent {
                     self.trust_quorum_config.shares[my_share_index].clone(),
                 );
                 for agent in &other_agents {
-                    agent.get_share().await
+                    let share = agent.get_share().await
                         .map_err(|e| {
 			    info!(&self.log, "Bootstrap: failed to retreive share from peer: {:?}", e);
                             BackoffError::Transient(e)
@@ -169,6 +169,7 @@ impl Agent {
                         "Bootstrap: retreived share from peer: {}",
                         agent.addr()
                     );
+                    shares.push(share);
                 }
                 let rack_secret = RackSecret::combine_shares(
                     self.trust_quorum_config.threshold,
