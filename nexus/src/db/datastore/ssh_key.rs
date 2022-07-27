@@ -31,14 +31,14 @@ impl DataStore {
         authz_user: &authz::SiloUser,
         page_params: &DataPageParams<'_, Name>,
     ) -> ListResultVec<SshKey> {
-        opctx.authorize(authz::Action::ListChildren, authz_user).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_user)?;
 
         use db::schema::ssh_key::dsl;
         paginated(dsl::ssh_key, dsl::name, page_params)
             .filter(dsl::silo_user_id.eq(authz_user.id()))
             .filter(dsl::time_deleted.is_null())
             .select(SshKey::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -51,14 +51,14 @@ impl DataStore {
         ssh_key: SshKey,
     ) -> CreateResult<SshKey> {
         assert_eq!(authz_user.id(), ssh_key.silo_user_id);
-        opctx.authorize(authz::Action::CreateChild, authz_user).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_user)?;
         let name = ssh_key.name().to_string();
 
         use db::schema::ssh_key::dsl;
         diesel::insert_into(dsl::ssh_key)
             .values(ssh_key)
             .returning(SshKey::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -74,7 +74,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_ssh_key: &authz::SshKey,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_ssh_key).await?;
+        opctx.authorize(authz::Action::Delete, authz_ssh_key)?;
 
         use db::schema::ssh_key::dsl;
         diesel::update(dsl::ssh_key)
@@ -82,7 +82,7 @@ impl DataStore {
             .filter(dsl::time_deleted.is_null())
             .set(dsl::time_deleted.eq(Utc::now()))
             .check_if_exists::<SshKey>(authz_ssh_key.id())
-            .execute_and_check(self.pool_authorized(opctx).await?)
+            .execute_and_check(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(

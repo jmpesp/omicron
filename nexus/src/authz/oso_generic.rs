@@ -15,8 +15,6 @@ use crate::context::OpContext;
 use crate::db::DataStore;
 use anyhow::ensure;
 use anyhow::Context;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use omicron_common::api::external::Error;
 use oso::Oso;
 use oso::PolarClass;
@@ -258,7 +256,7 @@ impl AuthorizedResource for Database {
         _: &'c DataStore,
         _: &'d authn::Context,
         _: &'e mut RoleSet,
-    ) -> BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -275,7 +273,7 @@ impl AuthorizedResource for Database {
         // the type signature of roles supported by RoleSet.  RoleSet is really
         // for roles on database objects -- it assumes they have a ResourceType
         // and id, neither of which is true for `Database`.
-        futures::future::ready(Ok(())).boxed()
+        Ok(())
     }
 
     fn on_unauthorized(

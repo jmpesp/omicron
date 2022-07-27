@@ -42,8 +42,6 @@ use crate::db::model::UpdateArtifactKind;
 use crate::db::DataStore;
 use anyhow::anyhow;
 use authz_macros::authz_resource;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use lazy_static::lazy_static;
 use omicron_common::api::external::{Error, LookupType, ResourceType};
 use parse_display::Display;
@@ -99,7 +97,7 @@ impl<T: ApiResource + oso::ToPolar + Clone> AuthorizedResource for T {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -108,7 +106,6 @@ impl<T: ApiResource + oso::ToPolar + Clone> AuthorizedResource for T {
         'e: 'f,
     {
         load_roles_for_resource_tree(self, opctx, datastore, authn, roleset)
-            .boxed()
     }
 
     fn on_unauthorized(
@@ -270,7 +267,7 @@ impl AuthorizedResource for ConsoleSessionList {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> futures::future::BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -286,7 +283,6 @@ impl AuthorizedResource for ConsoleSessionList {
             *FLEET_ID,
             roleset,
         )
-        .boxed()
     }
 
     fn on_unauthorized(
@@ -328,7 +324,7 @@ impl AuthorizedResource for GlobalImageList {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> futures::future::BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -347,7 +343,6 @@ impl AuthorizedResource for GlobalImageList {
             *FLEET_ID,
             roleset,
         )
-        .boxed()
     }
 
     fn on_unauthorized(
@@ -390,7 +385,7 @@ impl AuthorizedResource for IpPoolList {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> futures::future::BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -409,7 +404,6 @@ impl AuthorizedResource for IpPoolList {
             *FLEET_ID,
             roleset,
         )
-        .boxed()
     }
 
     fn on_unauthorized(
@@ -444,7 +438,7 @@ impl AuthorizedResource for DeviceAuthRequestList {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> futures::future::BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -463,7 +457,6 @@ impl AuthorizedResource for DeviceAuthRequestList {
             *FLEET_ID,
             roleset,
         )
-        .boxed()
     }
 
     fn on_unauthorized(

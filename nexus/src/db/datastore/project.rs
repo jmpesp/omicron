@@ -41,7 +41,7 @@ impl DataStore {
     ) -> CreateResult<Project> {
         use db::schema::project::dsl;
 
-        opctx.authorize(authz::Action::CreateChild, org).await?;
+        opctx.authorize(authz::Action::CreateChild, org)?;
 
         let name = project.name().as_str().to_string();
         let organization_id = project.organization_id;
@@ -49,7 +49,7 @@ impl DataStore {
             organization_id,
             diesel::insert_into(dsl::project).values(project),
         )
-        .insert_and_get_result_async(self.pool_authorized(opctx).await?)
+        .insert_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| match e {
             AsyncInsertError::CollectionNotFound => Error::ObjectNotFound {
@@ -74,7 +74,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_project: &authz::Project,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_project).await?;
+        opctx.authorize(authz::Action::Delete, authz_project)?;
 
         use db::schema::project::dsl;
 
@@ -84,7 +84,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_project.id()))
             .set(dsl::time_deleted.eq(now))
             .returning(Project::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -103,13 +103,13 @@ impl DataStore {
     ) -> ListResultVec<Project> {
         use db::schema::project::dsl;
 
-        opctx.authorize(authz::Action::ListChildren, authz_org).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_org)?;
 
         paginated(dsl::project, dsl::id, pagparams)
             .filter(dsl::organization_id.eq(authz_org.id()))
             .filter(dsl::time_deleted.is_null())
             .select(Project::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -122,13 +122,13 @@ impl DataStore {
     ) -> ListResultVec<Project> {
         use db::schema::project::dsl;
 
-        opctx.authorize(authz::Action::ListChildren, authz_org).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_org)?;
 
         paginated(dsl::project, dsl::name, &pagparams)
             .filter(dsl::organization_id.eq(authz_org.id()))
             .filter(dsl::time_deleted.is_null())
             .select(Project::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -140,7 +140,7 @@ impl DataStore {
         authz_project: &authz::Project,
         updates: ProjectUpdate,
     ) -> UpdateResult<Project> {
-        opctx.authorize(authz::Action::Modify, authz_project).await?;
+        opctx.authorize(authz::Action::Modify, authz_project)?;
 
         use db::schema::project::dsl;
         diesel::update(dsl::project)
@@ -148,7 +148,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_project.id()))
             .set(updates)
             .returning(Project::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(

@@ -67,7 +67,7 @@ impl DataStore {
         data: IncompleteInstanceExternalIp,
     ) -> CreateResult<InstanceExternalIp> {
         NextExternalIp::new(data)
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 use async_bb8_diesel::ConnectionError::Query;
@@ -104,7 +104,7 @@ impl DataStore {
             .filter(dsl::id.eq(ip_id))
             .set(dsl::time_deleted.eq(now))
             .check_if_exists::<InstanceExternalIp>(ip_id)
-            .execute_and_check(self.pool_authorized(opctx).await?)
+            .execute_and_check(self.pool_authorized(opctx)?)
             .await
             .map(|r| match r.status {
                 UpdateStatus::Updated => true,
@@ -133,7 +133,7 @@ impl DataStore {
             .filter(dsl::instance_id.eq(instance_id))
             .filter(dsl::kind.ne(IpKind::Floating))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -149,7 +149,7 @@ impl DataStore {
             .filter(dsl::instance_id.eq(instance_id))
             .filter(dsl::time_deleted.is_null())
             .select(InstanceExternalIp::as_select())
-            .get_results_async(self.pool_authorized(opctx).await?)
+            .get_results_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }

@@ -11,7 +11,6 @@ use crate::authz::oso_generic;
 use crate::authz::Action;
 use crate::context::OpContext;
 use crate::db::DataStore;
-use futures::future::BoxFuture;
 use omicron_common::api::external::Error;
 use omicron_common::bail_unless;
 use oso::Oso;
@@ -74,7 +73,7 @@ impl Context {
 
     /// Check whether the actor performing this request is authorized for
     /// `action` on `resource`.
-    pub async fn authorize<Resource>(
+    pub fn authorize<Resource>(
         &self,
         opctx: &OpContext,
         action: Action,
@@ -106,8 +105,7 @@ impl Context {
 
         let mut roles = RoleSet::new();
         resource
-            .load_roles(opctx, &self.datastore, &self.authn, &mut roles)
-            .await?;
+            .load_roles(opctx, &self.datastore, &self.authn, &mut roles)?;
         debug!(opctx.log, "roles"; "roles" => ?roles);
         let actor = AnyActor::new(&self.authn, roles);
         let is_authn = self.authn.actor().is_some();
@@ -162,7 +160,7 @@ pub trait AuthorizedResource: oso::ToPolar + Send + Sync + 'static {
         datastore: &'c DataStore,
         authn: &'d authn::Context,
         roleset: &'e mut RoleSet,
-    ) -> BoxFuture<'f, Result<(), Error>>
+    ) -> Result<(), Error>
     where
         'a: 'f,
         'b: 'f,
@@ -234,11 +232,9 @@ mod test {
         );
         authz_privileged
             .authorize(&opctx, Action::Query, DATABASE)
-            .await
             .expect("expected privileged user to be able to query database");
         let error = authz_privileged
             .authorize(&opctx, Action::Modify, DATABASE)
-            .await
             .expect_err(
                 "expected privileged test user not to be able to modify \
                 database",
@@ -254,12 +250,10 @@ mod test {
         );
         authz_nobody
             .authorize(&opctx, Action::Query, DATABASE)
-            .await
             .expect("expected unprivileged user to be able to query database");
         let authz_noauth = authz_context_noauth(&logctx.log, datastore);
         authz_noauth
             .authorize(&opctx, Action::Query, DATABASE)
-            .await
             .expect_err(
             "expected unauthenticated user not to be able to query database",
         );
@@ -281,7 +275,6 @@ mod test {
         );
         authz_privileged
             .authorize(&opctx, Action::CreateChild, FLEET)
-            .await
             .expect(
                 "expected privileged user to be able to create organization",
             );
@@ -292,14 +285,12 @@ mod test {
         );
         authz_nobody
             .authorize(&opctx, Action::CreateChild, FLEET)
-            .await
             .expect_err(
             "expected unprivileged user not to be able to create organization",
         );
         let authz_noauth = authz_context_noauth(&logctx.log, datastore);
         authz_noauth
             .authorize(&opctx, Action::Query, DATABASE)
-            .await
             .expect_err(
                 "expected unauthenticated user not to be able \
             to create organization",
@@ -331,7 +322,7 @@ mod test {
                 _: &'c DataStore,
                 _: &'d authn::Context,
                 _: &'e mut RoleSet,
-            ) -> futures::future::BoxFuture<'f, Result<(), Error>>
+            ) -> Result<(), Error>
             where
                 'a: 'f,
                 'b: 'f,
@@ -364,8 +355,7 @@ mod test {
             Arc::clone(&datastore),
         );
         let error = authz_privileged
-            .authorize(&opctx, Action::Read, unregistered_resource)
-            .await;
+            .authorize(&opctx, Action::Read, unregistered_resource);
         println!("{:?}", error);
         assert!(matches!(error, Err(Error::InternalError {
             internal_message

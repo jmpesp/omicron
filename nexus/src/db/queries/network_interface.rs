@@ -1666,7 +1666,7 @@ mod tests {
                 OpContext::for_tests(log.new(o!()), db_datastore.clone());
 
             use crate::db::schema::vpc_subnet::dsl::vpc_subnet;
-            let p = db_datastore.pool_authorized(&opctx).await.unwrap();
+            let p = db_datastore.pool_authorized(&opctx).unwrap();
             let net1 = Network::new(n_subnets);
             let net2 = Network::new(n_subnets);
             for subnet in net1.subnets.iter().chain(net2.subnets.iter()) {

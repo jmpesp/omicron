@@ -59,7 +59,7 @@ impl super::Nexus {
         rack_id: Uuid,
         services: Vec<ServicePutRequest>,
     ) -> Result<(), Error> {
-        opctx.authorize(authz::Action::Modify, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Modify, &authz::FLEET)?;
 
         // Convert from parameter -> DB type.
         let services: Vec<_> = services

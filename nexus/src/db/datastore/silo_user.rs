@@ -61,7 +61,7 @@ impl DataStore {
         authz_silo: &authz::Silo,
         external_id: &str,
     ) -> Result<Option<SiloUser>, Error> {
-        opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_silo)?;
 
         use db::schema::silo_user::dsl;
 
@@ -70,7 +70,7 @@ impl DataStore {
             .filter(dsl::external_id.eq(external_id.to_string()))
             .filter(dsl::time_deleted.is_null())
             .select(SiloUser::as_select())
-            .load_async::<SiloUser>(self.pool_authorized(opctx).await?)
+            .load_async::<SiloUser>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -92,12 +92,12 @@ impl DataStore {
     ) -> ListResultVec<SiloUser> {
         use db::schema::silo_user::dsl;
 
-        opctx.authorize(authz::Action::Read, authz_silo).await?;
+        opctx.authorize(authz::Action::Read, authz_silo)?;
         paginated(dsl::silo_user, dsl::id, pagparams)
             .filter(dsl::silo_id.eq(authz_silo.id()))
             .filter(dsl::time_deleted.is_null())
             .select(SiloUser::as_select())
-            .load_async::<SiloUser>(self.pool_authorized(opctx).await?)
+            .load_async::<SiloUser>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -108,10 +108,10 @@ impl DataStore {
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<UserBuiltin> {
         use db::schema::user_builtin::dsl;
-        opctx.authorize(authz::Action::ListChildren, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::ListChildren, &authz::FLEET)?;
         paginated(dsl::user_builtin, dsl::name, pagparams)
             .select(UserBuiltin::as_select())
-            .load_async::<UserBuiltin>(self.pool_authorized(opctx).await?)
+            .load_async::<UserBuiltin>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -123,7 +123,7 @@ impl DataStore {
     ) -> Result<(), Error> {
         use db::schema::user_builtin::dsl;
 
-        opctx.authorize(authz::Action::Modify, &authz::DATABASE).await?;
+        opctx.authorize(authz::Action::Modify, &authz::DATABASE)?;
 
         let builtin_users = [
             // Note: "db_init" is also a builtin user, but that one by necessity
@@ -153,7 +153,7 @@ impl DataStore {
             .values(builtin_users)
             .on_conflict(dsl::id)
             .do_nothing()
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)
@@ -170,7 +170,7 @@ impl DataStore {
     ) -> Result<(), Error> {
         use db::schema::silo_user::dsl;
 
-        opctx.authorize(authz::Action::Modify, &authz::DATABASE).await?;
+        opctx.authorize(authz::Action::Modify, &authz::DATABASE)?;
 
         let users =
             [&*authn::USER_TEST_PRIVILEGED, &*authn::USER_TEST_UNPRIVILEGED];
@@ -180,7 +180,7 @@ impl DataStore {
             .values(users)
             .on_conflict(dsl::id)
             .do_nothing()
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)
@@ -207,7 +207,7 @@ impl DataStore {
                 dsl::role_name,
             ))
             .do_nothing()
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)

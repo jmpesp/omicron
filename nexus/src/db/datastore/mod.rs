@@ -113,11 +113,11 @@ impl DataStore {
         self.pool.pool()
     }
 
-    pub(super) async fn pool_authorized(
+    pub(super) fn pool_authorized(
         &self,
         opctx: &OpContext,
     ) -> Result<&bb8::Pool<ConnectionManager<DbConnection>>, Error> {
-        opctx.authorize(authz::Action::Query, &authz::DATABASE).await?;
+        opctx.authorize(authz::Action::Query, &authz::DATABASE)?;
         Ok(self.pool.pool())
     }
 
@@ -134,7 +134,7 @@ impl DataStore {
         )
         .set(dsl::last_used_address.eq(dsl::last_used_address + 1))
         .returning(dsl::last_used_address)
-        .get_result_async(self.pool_authorized(opctx).await?)
+        .get_result_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| {
             public_error_from_diesel_pool(

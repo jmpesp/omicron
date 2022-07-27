@@ -34,7 +34,7 @@ impl super::Nexus {
         bail_unless!(
             pagparams.direction == dropshot::PaginationOrder::Ascending
         );
-        opctx.authorize(authz::Action::Read, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Read, &authz::FLEET)?;
         let marker = pagparams.marker.map(|s| SagaId::from(*s));
         let saga_list = self
             .sec_client
@@ -51,7 +51,7 @@ impl super::Nexus {
         opctx: &OpContext,
         id: Uuid,
     ) -> LookupResult<external::Saga> {
-        opctx.authorize(authz::Action::Read, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Read, &authz::FLEET)?;
         self.sec_client
             .saga_get(steno::SagaId::from(id))
             .await

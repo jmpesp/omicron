@@ -27,15 +27,13 @@ impl DataStore {
         opctx: &OpContext,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<GlobalImage> {
-        opctx
-            .authorize(authz::Action::ListChildren, &authz::GLOBAL_IMAGE_LIST)
-            .await?;
+        opctx.authorize(authz::Action::ListChildren, &authz::GLOBAL_IMAGE_LIST)?;
 
         use db::schema::global_image::dsl;
         paginated(dsl::global_image, dsl::name, pagparams)
             .filter(dsl::time_deleted.is_null())
             .select(GlobalImage::as_select())
-            .load_async::<GlobalImage>(self.pool_authorized(opctx).await?)
+            .load_async::<GlobalImage>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -45,9 +43,7 @@ impl DataStore {
         opctx: &OpContext,
         image: GlobalImage,
     ) -> CreateResult<GlobalImage> {
-        opctx
-            .authorize(authz::Action::CreateChild, &authz::GLOBAL_IMAGE_LIST)
-            .await?;
+        opctx.authorize(authz::Action::CreateChild, &authz::GLOBAL_IMAGE_LIST)?;
 
         use db::schema::global_image::dsl;
         let name = image.name().clone();

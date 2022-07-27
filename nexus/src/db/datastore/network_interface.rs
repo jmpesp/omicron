@@ -46,11 +46,9 @@ impl DataStore {
     ) -> Result<NetworkInterface, network_interface::InsertError> {
         opctx
             .authorize(authz::Action::CreateChild, authz_instance)
-            .await
             .map_err(network_interface::InsertError::External)?;
         opctx
             .authorize(authz::Action::CreateChild, authz_subnet)
-            .await
             .map_err(network_interface::InsertError::External)?;
         self.instance_create_network_interface_raw(&opctx, interface).await
     }
@@ -69,7 +67,6 @@ impl DataStore {
         )
         .insert_and_get_result_async(
             self.pool_authorized(opctx)
-                .await
                 .map_err(network_interface::InsertError::External)?,
         )
         .await
@@ -94,7 +91,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_instance: &authz::Instance,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Modify, authz_instance).await?;
+        opctx.authorize(authz::Action::Modify, authz_instance)?;
 
         use db::schema::network_interface::dsl;
         let now = Utc::now();
@@ -102,7 +99,7 @@ impl DataStore {
             .filter(dsl::instance_id.eq(authz_instance.id()))
             .filter(dsl::time_deleted.is_null())
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -125,7 +122,6 @@ impl DataStore {
     ) -> Result<(), network_interface::DeleteError> {
         opctx
             .authorize(authz::Action::Delete, authz_interface)
-            .await
             .map_err(network_interface::DeleteError::External)?;
         let query = network_interface::DeleteQuery::new(
             authz_instance.id(),
@@ -135,7 +131,6 @@ impl DataStore {
             .clone()
             .execute_async(
                 self.pool_authorized(opctx)
-                    .await
                     .map_err(network_interface::DeleteError::External)?,
             )
             .await
@@ -156,7 +151,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_instance: &authz::Instance,
     ) -> ListResultVec<sled_client_types::NetworkInterface> {
-        opctx.authorize(authz::Action::ListChildren, authz_instance).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_instance)?;
 
         use db::schema::network_interface;
         use db::schema::vpc;
@@ -216,7 +211,7 @@ impl DataStore {
                 network_interface::is_primary,
                 network_interface::slot,
             ))
-            .get_results_async::<NicInfo>(self.pool_authorized(opctx).await?)
+            .get_results_async::<NicInfo>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)
@@ -234,14 +229,14 @@ impl DataStore {
         authz_instance: &authz::Instance,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<NetworkInterface> {
-        opctx.authorize(authz::Action::ListChildren, authz_instance).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_instance)?;
 
         use db::schema::network_interface::dsl;
         paginated(dsl::network_interface, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::instance_id.eq(authz_instance.id()))
             .select(NetworkInterface::as_select())
-            .load_async::<NetworkInterface>(self.pool_authorized(opctx).await?)
+            .load_async::<NetworkInterface>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -306,7 +301,7 @@ impl DataStore {
         }
         type TxnError = TransactionError<NetworkInterfaceUpdateError>;
 
-        let pool = self.pool_authorized(opctx).await?;
+        let pool = self.pool_authorized(opctx)?;
         if make_primary {
             pool.transaction(move |conn| {
                 let instance_state =

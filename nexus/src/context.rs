@@ -447,7 +447,7 @@ impl OpContext {
 
     /// Check whether the actor performing this request is authorized for
     /// `action` on `resource`.
-    pub async fn authorize<Resource>(
+    pub fn authorize<Resource>(
         &self,
         action: authz::Action,
         resource: &Resource,
@@ -464,7 +464,7 @@ impl OpContext {
             "action" => ?action,
             "resource" => ?*resource
         );
-        let result = self.authz.authorize(self, action, resource.clone()).await;
+        let result = self.authz.authorize(self, action, resource.clone());
         debug!(self.log, "authorize result";
             "actor" => ?self.authn.actor(),
             "action" => ?action,

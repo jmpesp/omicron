@@ -635,7 +635,6 @@ mod tests {
                 .execute_async(
                     self.db_datastore
                         .pool_authorized(&self.opctx)
-                        .await
                         .unwrap(),
                 )
                 .await
@@ -647,7 +646,7 @@ mod tests {
             )
             .values(pool_range)
             .execute_async(
-                self.db_datastore.pool_authorized(&self.opctx).await.unwrap(),
+                self.db_datastore.pool_authorized(&self.opctx).unwrap(),
             )
             .await
             .expect("Failed to create IP Pool range");

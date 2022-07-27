@@ -485,7 +485,7 @@ impl super::Nexus {
         db_instance: &db::model::Instance,
         requested: InstanceRuntimeStateRequested,
     ) -> Result<(), Error> {
-        opctx.authorize(authz::Action::Modify, authz_instance).await?;
+        opctx.authorize(authz::Action::Modify, authz_instance)?;
 
         self.check_runtime_change_allowed(
             &db_instance.runtime().clone().into(),

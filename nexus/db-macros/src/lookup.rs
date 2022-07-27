@@ -587,7 +587,7 @@ fn generate_lookup_methods(config: &Config) -> TokenStream {
             let lookup = self.lookup_root();
             let opctx = &lookup.opctx;
             let (#(#path_authz_names,)*) = self.lookup().await?;
-            opctx.authorize(action, &#resource_authz_name).await?;
+            opctx.authorize(action, &#resource_authz_name)?;
             Ok((#(#path_authz_names,)*))
             #silo_check_lookup
         }
@@ -720,7 +720,7 @@ fn generate_database_functions(config: &Config) -> TokenStream {
                         #parent_lookup_arg_actual
                         name
                     ).await?;
-                opctx.authorize(action, &#resource_authz_name).await?;
+                opctx.authorize(action, &#resource_authz_name)?;
                 Ok((#resource_authz_name, db_row))
             }
 
@@ -748,7 +748,7 @@ fn generate_database_functions(config: &Config) -> TokenStream {
                     #lookup_filter
                     .select(nexus_db_model::#resource_name::as_select())
                     .get_result_async(
-                        datastore.pool_authorized(opctx).await?
+                        datastore.pool_authorized(opctx)?
                     )
                     .await
                     .map_err(|e| {
@@ -811,7 +811,7 @@ fn generate_database_functions(config: &Config) -> TokenStream {
                     datastore,
                     #(#pkey_names,)*
                 ).await?;
-            opctx.authorize(action, &#resource_authz_name).await?;
+            opctx.authorize(action, &#resource_authz_name)?;
             Ok((#(#path_authz_names,)* db_row))
         }
 
@@ -833,7 +833,7 @@ fn generate_database_functions(config: &Config) -> TokenStream {
                 #soft_delete_filter
                 #(.filter(dsl::#pkey_column_names.eq(#pkey_names.clone())))*
                 .select(nexus_db_model::#resource_name::as_select())
-                .get_result_async(datastore.pool_authorized(opctx).await?)
+                .get_result_async(datastore.pool_authorized(opctx)?)
                 .await
                 .map_err(|e| {
                     public_error_from_diesel_pool(

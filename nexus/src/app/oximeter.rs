@@ -209,7 +209,7 @@ impl super::Nexus {
         pag_params: &TimeseriesSchemaPaginationParams,
         limit: NonZeroU32,
     ) -> Result<dropshot::ResultsPage<TimeseriesSchema>, Error> {
-        opctx.authorize(authz::Action::Read, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Read, &authz::FLEET)?;
         self.timeseries_client
             .get()
             .await

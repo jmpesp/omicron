@@ -9,6 +9,7 @@ use crate::authz;
 use crate::context::OpContext;
 use crate::db;
 use crate::db::error::public_error_from_diesel_pool;
+use crate::db::error::public_error_from_diesel_lookup;
 use crate::db::error::ErrorHandler;
 use crate::db::fixed_data::role_assignment::BUILTIN_ROLE_ASSIGNMENTS;
 use crate::db::fixed_data::role_builtin::BUILTIN_ROLES;
@@ -24,6 +25,7 @@ use diesel::prelude::*;
 use omicron_common::api::external::DataPageParams;
 use omicron_common::api::external::Error;
 use omicron_common::api::external::ListResultVec;
+use omicron_common::api::external::LookupType;
 use omicron_common::api::external::ResourceType;
 use omicron_common::bail_unless;
 use uuid::Uuid;
@@ -36,14 +38,14 @@ impl DataStore {
         pagparams: &DataPageParams<'_, (String, String)>,
     ) -> ListResultVec<RoleBuiltin> {
         use db::schema::role_builtin::dsl;
-        opctx.authorize(authz::Action::ListChildren, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::ListChildren, &authz::FLEET)?;
         paginated_multicolumn(
             dsl::role_builtin,
             (dsl::resource_type, dsl::role_name),
             pagparams,
         )
         .select(RoleBuiltin::as_select())
-        .load_async::<RoleBuiltin>(self.pool_authorized(opctx).await?)
+        .load_async::<RoleBuiltin>(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -55,7 +57,7 @@ impl DataStore {
     ) -> Result<(), Error> {
         use db::schema::role_builtin::dsl;
 
-        opctx.authorize(authz::Action::Modify, &authz::DATABASE).await?;
+        opctx.authorize(authz::Action::Modify, &authz::DATABASE)?;
 
         let builtin_roles = BUILTIN_ROLES
             .iter()
@@ -73,7 +75,7 @@ impl DataStore {
             .values(builtin_roles)
             .on_conflict((dsl::resource_type, dsl::role_name))
             .do_nothing()
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)
@@ -90,7 +92,7 @@ impl DataStore {
     ) -> Result<(), Error> {
         use db::schema::role_assignment::dsl;
 
-        opctx.authorize(authz::Action::Modify, &authz::DATABASE).await?;
+        opctx.authorize(authz::Action::Modify, &authz::DATABASE)?;
 
         debug!(opctx.log, "attempting to create built-in role assignments");
         let count = diesel::insert_into(dsl::role_assignment)
@@ -103,7 +105,7 @@ impl DataStore {
                 dsl::role_name,
             ))
             .do_nothing()
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(e, ErrorHandler::Server)
@@ -114,7 +116,7 @@ impl DataStore {
 
     /// Return the built-in roles that the given built-in user has for the given
     /// resource
-    pub async fn role_asgn_list_for(
+    pub fn role_asgn_list_for(
         &self,
         opctx: &OpContext,
         identity_type: IdentityType,
@@ -140,9 +142,10 @@ impl DataStore {
             .filter(dsl::resource_type.eq(resource_type.to_string()))
             .filter(dsl::resource_id.eq(resource_id))
             .select(RoleAssignment::as_select())
-            .load_async::<RoleAssignment>(self.pool_authorized(opctx).await?)
-            .await
-            .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
+            .load::<RoleAssignment>(self.pool_authorized(opctx)?) // XXX doesn't build
+            .map_err(|e: diesel::result::Error| {
+                public_error_from_diesel_lookup(e, resource_type, &LookupType::ById(resource_id))
+            })
     }
 
     /// Fetches all of the externally-visible role assignments for the specified
@@ -163,7 +166,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_resource: &T,
     ) -> ListResultVec<db::model::RoleAssignment> {
-        opctx.authorize(authz::Action::ReadPolicy, authz_resource).await?;
+        opctx.authorize(authz::Action::ReadPolicy, authz_resource)?;
         let resource_type = authz_resource.resource_type();
         let resource_id = authz_resource.resource_id();
         use db::schema::role_assignment::dsl;
@@ -174,7 +177,7 @@ impl DataStore {
             .order(dsl::role_name.asc())
             .then_order_by(dsl::identity_id.asc())
             .select(RoleAssignment::as_select())
-            .load_async::<RoleAssignment>(self.pool_authorized(opctx).await?)
+            .load_async::<RoleAssignment>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -207,7 +210,7 @@ impl DataStore {
     {
         // TODO-security We should carefully review what permissions are
         // required for modifying the policy of a resource.
-        opctx.authorize(authz::Action::ModifyPolicy, authz_resource).await?;
+        opctx.authorize(authz::Action::ModifyPolicy, authz_resource)?;
         bail_unless!(
             new_assignments.len() <= shared::MAX_ROLE_ASSIGNMENTS_PER_RESOURCE
         );
@@ -252,8 +255,7 @@ impl DataStore {
         // We might instead want to first-class the idea of Policies in the
         // database so that we can build up a whole new Policy in batches and
         // then flip the resource over to using it.
-        self.pool_authorized(opctx)
-            .await?
+        self.pool_authorized(opctx)?
             .transaction(move |conn| {
                 delete_old_query.execute(conn)?;
                 Ok(insert_new_query.get_results(conn)?)

@@ -44,7 +44,7 @@ impl DataStore {
             .authn
             .silo_required()
             .internal_context("creating an Organization")?;
-        opctx.authorize(authz::Action::CreateChild, &authz_silo).await?;
+        opctx.authorize(authz::Action::CreateChild, &authz_silo)?;
 
         use db::schema::organization::dsl;
         let silo_id = authz_silo.id();
@@ -55,7 +55,7 @@ impl DataStore {
             silo_id,
             diesel::insert_into(dsl::organization).values(organization),
         )
-        .insert_and_get_result_async(self.pool_authorized(opctx).await?)
+        .insert_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| match e {
             AsyncInsertError::CollectionNotFound => Error::InternalError {
@@ -81,7 +81,7 @@ impl DataStore {
         authz_org: &authz::Organization,
         db_org: &db::model::Organization,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_org).await?;
+        opctx.authorize(authz::Action::Delete, authz_org)?;
 
         use db::schema::organization::dsl;
         use db::schema::project;
@@ -93,7 +93,7 @@ impl DataStore {
                 .filter(project::dsl::time_deleted.is_null())
                 .select(project::dsl::id)
                 .limit(1)
-                .first_async::<Uuid>(self.pool_authorized(opctx).await?)
+                .first_async::<Uuid>(self.pool_authorized(opctx)?)
                 .await,
         )
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?;
@@ -110,7 +110,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_org.id()))
             .filter(dsl::rcgen.eq(db_org.rcgen))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -137,14 +137,14 @@ impl DataStore {
             .authn
             .silo_required()
             .internal_context("listing Organizations")?;
-        opctx.authorize(authz::Action::ListChildren, &authz_silo).await?;
+        opctx.authorize(authz::Action::ListChildren, &authz_silo)?;
 
         use db::schema::organization::dsl;
         paginated(dsl::organization, dsl::id, pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::silo_id.eq(authz_silo.id()))
             .select(Organization::as_select())
-            .load_async::<Organization>(self.pool_authorized(opctx).await?)
+            .load_async::<Organization>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -158,14 +158,14 @@ impl DataStore {
             .authn
             .silo_required()
             .internal_context("listing Organizations")?;
-        opctx.authorize(authz::Action::ListChildren, &authz_silo).await?;
+        opctx.authorize(authz::Action::ListChildren, &authz_silo)?;
 
         use db::schema::organization::dsl;
         paginated(dsl::organization, dsl::name, pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::silo_id.eq(authz_silo.id()))
             .select(Organization::as_select())
-            .load_async::<Organization>(self.pool_authorized(opctx).await?)
+            .load_async::<Organization>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -179,13 +179,13 @@ impl DataStore {
     ) -> UpdateResult<Organization> {
         use db::schema::organization::dsl;
 
-        opctx.authorize(authz::Action::Modify, authz_org).await?;
+        opctx.authorize(authz::Action::Modify, authz_org)?;
         diesel::update(dsl::organization)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::id.eq(authz_org.id()))
             .set(updates)
             .returning(Organization::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(

@@ -39,11 +39,11 @@ impl DataStore {
         opctx: &OpContext,
         pagparams: &DataPageParams<'_, Uuid>,
     ) -> ListResultVec<Rack> {
-        opctx.authorize(authz::Action::Read, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Read, &authz::FLEET)?;
         use db::schema::rack::dsl;
         paginated(dsl::rack, dsl::id, pagparams)
             .select(Rack::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -65,7 +65,7 @@ impl DataStore {
             // This is a no-op, since we conflicted on the ID.
             .set(dsl::id.eq(excluded(dsl::id)))
             .returning(Rack::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -97,8 +97,7 @@ impl DataStore {
 
         // NOTE: This operation could likely be optimized with a CTE, but given
         // the low-frequency of calls, this optimization has been deferred.
-        self.pool_authorized(opctx)
-            .await?
+        self.pool_authorized(opctx)?
             .transaction(move |conn| {
                 // Early exit if the rack has already been initialized.
                 let rack = rack_dsl::rack

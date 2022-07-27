@@ -84,7 +84,7 @@ impl RoleSet {
     }
 }
 
-pub async fn load_roles_for_resource_tree<R>(
+pub fn load_roles_for_resource_tree<R>(
     resource: &R,
     opctx: &OpContext,
     datastore: &DataStore,
@@ -105,8 +105,7 @@ where
             resource_type,
             resource_id,
             roleset,
-        )
-        .await?;
+        )?;
     }
 
     // If this resource has a parent, the user's roles on the parent
@@ -119,13 +118,13 @@ where
     // it's clearer to just call this "parent" than
     // "related_resources_whose_roles_might_grant_access_to_this".)
     if let Some(parent) = resource.parent() {
-        parent.load_roles(opctx, datastore, authn, roleset).await?;
+        parent.load_roles(opctx, datastore, authn, roleset)?;
     }
 
     Ok(())
 }
 
-pub async fn load_roles_for_resource(
+pub fn load_roles_for_resource(
     opctx: &OpContext,
     datastore: &DataStore,
     authn: &authn::Context,
@@ -150,8 +149,7 @@ pub async fn load_roles_for_resource(
                 actor.actor_id(),
                 resource_type,
                 resource_id,
-            )
-            .await?;
+            )?;
 
         // Add each role to the output roleset.
         for role_asgn in roles {

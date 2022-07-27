@@ -243,7 +243,7 @@ impl super::Nexus {
     ) -> Result<(), Error> {
         let runtime: DiskRuntimeState = db_disk.runtime().into();
 
-        opctx.authorize(authz::Action::Modify, authz_disk).await?;
+        opctx.authorize(authz::Action::Modify, authz_disk)?;
 
         // Ask the Sled Agent to begin the state change.  Then update the
         // database to reflect the new intermediate state.

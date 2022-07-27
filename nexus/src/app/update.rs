@@ -39,7 +39,7 @@ impl super::Nexus {
         &self,
         opctx: &OpContext,
     ) -> Result<(), Error> {
-        opctx.authorize(authz::Action::Modify, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Modify, &authz::FLEET)?;
 
         let updates_config = self.updates_config.as_ref().ok_or_else(|| {
             Error::InvalidRequest {

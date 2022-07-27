@@ -103,14 +103,14 @@ impl DataStore {
         authz_project: &authz::Project,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<Instance> {
-        opctx.authorize(authz::Action::ListChildren, authz_project).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_project)?;
 
         use db::schema::instance::dsl;
         paginated(dsl::instance, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::project_id.eq(authz_project.id()))
             .select(Instance::as_select())
-            .load_async::<Instance>(self.pool_authorized(opctx).await?)
+            .load_async::<Instance>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -187,7 +187,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_instance: &authz::Instance,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_instance).await?;
+        opctx.authorize(authz::Action::Delete, authz_instance)?;
 
         // This is subject to change, but for now we're going to say that an
         // instance must be "stopped" or "failed" in order to delete it.  The
@@ -225,7 +225,7 @@ impl DataStore {
                 disk::dsl::attach_instance_id.eq(Option::<Uuid>::None),
             )),
         )
-        .detach_and_get_result_async(self.pool_authorized(opctx).await?)
+        .detach_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| match e {
             DetachManyError::CollectionNotFound => Error::not_found_by_id(

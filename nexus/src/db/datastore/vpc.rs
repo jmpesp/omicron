@@ -53,14 +53,14 @@ impl DataStore {
         authz_project: &authz::Project,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<Vpc> {
-        opctx.authorize(authz::Action::ListChildren, authz_project).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_project)?;
 
         use db::schema::vpc::dsl;
         paginated(dsl::vpc, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::project_id.eq(authz_project.id()))
             .select(Vpc::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -74,7 +74,7 @@ impl DataStore {
         use db::schema::vpc::dsl;
 
         assert_eq!(authz_project.id(), vpc.project_id);
-        opctx.authorize(authz::Action::CreateChild, authz_project).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_project)?;
 
         // TODO-correctness Shouldn't this use "insert_resource"?
         //
@@ -109,7 +109,7 @@ impl DataStore {
         authz_vpc: &authz::Vpc,
         updates: VpcUpdate,
     ) -> UpdateResult<Vpc> {
-        opctx.authorize(authz::Action::Modify, authz_vpc).await?;
+        opctx.authorize(authz::Action::Modify, authz_vpc)?;
 
         use db::schema::vpc::dsl;
         diesel::update(dsl::vpc)
@@ -117,7 +117,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_vpc.id()))
             .set(updates)
             .returning(Vpc::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -133,7 +133,7 @@ impl DataStore {
         db_vpc: &Vpc,
         authz_vpc: &authz::Vpc,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_vpc).await?;
+        opctx.authorize(authz::Action::Delete, authz_vpc)?;
 
         use db::schema::vpc::dsl;
         use db::schema::vpc_subnet;
@@ -159,7 +159,7 @@ impl DataStore {
                 .filter(vpc_subnet::dsl::time_deleted.is_null())
                 .select(vpc_subnet::dsl::id)
                 .limit(1)
-                .first_async::<Uuid>(self.pool_authorized(opctx).await?)
+                .first_async::<Uuid>(self.pool_authorized(opctx)?)
                 .await,
         )
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?
@@ -179,7 +179,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_vpc.id()))
             .filter(dsl::subnet_gen.eq(db_vpc.subnet_gen))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -208,7 +208,7 @@ impl DataStore {
         // endpoints).  You cannot look them up individually, create them,
         // remove them, or update them.  You can only modify the whole set.  So
         // for authz, we treat them as part of the Vpc itself.
-        opctx.authorize(authz::Action::Read, authz_vpc).await?;
+        opctx.authorize(authz::Action::Read, authz_vpc)?;
         use db::schema::vpc_firewall_rule::dsl;
 
         dsl::vpc_firewall_rule
@@ -216,7 +216,7 @@ impl DataStore {
             .filter(dsl::vpc_id.eq(authz_vpc.id()))
             .order(dsl::name.asc())
             .select(VpcFirewallRule::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -226,7 +226,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_vpc: &authz::Vpc,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Modify, authz_vpc).await?;
+        opctx.authorize(authz::Action::Modify, authz_vpc)?;
         use db::schema::vpc_firewall_rule::dsl;
 
         let now = Utc::now();
@@ -235,7 +235,7 @@ impl DataStore {
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::vpc_id.eq(authz_vpc.id()))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -253,7 +253,7 @@ impl DataStore {
         authz_vpc: &authz::Vpc,
         mut rules: Vec<VpcFirewallRule>,
     ) -> UpdateResult<Vec<VpcFirewallRule>> {
-        opctx.authorize(authz::Action::Modify, authz_vpc).await?;
+        opctx.authorize(authz::Action::Modify, authz_vpc)?;
         for r in &rules {
             assert_eq!(r.vpc_id, authz_vpc.id());
         }
@@ -287,8 +287,7 @@ impl DataStore {
         // hold a transaction open across multiple roundtrips from the database,
         // but for now we're using a transaction due to the severely decreased
         // legibility of CTEs via diesel right now.
-        self.pool_authorized(opctx)
-            .await?
+        self.pool_authorized(opctx)?
             .transaction(move |conn| {
                 delete_old_query.execute(conn)?;
 
@@ -324,14 +323,14 @@ impl DataStore {
         authz_vpc: &authz::Vpc,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<VpcSubnet> {
-        opctx.authorize(authz::Action::ListChildren, authz_vpc).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_vpc)?;
 
         use db::schema::vpc_subnet::dsl;
         paginated(dsl::vpc_subnet, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::vpc_id.eq(authz_vpc.id()))
             .select(VpcSubnet::as_select())
-            .load_async(self.pool_authorized(opctx).await?)
+            .load_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -345,7 +344,6 @@ impl DataStore {
     ) -> Result<VpcSubnet, SubnetError> {
         opctx
             .authorize(authz::Action::CreateChild, authz_vpc)
-            .await
             .map_err(SubnetError::External)?;
         assert_eq!(authz_vpc.id(), subnet.vpc_id);
 
@@ -372,7 +370,7 @@ impl DataStore {
         db_subnet: &VpcSubnet,
         authz_subnet: &authz::VpcSubnet,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_subnet).await?;
+        opctx.authorize(authz::Action::Delete, authz_subnet)?;
 
         use db::schema::network_interface;
         use db::schema::vpc_subnet::dsl;
@@ -384,7 +382,7 @@ impl DataStore {
                 .filter(network_interface::dsl::time_deleted.is_null())
                 .select(network_interface::dsl::id)
                 .limit(1)
-                .first_async::<Uuid>(self.pool_authorized(opctx).await?)
+                .first_async::<Uuid>(self.pool_authorized(opctx)?)
                 .await,
         )
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?
@@ -405,7 +403,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_subnet.id()))
             .filter(dsl::rcgen.eq(db_subnet.rcgen))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -430,7 +428,7 @@ impl DataStore {
         authz_subnet: &authz::VpcSubnet,
         updates: VpcSubnetUpdate,
     ) -> UpdateResult<VpcSubnet> {
-        opctx.authorize(authz::Action::Modify, authz_subnet).await?;
+        opctx.authorize(authz::Action::Modify, authz_subnet)?;
 
         use db::schema::vpc_subnet::dsl;
         diesel::update(dsl::vpc_subnet)
@@ -438,7 +436,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_subnet.id()))
             .set(updates)
             .returning(VpcSubnet::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -454,7 +452,7 @@ impl DataStore {
         authz_subnet: &authz::VpcSubnet,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<NetworkInterface> {
-        opctx.authorize(authz::Action::ListChildren, authz_subnet).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_subnet)?;
 
         use db::schema::network_interface::dsl;
         paginated(dsl::network_interface, dsl::name, pagparams)
@@ -462,7 +460,7 @@ impl DataStore {
             .filter(dsl::subnet_id.eq(authz_subnet.id()))
             .select(NetworkInterface::as_select())
             .load_async::<db::model::NetworkInterface>(
-                self.pool_authorized(opctx).await?,
+                self.pool_authorized(opctx)?,
             )
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
@@ -474,7 +472,7 @@ impl DataStore {
         authz_vpc: &authz::Vpc,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<VpcRouter> {
-        opctx.authorize(authz::Action::ListChildren, authz_vpc).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_vpc)?;
 
         use db::schema::vpc_router::dsl;
         paginated(dsl::vpc_router, dsl::name, pagparams)
@@ -482,7 +480,7 @@ impl DataStore {
             .filter(dsl::vpc_id.eq(authz_vpc.id()))
             .select(VpcRouter::as_select())
             .load_async::<db::model::VpcRouter>(
-                self.pool_authorized(opctx).await?,
+                self.pool_authorized(opctx)?,
             )
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
@@ -494,7 +492,7 @@ impl DataStore {
         authz_vpc: &authz::Vpc,
         router: VpcRouter,
     ) -> CreateResult<(authz::VpcRouter, VpcRouter)> {
-        opctx.authorize(authz::Action::CreateChild, authz_vpc).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_vpc)?;
 
         use db::schema::vpc_router::dsl;
         let name = router.name().clone();
@@ -503,7 +501,7 @@ impl DataStore {
             .on_conflict(dsl::id)
             .do_nothing()
             .returning(VpcRouter::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -529,7 +527,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_router: &authz::VpcRouter,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_router).await?;
+        opctx.authorize(authz::Action::Delete, authz_router)?;
 
         use db::schema::vpc_router::dsl;
         let now = Utc::now();
@@ -554,7 +552,7 @@ impl DataStore {
         authz_router: &authz::VpcRouter,
         updates: VpcRouterUpdate,
     ) -> UpdateResult<VpcRouter> {
-        opctx.authorize(authz::Action::Modify, authz_router).await?;
+        opctx.authorize(authz::Action::Modify, authz_router)?;
 
         use db::schema::vpc_router::dsl;
         diesel::update(dsl::vpc_router)
@@ -562,7 +560,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_router.id()))
             .set(updates)
             .returning(VpcRouter::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -578,7 +576,7 @@ impl DataStore {
         authz_router: &authz::VpcRouter,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<RouterRoute> {
-        opctx.authorize(authz::Action::ListChildren, authz_router).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_router)?;
 
         use db::schema::router_route::dsl;
         paginated(dsl::router_route, dsl::name, pagparams)
@@ -586,7 +584,7 @@ impl DataStore {
             .filter(dsl::vpc_router_id.eq(authz_router.id()))
             .select(RouterRoute::as_select())
             .load_async::<db::model::RouterRoute>(
-                self.pool_authorized(opctx).await?,
+                self.pool_authorized(opctx)?,
             )
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
@@ -599,7 +597,7 @@ impl DataStore {
         route: RouterRoute,
     ) -> CreateResult<RouterRoute> {
         assert_eq!(authz_router.id(), route.vpc_router_id);
-        opctx.authorize(authz::Action::CreateChild, authz_router).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_router)?;
 
         use db::schema::router_route::dsl;
         let router_id = route.vpc_router_id;
@@ -609,7 +607,7 @@ impl DataStore {
             router_id,
             diesel::insert_into(dsl::router_route).values(route),
         )
-        .insert_and_get_result_async(self.pool_authorized(opctx).await?)
+        .insert_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| match e {
             AsyncInsertError::CollectionNotFound => Error::ObjectNotFound {
@@ -633,7 +631,7 @@ impl DataStore {
         opctx: &OpContext,
         authz_route: &authz::RouterRoute,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Delete, authz_route).await?;
+        opctx.authorize(authz::Action::Delete, authz_route)?;
 
         use db::schema::router_route::dsl;
         let now = Utc::now();
@@ -641,7 +639,7 @@ impl DataStore {
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::id.eq(authz_route.id()))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -658,7 +656,7 @@ impl DataStore {
         authz_route: &authz::RouterRoute,
         route_update: RouterRouteUpdate,
     ) -> UpdateResult<RouterRoute> {
-        opctx.authorize(authz::Action::Modify, authz_route).await?;
+        opctx.authorize(authz::Action::Modify, authz_route)?;
 
         use db::schema::router_route::dsl;
         diesel::update(dsl::router_route)
@@ -666,7 +664,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_route.id()))
             .set(route_update)
             .returning(RouterRoute::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(

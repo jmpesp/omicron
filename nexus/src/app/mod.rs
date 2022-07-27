@@ -411,7 +411,7 @@ impl Nexus {
         // of the authz coverage tests.  By requiring (and testing) correct
         // authz behavior for stubs, we ensure that that behavior is preserved
         // when the stub's implementation is fleshed out.
-        match opctx.authorize(authz::Action::Modify, &authz::FLEET).await {
+        match opctx.authorize(authz::Action::Modify, &authz::FLEET) {
             Err(error @ Error::Forbidden) => {
                 // Emulate the behavior of `Authz::authorize()`: if this is a
                 // non-public resource, then the user should get a 404, not a

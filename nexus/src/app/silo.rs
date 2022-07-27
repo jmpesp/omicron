@@ -146,7 +146,7 @@ impl super::Nexus {
         authenticated_subject: &authn::silos::AuthenticatedSubject,
     ) -> LookupResult<Option<db::model::SiloUser>> {
         // XXX create user permission?
-        opctx.authorize(authz::Action::CreateChild, authz_silo).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_silo)?;
 
         let existing_silo_user = self
             .datastore()

@@ -39,15 +39,14 @@ impl DataStore {
         session: ConsoleSession,
     ) -> CreateResult<ConsoleSession> {
         opctx
-            .authorize(authz::Action::CreateChild, &authz::CONSOLE_SESSION_LIST)
-            .await?;
+            .authorize(authz::Action::CreateChild, &authz::CONSOLE_SESSION_LIST)?;
 
         use db::schema::console_session::dsl;
 
         diesel::insert_into(dsl::console_session)
             .values(session)
             .returning(ConsoleSession::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 Error::internal_error(&format!(
@@ -62,14 +61,14 @@ impl DataStore {
         opctx: &OpContext,
         authz_session: &authz::ConsoleSession,
     ) -> UpdateResult<authn::ConsoleSessionWithSiloId> {
-        opctx.authorize(authz::Action::Modify, authz_session).await?;
+        opctx.authorize(authz::Action::Modify, authz_session)?;
 
         use db::schema::console_session::dsl;
         let console_session = diesel::update(dsl::console_session)
             .filter(dsl::token.eq(authz_session.id()))
             .set((dsl::time_last_used.eq(Utc::now()),))
             .returning(ConsoleSession::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 Error::internal_error(&format!(
@@ -134,7 +133,7 @@ impl DataStore {
         diesel::delete(dsl::console_session)
             .filter(dsl::silo_user_id.eq(silo_user_id))
             .filter(dsl::token.eq(authz_session.id()))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map(|_rows_deleted| ())
             .map_err(|e| {

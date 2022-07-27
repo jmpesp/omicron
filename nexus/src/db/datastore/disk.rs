@@ -48,13 +48,13 @@ impl DataStore {
     ) -> ListResultVec<Disk> {
         use db::schema::disk::dsl;
 
-        opctx.authorize(authz::Action::ListChildren, authz_instance).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_instance)?;
 
         paginated(dsl::disk, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::attach_instance_id.eq(authz_instance.id()))
             .select(Disk::as_select())
-            .load_async::<Disk>(self.pool_authorized(opctx).await?)
+            .load_async::<Disk>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -98,14 +98,14 @@ impl DataStore {
         authz_project: &authz::Project,
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<Disk> {
-        opctx.authorize(authz::Action::ListChildren, authz_project).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_project)?;
 
         use db::schema::disk::dsl;
         paginated(dsl::disk, dsl::name, &pagparams)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::project_id.eq(authz_project.id()))
             .select(Disk::as_select())
-            .load_async::<Disk>(self.pool_authorized(opctx).await?)
+            .load_async::<Disk>(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -123,8 +123,8 @@ impl DataStore {
     ) -> Result<(Instance, Disk), Error> {
         use db::schema::{disk, instance};
 
-        opctx.authorize(authz::Action::Modify, authz_instance).await?;
-        opctx.authorize(authz::Action::Modify, authz_disk).await?;
+        opctx.authorize(authz::Action::Modify, authz_instance)?;
+        opctx.authorize(authz::Action::Modify, authz_disk)?;
 
         let ok_to_attach_disk_states = vec![
             api::external::DiskState::Creating,
@@ -162,7 +162,7 @@ impl DataStore {
                     disk::dsl::attach_instance_id.eq(authz_instance.id())
                 ))
         )
-        .attach_and_get_result_async(self.pool_authorized(opctx).await?)
+        .attach_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .or_else(|e| {
             match e {
@@ -257,8 +257,8 @@ impl DataStore {
     ) -> Result<Disk, Error> {
         use db::schema::{disk, instance};
 
-        opctx.authorize(authz::Action::Modify, authz_instance).await?;
-        opctx.authorize(authz::Action::Modify, authz_disk).await?;
+        opctx.authorize(authz::Action::Modify, authz_instance)?;
+        opctx.authorize(authz::Action::Modify, authz_disk)?;
 
         let ok_to_detach_disk_states =
             vec![api::external::DiskState::Attached(authz_instance.id())];
@@ -292,7 +292,7 @@ impl DataStore {
                     disk::dsl::attach_instance_id.eq(Option::<Uuid>::None)
                 ))
         )
-        .detach_and_get_result_async(self.pool_authorized(opctx).await?)
+        .detach_and_get_result_async(self.pool_authorized(opctx)?)
         .await
         .or_else(|e| {
             match e {
@@ -389,7 +389,7 @@ impl DataStore {
         // able to modify the database state.  So we _do_ still want an authz
         // check here.  Arguably it's for a different kind of action, but it
         // doesn't seem that useful to split it out right now.
-        opctx.authorize(authz::Action::Modify, authz_disk).await?;
+        opctx.authorize(authz::Action::Modify, authz_disk)?;
 
         let disk_id = authz_disk.id();
         use db::schema::disk::dsl;

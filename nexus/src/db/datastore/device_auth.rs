@@ -35,14 +35,13 @@ impl DataStore {
             .authorize(
                 authz::Action::CreateChild,
                 &authz::DEVICE_AUTH_REQUEST_LIST,
-            )
-            .await?;
+            )?;
 
         use db::schema::device_auth_request::dsl;
         diesel::insert_into(dsl::device_auth_request)
             .values(auth_request)
             .returning(DeviceAuthRequest::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -58,8 +57,8 @@ impl DataStore {
         access_token: DeviceAccessToken,
     ) -> CreateResult<DeviceAccessToken> {
         assert_eq!(authz_user.id(), access_token.silo_user_id);
-        opctx.authorize(authz::Action::Delete, authz_request).await?;
-        opctx.authorize(authz::Action::CreateChild, authz_user).await?;
+        opctx.authorize(authz::Action::Delete, authz_request)?;
+        opctx.authorize(authz::Action::CreateChild, authz_user)?;
 
         use db::schema::device_auth_request::dsl as request_dsl;
         let delete_request = diesel::delete(request_dsl::device_auth_request)
@@ -77,8 +76,7 @@ impl DataStore {
         }
         type TxnError = TransactionError<TokenGrantError>;
 
-        self.pool_authorized(opctx)
-            .await?
+        self.pool_authorized(opctx)?
             .transaction(move |conn| match delete_request.execute(conn)? {
                 0 => {
                     Err(TxnError::CustomError(TokenGrantError::RequestNotFound))
@@ -125,7 +123,7 @@ impl DataStore {
             .filter(dsl::client_id.eq(client_id))
             .filter(dsl::device_code.eq(device_code))
             .select(DeviceAccessToken::as_select())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(

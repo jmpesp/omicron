@@ -45,13 +45,11 @@ impl DataStore {
         pagparams: &DataPageParams<'_, Name>,
     ) -> ListResultVec<IpPool> {
         use db::schema::ip_pool::dsl;
-        opctx
-            .authorize(authz::Action::ListChildren, &authz::IP_POOL_LIST)
-            .await?;
+        opctx.authorize(authz::Action::ListChildren, &authz::IP_POOL_LIST)?;
         paginated(dsl::ip_pool, dsl::name, pagparams)
             .filter(dsl::time_deleted.is_null())
             .select(db::model::IpPool::as_select())
-            .get_results_async(self.pool_authorized(opctx).await?)
+            .get_results_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -64,12 +62,11 @@ impl DataStore {
     ) -> ListResultVec<IpPool> {
         use db::schema::ip_pool::dsl;
         opctx
-            .authorize(authz::Action::ListChildren, &authz::IP_POOL_LIST)
-            .await?;
+            .authorize(authz::Action::ListChildren, &authz::IP_POOL_LIST)?;
         paginated(dsl::ip_pool, dsl::id, pagparams)
             .filter(dsl::time_deleted.is_null())
             .select(db::model::IpPool::as_select())
-            .get_results_async(self.pool_authorized(opctx).await?)
+            .get_results_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -81,8 +78,7 @@ impl DataStore {
     ) -> CreateResult<IpPool> {
         use db::schema::ip_pool::dsl;
         opctx
-            .authorize(authz::Action::CreateChild, &authz::IP_POOL_LIST)
-            .await?;
+            .authorize(authz::Action::CreateChild, &authz::IP_POOL_LIST)?;
         let project_id = match new_pool.project.clone() {
             None => None,
             Some(project) => {
@@ -99,7 +95,7 @@ impl DataStore {
         diesel::insert_into(dsl::ip_pool)
             .values(pool)
             .returning(IpPool::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -117,7 +113,7 @@ impl DataStore {
     ) -> DeleteResult {
         use db::schema::ip_pool::dsl;
         use db::schema::ip_pool_range;
-        opctx.authorize(authz::Action::Delete, authz_pool).await?;
+        opctx.authorize(authz::Action::Delete, authz_pool)?;
 
         // Verify there are no IP ranges still in this pool
         let range = diesel_pool_result_optional(
@@ -126,7 +122,7 @@ impl DataStore {
                 .filter(ip_pool_range::dsl::time_deleted.is_null())
                 .select(ip_pool_range::dsl::id)
                 .limit(1)
-                .first_async::<Uuid>(self.pool_authorized(opctx).await?)
+                .first_async::<Uuid>(self.pool_authorized(opctx)?)
                 .await,
         )
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?;
@@ -147,7 +143,7 @@ impl DataStore {
             .filter(dsl::id.eq(authz_pool.id()))
             .filter(dsl::rcgen.eq(db_pool.rcgen))
             .set(dsl::time_deleted.eq(now))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -172,13 +168,13 @@ impl DataStore {
         updates: IpPoolUpdate,
     ) -> UpdateResult<IpPool> {
         use db::schema::ip_pool::dsl;
-        opctx.authorize(authz::Action::Modify, authz_pool).await?;
+        opctx.authorize(authz::Action::Modify, authz_pool)?;
         diesel::update(dsl::ip_pool)
             .filter(dsl::id.eq(authz_pool.id()))
             .filter(dsl::time_deleted.is_null())
             .set(updates)
             .returning(IpPool::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -195,12 +191,12 @@ impl DataStore {
         pag_params: &DataPageParams<'_, IpNetwork>,
     ) -> ListResultVec<IpPoolRange> {
         use db::schema::ip_pool_range::dsl;
-        opctx.authorize(authz::Action::ListChildren, authz_pool).await?;
+        opctx.authorize(authz::Action::ListChildren, authz_pool)?;
         paginated(dsl::ip_pool_range, dsl::first_address, pag_params)
             .filter(dsl::ip_pool_id.eq(authz_pool.id()))
             .filter(dsl::time_deleted.is_null())
             .select(IpPoolRange::as_select())
-            .get_results_async(self.pool_authorized(opctx).await?)
+            .get_results_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 public_error_from_diesel_pool(
@@ -218,14 +214,14 @@ impl DataStore {
         range: &IpRange,
     ) -> CreateResult<IpPoolRange> {
         use db::schema::ip_pool_range::dsl;
-        opctx.authorize(authz::Action::CreateChild, authz_pool).await?;
+        opctx.authorize(authz::Action::CreateChild, authz_pool)?;
         let pool_id = authz_pool.id();
         let new_range = IpPoolRange::new(range, pool_id, db_pool.project_id);
         let filter_subquery = FilterOverlappingIpRanges { range: new_range };
         let insert_query =
             diesel::insert_into(dsl::ip_pool_range).values(filter_subquery);
         IpPool::insert_resource(pool_id, insert_query)
-            .insert_and_get_result_async(self.pool_authorized(opctx).await?)
+            .insert_and_get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| {
                 use async_bb8_diesel::ConnectionError::Query;
@@ -269,7 +265,7 @@ impl DataStore {
     ) -> DeleteResult {
         use db::schema::instance_external_ip;
         use db::schema::ip_pool_range::dsl;
-        opctx.authorize(authz::Action::Modify, authz_pool).await?;
+        opctx.authorize(authz::Action::Modify, authz_pool)?;
 
         let pool_id = authz_pool.id();
         let first_address = range.first_address();
@@ -288,7 +284,7 @@ impl DataStore {
                 .filter(dsl::time_deleted.is_null())
                 .select(IpPoolRange::as_select())
                 .get_result_async::<IpPoolRange>(
-                    self.pool_authorized(opctx).await?,
+                    self.pool_authorized(opctx)?,
                 )
                 .await,
         )
@@ -313,7 +309,7 @@ impl DataStore {
                 )
                 .filter(instance_external_ip::dsl::time_deleted.is_null()),
         ))
-        .get_result_async::<bool>(self.pool_authorized(opctx).await?)
+        .get_result_async::<bool>(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?;
         if has_children {
@@ -335,7 +331,7 @@ impl DataStore {
                 .filter(dsl::rcgen.eq(rcgen)),
         )
         .set(dsl::time_deleted.eq(now))
-        .execute_async(self.pool_authorized(opctx).await?)
+        .execute_async(self.pool_authorized(opctx)?)
         .await
         .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))?;
         if updated_rows == 1 {

@@ -23,7 +23,7 @@ impl DataStore {
         opctx: &OpContext,
         artifact: UpdateAvailableArtifact,
     ) -> CreateResult<UpdateAvailableArtifact> {
-        opctx.authorize(authz::Action::Modify, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Modify, &authz::FLEET)?;
 
         use db::schema::update_available_artifact::dsl;
         diesel::insert_into(dsl::update_available_artifact)
@@ -32,7 +32,7 @@ impl DataStore {
             .do_update()
             .set(artifact.clone())
             .returning(UpdateAvailableArtifact::as_returning())
-            .get_result_async(self.pool_authorized(opctx).await?)
+            .get_result_async(self.pool_authorized(opctx)?)
             .await
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
     }
@@ -42,7 +42,7 @@ impl DataStore {
         opctx: &OpContext,
         current_targets_role_version: i64,
     ) -> DeleteResult {
-        opctx.authorize(authz::Action::Modify, &authz::FLEET).await?;
+        opctx.authorize(authz::Action::Modify, &authz::FLEET)?;
 
         // We use the `targets_role_version` column in the table to delete any
         // old rows, keeping the table in sync with the current copy of
@@ -50,7 +50,7 @@ impl DataStore {
         use db::schema::update_available_artifact::dsl;
         diesel::delete(dsl::update_available_artifact)
             .filter(dsl::targets_role_version.lt(current_targets_role_version))
-            .execute_async(self.pool_authorized(opctx).await?)
+            .execute_async(self.pool_authorized(opctx)?)
             .await
             .map(|_rows_deleted| ())
             .map_err(|e| public_error_from_diesel_pool(e, ErrorHandler::Server))
