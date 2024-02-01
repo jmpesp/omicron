@@ -99,3 +99,4 @@ pub async fn ensure_links_have_global_zone_link_local_v6_addresses(
 
     Ok(addr_objs)
 }
+
