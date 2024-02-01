@@ -13,11 +13,12 @@ use illumos_utils::dladm::FindPhysicalLinkError;
 use illumos_utils::dladm::PhysicalLink;
 use illumos_utils::dladm::CHELSIO_LINK_PREFIX;
 use omicron_common::vlan::VlanID;
+use serde::Serialize;
 use serde::Deserialize;
 use sled_hardware::is_gimlet;
 use sled_hardware::UnparsedDisk;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SledMode {
     Auto,
@@ -25,7 +26,7 @@ pub enum SledMode {
     Scrimlet,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SidecarRevision {
     Physical(String),
@@ -33,7 +34,7 @@ pub enum SidecarRevision {
     SoftPropolis(SoftPortConfig),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SoftPortConfig {
     /// Number of front ports
     pub front_port_count: u8,
@@ -42,7 +43,7 @@ pub struct SoftPortConfig {
 }
 
 /// Configuration for a sled agent
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Configuration for the sled agent dropshot server

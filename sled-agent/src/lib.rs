@@ -37,7 +37,7 @@ mod sled_agent;
 mod smf_helper;
 mod storage_monitor;
 mod swap_device;
-mod updates;
+pub mod updates;
 mod vmm_reservoir;
 mod zone_bundle;
 

@@ -11,6 +11,7 @@ mod serial_console;
 pub mod http_entrypoints; // TODO pub only for testing - is this right?
 
 pub use config::Config;
+pub use config::PartialDropshotConfig;
 pub use context::ServerContext;
 pub use error::*;
 
@@ -23,6 +24,7 @@ pub use management_switch::LocationDeterminationConfig;
 pub use management_switch::ManagementSwitch;
 pub use management_switch::SpIdentifier;
 pub use management_switch::SpType;
+pub use management_switch::SwitchConfig;
 pub use management_switch::SwitchPortConfig;
 pub use management_switch::SwitchPortDescription;
 use omicron_common::FileKv;
