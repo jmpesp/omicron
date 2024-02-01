@@ -3732,14 +3732,14 @@ impl ServiceManager {
                     SwitchService::Dendrite { asic },
                     SwitchService::Lldpd { baseboard: baseboard.clone() },
                     SwitchService::ManagementGatewayService,
-                    SwitchService::Uplink,
+                    //SwitchService::Uplink,
                     SwitchService::Wicketd { baseboard: baseboard.clone() },
                     SwitchService::Mgd,
                     SwitchService::MgDdm { mode: "transit".to_string() },
-                    SwitchService::Tfport {
-                        pkt_source: "tfpkt0".to_string(),
-                        asic,
-                    },
+                    //SwitchService::Tfport {
+                    //    pkt_source: "tfpkt0".to_string(),
+                    //    asic,
+                    //},
                     SwitchService::SpSim,
                 ]
             }
@@ -3820,26 +3820,27 @@ impl ServiceManager {
             }
         };
 
-        info!(self.inner.log, "Setting up uplinkd service");
-        let smfh = SmfHelper::new(&zone, &SwitchService::Uplink);
+        // JWM don't need on my setup, no tofino
+        //info!(self.inner.log, "Setting up uplinkd service");
+        //let smfh = SmfHelper::new(&zone, &SwitchService::Uplink);
 
-        // We want to delete all the properties in the `uplinks` group, but we
-        // don't know their names, so instead we'll delete and recreate the
-        // group, then add all our properties.
-        smfh.delpropgroup("uplinks")?;
-        smfh.addpropgroup("uplinks", "application")?;
+        //// We want to delete all the properties in the `uplinks` group, but we
+        //// don't know their names, so instead we'll delete and recreate the
+        //// group, then add all our properties.
+        //smfh.delpropgroup("uplinks")?;
+        //smfh.addpropgroup("uplinks", "application")?;
 
-        for port_config in &our_ports {
-            for addr in &port_config.addrs {
-                info!(self.inner.log, "configuring port: {port_config:?}");
-                smfh.addpropvalue_type(
-                    &format!("uplinks/{}_0", port_config.port,),
-                    &addr.to_string(),
-                    "astring",
-                )?;
-            }
-        }
-        smfh.refresh()?;
+        //for port_config in &our_ports {
+        //    for addr in &port_config.addrs {
+        //        info!(self.inner.log, "configuring port: {port_config:?}");
+        //        smfh.addpropvalue_type(
+        //            &format!("uplinks/{}_0", port_config.port,),
+        //            &addr.to_string(),
+        //            "astring",
+        //        )?;
+        //    }
+        //}
+        //smfh.refresh()?;
 
         Ok(())
     }
