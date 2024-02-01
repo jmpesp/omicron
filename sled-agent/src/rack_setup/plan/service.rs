@@ -72,7 +72,7 @@ use std::num::Wrapping;
 use thiserror::Error;
 use uuid::Uuid;
 
-const MINIMUM_U2_COUNT: usize = 3;
+const MINIMUM_U2_COUNT: usize = 2;
 
 /// Describes errors which may occur while generating a plan for services.
 #[derive(Error, Debug)]
