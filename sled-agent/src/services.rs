@@ -2844,7 +2844,7 @@ impl ServiceManager {
                                 smfh.setprop("config/dpd_host", "[::1]")?;
                                 smfh.setprop("config/dpd_port", DENDRITE_PORT)?;
                             }
-                            smfh.setprop("config/dendrite", "true")?;
+                            //smfh.setprop("config/dendrite", "true")?;
 
                             smfh.refresh()?;
                         }
