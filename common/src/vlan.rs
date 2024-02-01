@@ -5,6 +5,7 @@
 //! VLAN ID wrapper.
 
 use crate::api::external::Error;
+use serde::Serialize;
 use serde::Deserialize;
 use std::fmt;
 use std::str::FromStr;
@@ -13,7 +14,7 @@ use std::str::FromStr;
 pub const VLAN_MAX: u16 = 4094;
 
 /// Wrapper around a VLAN ID, ensuring it is valid.
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct VlanID(u16);
 
 impl VlanID {
