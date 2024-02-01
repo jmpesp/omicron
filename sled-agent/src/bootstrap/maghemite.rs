@@ -53,6 +53,12 @@ pub(super) fn enable_mg_ddm_service_blocking(
         smf::PropertyValue::Astring(property_value),
     ))?;
 
+    // mg-ddm-verify running on fancyfeast needs to be able to GET too
+    smf::Config::set_property(SERVICE_FMRI).run(smf::Property::new(
+        smf::PropertyName::new("config", "admin_host").unwrap(),
+        smf::PropertyValue::Astring("::".to_string()),
+    ))?;
+
     info!(log, "Enabling mg-ddm service");
     smf::Adm::new()
         .enable()
