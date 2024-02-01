@@ -1029,6 +1029,22 @@ opt-level = 3
 # [patch."https://github.com/oxidecomputer/diesel-dtrace"]
 # diesel-dtrace = { path = "../diesel-dtrace" }
 
+[patch."https://github.com/oxidecomputer/propolis"]
+bhyve_api = { path = "../propolis/crates/bhyve-api" }
+propolis-client = { path = "../propolis/lib/propolis-client" }
+propolis-mock-server = { path = "../propolis/bin/mock-server" }
+
+[patch."https://github.com/oxidecomputer/crucible"]
+crucible-agent-client = { path = "../crucible/agent-client" }
+crucible-client-types = { path = "../crucible/crucible-client-types" }
+crucible-pantry-client = { path = "../crucible/pantry-client" }
+crucible-smf = { path = "../crucible/smf" }
+crucible = { path = "../crucible/upstairs" }
+
+[patch."https://github.com/oxidecomputer/opte"]
+oxide-vpc = { path = "../opte/lib/oxide-vpc" }
+opte-ioctl = { path = "../opte/lib/opte-ioctl" }
+
 # [patch."https://github.com/oxidecomputer/falcon"]
 # libfalcon = { path = "../falcon/lib" }
 
@@ -1075,3 +1091,12 @@ path = "workspace-hack"
 [patch."https://github.com/oxidecomputer/omicron"]
 omicron-uuid-kinds = { path = "uuid-kinds" }
 omicron-common = { path = "common" }
+#internal-dns = { path = "internal-dns" }
+#nexus-client = { path = "nexus-client" }
+oximeter-producer = { path = "oximeter/producer" }
+oximeter = { path = "oximeter/oximeter" }
+
+[patch.crates-io.zone]
+git = 'https://github.com/oxidecomputer/zone'
+branch = 'state-derive-eq-hash'
+
