@@ -12,6 +12,7 @@ mod serial_console;
 pub mod http_entrypoints; // TODO pub only for testing - is this right?
 
 pub use config::Config;
+pub use config::PartialDropshotConfig;
 pub use context::ServerContext;
 pub use error::*;
 
