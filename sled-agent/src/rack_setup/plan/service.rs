@@ -63,7 +63,7 @@ use uuid::Uuid;
 // TODO(https://github.com/oxidecomputer/omicron/issues/732): Remove
 // when Nexus provisions Clickhouse.
 const CLICKHOUSE_COUNT: usize = 1;
-const MINIMUM_U2_COUNT: usize = 3;
+const MINIMUM_U2_COUNT: usize = 2;
 // TODO(https://github.com/oxidecomputer/omicron/issues/732): Remove.
 // when Nexus provisions the Pantry.
 const PANTRY_COUNT: usize = 3;
