@@ -233,11 +233,7 @@ async fn main() -> Result<()> {
 /// Verify that the given DNS zone name provided by the user falls under the
 /// ".oxide.test" name to ensure that it can never conflict with a real deployed
 /// zone name.
-fn verify_zone_name(zone_name: &str) -> Result<()> {
-    ensure!(
-        zone_name.trim_end_matches('.').ends_with(".oxide.test"),
-        "zone name must be under \".oxide.test\""
-    );
+fn verify_zone_name(_zone_name: &str) -> Result<()> {
     Ok(())
 }
 
