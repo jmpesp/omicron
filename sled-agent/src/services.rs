@@ -4012,14 +4012,14 @@ impl ServiceManager {
                     SwitchService::Dendrite { asic },
                     SwitchService::Lldpd { baseboard: baseboard.clone() },
                     SwitchService::ManagementGatewayService,
-                    SwitchService::Uplink,
+                    //SwitchService::Uplink,
                     SwitchService::Wicketd { baseboard: baseboard.clone() },
                     SwitchService::Mgd,
                     SwitchService::MgDdm { mode: "transit".to_string() },
-                    SwitchService::Tfport {
-                        pkt_source: "tfpkt0".to_string(),
-                        asic,
-                    },
+                    //SwitchService::Tfport {
+                    //    pkt_source: "tfpkt0".to_string(),
+                    //    asic,
+                    //},
                     SwitchService::SpSim,
                 ]
             }
@@ -4113,6 +4113,8 @@ impl ServiceManager {
             }
         };
 
+        /*
+        // JWM don't need on my setup, no tofino
         info!(self.inner.log, "ensuring scrimlet uplinks");
         let usmfh = SmfHelper::new(&zone, &SwitchService::Uplink);
         let lsmfh = SmfHelper::new(
@@ -4183,6 +4185,7 @@ impl ServiceManager {
         }
         usmfh.refresh()?;
         lsmfh.refresh()?;
+        */
 
         Ok(())
     }
