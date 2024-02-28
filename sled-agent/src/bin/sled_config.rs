@@ -23,7 +23,7 @@ use omicron_common::api::internal::shared::PortFec;
 use omicron_common::api::internal::shared::SwitchLocation;
 use omicron_common::api::internal::shared::UplinkConfig;
 use std::process::Command;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::str::FromStr;
 use sled_hardware::Baseboard;
@@ -89,7 +89,7 @@ fn main() -> Result<()> {
 
     // config-rss.toml
     if matches!(sled_mode, SledMode::Scrimlet) && hostname.trim() == "frostypaws" {
-        let mut bootstrap_discovery_addrs = HashSet::new();
+        let mut bootstrap_discovery_addrs = BTreeSet::new();
 
         // if you change a sled's data link, change these mac addresses!
         // dinnerbone ixgbe0
@@ -102,8 +102,6 @@ fn main() -> Result<()> {
         bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("80:61:5f:11:ab:31".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
 
         let rss_config = RssConfig {
-            rack_subnet: "fd00:1122:3344:0100::".parse()?,
-
             trust_quorum_peers: Some(vec![
                 Baseboard::new_pc(String::from("dinnerbone"), String::from("i86pc")),
                 Baseboard::new_pc(String::from("kibblesnbits"), String::from("i86pc")),
@@ -164,8 +162,8 @@ fn main() -> Result<()> {
             // no opte config if this is None!
             // rack_network_config: None,
 
-            rack_network_config: Some(RackNetworkConfig {
-                rack_subnet: "fd00:1122:3344:0100::".parse()?, // XXX dupe?
+            rack_network_config: RackNetworkConfig {
+                rack_subnet: "fd00:1122:3344:0100::".parse()?,
 
                 // pool for switch ports
                 infra_ip_first: "192.168.1.100".parse().unwrap(),
@@ -196,7 +194,7 @@ fn main() -> Result<()> {
                 ],
 
                 bgp: vec![],
-            }),
+            },
         };
 
         // XXX would like:
