@@ -39,7 +39,7 @@ impl BootstrapInterface {
     }
 }
 
-fn mac_to_bootstrap_ip(mac: MacAddr, interface_id: u64) -> Ipv6Addr {
+pub fn mac_to_bootstrap_ip(mac: MacAddr, interface_id: u64) -> Ipv6Addr {
     let mac_bytes = mac.into_array();
     assert_eq!(6, mac_bytes.len());
 
