@@ -46,7 +46,7 @@ impl Plan {
             // we're not automatically discovering zpools for non-gimlets, so
             // dataset requests will need to go to the right machine. use `dladm
             // show-phys -m` to get MAC addresses and match here.
-            use sled_hardware::underlay::mac_to_bootstrap_ip;
+            use sled_hardware_types::underlay::mac_to_bootstrap_ip;
             let bootstrap_ipv6: Ipv6Addr = *bootstrap_addr.ip();
             let interface_id = 1;
 
