@@ -450,6 +450,41 @@ fn main() -> Result<()> {
                             serial_console: None, // Some("[::1]:33312"), // XXX no HAS_SERIAL_CONSOLE
                         },
                         */
+
+                        // TODO: U.2 components:
+                        // Present U.2 ABCD mux (pca9545)
+                        // Present U.2 EFGH mux (pca9545)
+                        // Present U.2 IJ/FRUID mux (pca9545)
+                        // Present U.2 Sharkfin A VPD (at24csw080)
+                        // Present U.2 Sharkfin A hot swap controller (max5970)
+                        // Present U.2 A NVMe Basic Management Command (nvme_bmc)
+                        // Present U.2 Sharkfin B VPD (at24csw080)
+                        // Present U.2 Sharkfin B hot swap controller (max5970)
+                        // Present U.2 B NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin C VPD (at24csw080)
+                        // Present U.2 Sharkfin C hot swap controller (max5970)
+                        // Present U.2 C NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin D VPD (at24csw080)
+                        // Present U.2 Sharkfin D hot swap controller (max5970)
+                        // Present U.2 D NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin E VPD (at24csw080)
+                        // Present U.2 Sharkfin E hot swap controller (max5970)
+                        // Present U.2 E NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin F VPD (at24csw080)
+                        // Present U.2 Sharkfin F hot swap controller (max5970)
+                        // Present U.2 F NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin G VPD (at24csw080)
+                        // Present U.2 Sharkfin G hot swap controller (max5970)
+                        // Present U.2 G NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin H VPD (at24csw080)
+                        // Present U.2 Sharkfin H hot swap controller (max5970)
+                        // Present U.2 H NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin I VPD (at24csw080)
+                        // Present U.2 Sharkfin I hot swap controller (max5970)
+                        // Present U.2 I NVMe Basic Management Control (nvme_bmc)
+                        // Present U.2 Sharkfin J VPD (at24csw080)
+                        // Present U.2 Sharkfin J hot swap controller (max5970)
+                        // Present U.2 J NVMe Basic Management Control (nvme_bmc)
                     ],
                 }},
             ],
