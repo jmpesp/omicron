@@ -2819,6 +2819,9 @@ impl ServiceManager {
                                 ServiceInstanceBuilder::new("default")
                                     .add_property_group(mgd_config),
                             );
+
+                            smfh.setprop("config/admin_host", "::")?;
+                            smfh.refresh()?;
                         }
                         SwitchService::MgDdm { mode } => {
                             info!(self.inner.log, "Setting up mg-ddm service");
