@@ -2746,6 +2746,7 @@ impl ServiceManager {
                                     break;
                                 }
                             }
+                            smfh.setprop("config/admin_host", "::")?;
                             smfh.refresh()?;
                         }
                         SwitchService::MgDdm { mode } => {
