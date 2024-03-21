@@ -3070,6 +3070,13 @@ impl ServiceManager {
                         }
                     }
 
+                    // XXX for debugging, esp with mg-ddm-verify
+                    mgd_config.add_property(
+                        "admin_host",
+                        "astring",
+                        "::",
+                    )?;
+
                     mgd_service = mgd_service.add_instance(
                         ServiceInstanceBuilder::new("default")
                             .add_property_group(mgd_config),
