@@ -194,6 +194,8 @@ fn main() -> Result<()> {
                 ],
 
                 bgp: vec![],
+
+                bfd: vec![],
             },
         };
 
