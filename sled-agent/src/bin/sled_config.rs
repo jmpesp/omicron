@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::Context;
+use camino::Utf8PathBuf;
 use dropshot::ConfigDropshot;
 use dropshot::ConfigLogging;
 use dropshot::ConfigLoggingIfExists;
@@ -26,6 +27,8 @@ use std::process::Command;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::path::PathBuf;
+use sled_hardware::disk::UnparsedDisk;
 use sled_hardware_types::Baseboard;
 use sled_hardware_types::underlay::mac_to_bootstrap_ip;
 use nexus_client::types::RecoverySiloConfig;
@@ -237,38 +240,82 @@ fn main() -> Result<()> {
 
         sidecar_revision: SidecarRevision::Physical(String::from("rev_a")),
 
+        // prod gimlets set 80% of their memory as a VMM reservoir, so match
+        // that here. When propolis is compiled with the "omicron-build"
+        // feature it will return 500 if there isn't enough reservoir present to
+        // launch your instance.
+        //
+        // however, this seemed to panic some of my desktops. so go a little
+        // lower.
+        vmm_reservoir_percentage: Some(60),
+        vmm_reservoir_size_mb: None,
+
+        // If this is set, then the sled agent will try to configure swap for
+        // us. I've already done this so it's not required.
+        swap_device_size_gb: None,
+
         vlan: None,
 
-        zpools: {
-            // zpool list -o name | grep oxp_
-            let cmd = Command::new("zpool")
+        vdevs: Some({
+            // M2
+            glob::glob("/home/james/*.vdev")?
+                .flatten()
+                .map(|x| x.to_string_lossy().to_string().into())
+                .collect()
+        }),
+
+        supplied_unparsed_disks: Some({
+            // U2
+            let cmd = Command::new("pfexec")
+                .arg("nvmeadm")
                 .arg("list")
+                .arg("-p")
                 .arg("-o")
-                .arg("name")
+                .arg("model,serial,disk")
                 .output()?;
 
             let text = String::from_utf8_lossy(&cmd.stdout);
-            let mut pools = vec![];
+            let mut slot = 0;
+            let mut unparsed_disks = vec![];
 
             for line in text.split("\n") {
-                let pool = line.trim();
-                if pool.starts_with(ZPOOL_EXTERNAL_PREFIX) || pool.starts_with(ZPOOL_INTERNAL_PREFIX) {
-                    eprintln!("discovered {}", pool);
-                    pools.push(pool);
+                if line.len() == 0 {
+                    continue;
                 }
+
+                let parts: Vec<&str> = line.split(':').collect();
+                let model = parts[0];
+                let serial = parts[1];
+                let disk = parts[2];
+
+                // `devfs_path` should not end with `:partition_letter`
+                let path = std::fs::canonicalize(format!("/dev/dsk/{disk}"))?;
+                let path_str = path.to_string_lossy();
+                let path_parts: Vec<&str> = path_str.split(':').collect();
+                let devfs_path = path_parts[0];
+
+                println!("> found nvme {model} {serial} {disk} {devfs_path} for U2");
+
+                unparsed_disks.push(UnparsedDisk::new(
+                    Utf8PathBuf::from(devfs_path),
+                    None, // XXX Some(Utf8PathBuf::from(disk)) ? or /dev/dsk/{disk} ?
+                    slot,
+                    sled_hardware::DiskVariant::U2,
+                    omicron_common::disk::DiskIdentity {
+                        vendor: String::from("Synthetic"),
+                        serial: String::from(serial),
+                        model: String::from(model),
+                    },
+                    false, // is_boot_disk
+                ));
+
+                slot += 1;
             }
 
-            if pools.is_empty() {
-                None
-            } else {
-                Some(
-                    pools
-                        .into_iter()
-                        .map(|x| ZpoolName::from_str(x).unwrap())
-                        .collect(),
-                )
-            }
-        },
+            unparsed_disks
+        }),
+
+        skip_timesync: Some(false),
 
         data_link: Some(PhysicalLink(String::from(match hostname.trim() {
             "dinnerbone" => "ixgbe0",
@@ -278,7 +325,6 @@ fn main() -> Result<()> {
             _ => panic!("unknown hostname {}", hostname),
         }))),
 
-        // data_links: [String; 2]
         data_links: if MULTI_SWITCH_MODE {
             match hostname.trim() {
                 "dinnerbone" => ["ixgbe0".to_string(), "igb0".to_string()],
@@ -307,7 +353,7 @@ fn main() -> Result<()> {
             }
         },
 
-        skip_timesync: Some(false),
+        updates: ConfigUpdates::default(),
 
         switch_zone_maghemite_links: match hostname.trim() {
             "dinnerbone" => vec![],
@@ -337,22 +383,6 @@ fn main() -> Result<()> {
             ],
             _ => panic!("unknown hostname {}", hostname),
         },
-
-        updates: ConfigUpdates::default(),
-
-        // prod gimlets set 80% of their memory as a VMM reservoir, so match
-        // that here. When propolis is compiled with the "omicron-build"
-        // feature it will return 500 if there isn't enough reservoir present to
-        // launch your instance.
-        //
-        // however, this seemed to panic some of my desktops. so go a little
-        // lower.
-        vmm_reservoir_percentage: Some(60),
-        vmm_reservoir_size_mb: None,
-
-        // If this is set, then the sled agent will try to configure swap for
-        // us. I've already done this so it's not required.
-        swap_device_size_gb: None,
     };
 
     std::fs::write(
