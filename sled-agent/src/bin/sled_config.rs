@@ -264,7 +264,7 @@ fn main() -> Result<()> {
                 .collect()
         }),
 
-        supplied_unparsed_disks: Some({
+        nongimlet_observed_disks: Some({
             // U2
             let cmd = Command::new("pfexec")
                 .arg("nvmeadm")
