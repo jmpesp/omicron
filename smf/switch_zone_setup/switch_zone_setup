@@ -56,9 +56,26 @@ pfexec routeadm -e ipv6-forwarding -u
 # for randomized addresses
 BOUNDARY_SERVICES_PREFIX="fd00:99::"
 
-# if on the frostypaws scrimlet
-if dladm | grep ixgbe5 > /dev/null;
+while ! [ -f /opt/oxide/baseboard.json ];
+do
+    echo "waiting for /opt/oxide/baseboard.json"
+    sleep 1
+done
+
+if grep "frostypaws" /opt/oxide/baseboard.json;
 then
+    while ! dladm | grep ixgbe5;
+    do
+        echo "waiting for ixgbe5"
+        sleep 1;
+    done;
+
+    while ! dladm | grep ixgbe4;
+    do
+        echo "waiting for ixgbe4"
+        sleep 1;
+    done;
+
     # program in routes to fancyfeast for startup dendrite programming (nexus using OPTE)
     # next hop is enp1s0 on fancyfeast
     route add -inet6 "${BOUNDARY_SERVICES_PREFIX}"/64 fe80::21b:21ff:fec1:fb30 -ifp ixgbe5
@@ -66,7 +83,21 @@ then
     # program in a specific route to put geneve traffic through opte
     # next hop is ixgbe3
     route add -inet6 fd00:1122:3344:104::1/128 fe80::8261:5fff:fe11:ab31 -ifp ixgbe4
-else
+
+elif grep "kibblesnbits" /opt/oxide/baseboard.json;
+then
+    while ! dladm | grep e1000g4;
+    do
+        echo "waiting for e1000g4"
+        sleep 1;
+    done;
+
+    while ! dladm | grep e1000g3;
+    do
+        echo "waiting for e1000g3"
+        sleep 1;
+    done;
+
     # program in routes to fancyfeast for startup dendrite programming (nexus using OPTE)
     # next hop is enp4s0 on fancyfeast
     route add -inet6 "${BOUNDARY_SERVICES_PREFIX}"/64 fe80::4a22:54ff:fe40:8790 -ifp e1000g4
@@ -74,6 +105,9 @@ else
     # program in a specific route to put geneve traffic through opte
     # next hop is e1000g5
     route add -inet6 fd00:1122:3344:102::1/128 fe80::6a05:caff:fe15:bdec -ifp e1000g3
+
+else
+    echo "wat"
 fi
 
 exit $SMF_EXIT_OK
