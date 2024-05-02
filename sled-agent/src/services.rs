@@ -2383,7 +2383,11 @@ impl ServiceManager {
                     debug!(self.inner.log, "importing manifest");
 
                     let smfh = SmfHelper::new(&running_zone, service);
-                    smfh.import_manifest()?;
+
+                    // JWM: not included in switch zone tarball
+                    if !matches!(service, SwitchService::Uplink) {
+                        smfh.import_manifest()?;
+                    }
 
                     match service {
                         SwitchService::ManagementGatewayService => {
