@@ -20,6 +20,7 @@ use omicron_common::api::internal::shared::PortSpeed;
 use omicron_common::api::internal::shared::PortFec;
 use omicron_common::api::internal::shared::SwitchLocation;
 use omicron_common::api::internal::shared::UplinkConfig;
+use omicron_common::api::internal::shared::AllowedSourceIps;
 use omicron_common::zpool_name::ZpoolName;
 use omicron_common::zpool_name::ZPOOL_EXTERNAL_PREFIX;
 use omicron_common::zpool_name::ZPOOL_INTERNAL_PREFIX;
@@ -200,6 +201,8 @@ fn main() -> Result<()> {
 
                 bfd: vec![],
             },
+
+            allowed_source_ips: AllowedSourceIps::Any,
         };
 
         // XXX would like:
