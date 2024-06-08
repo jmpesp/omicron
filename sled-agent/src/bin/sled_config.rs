@@ -167,7 +167,7 @@ fn main() -> Result<()> {
             // rack_network_config: None,
 
             rack_network_config: RackNetworkConfig {
-                rack_subnet: "fd00:1122:3344:0100::/64".parse().unwrap(),
+                rack_subnet: "fd00:1122:3344:0100::/64".parse()?,
 
                 // pool for switch ports
                 infra_ip_first: "192.168.1.100".parse().unwrap(),
