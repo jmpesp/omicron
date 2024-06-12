@@ -425,6 +425,10 @@ fn main() -> Result<()> {
                             <[u8; 32]>::from_hex("01de000000000000000000000000000000000000000000000000000000000001").unwrap(),
 
                         components: vec![],
+
+                        no_stage0_caboose: true,
+
+                        old_rot_state: false,
                     }}
                 ]
             } else {
@@ -521,6 +525,10 @@ fn main() -> Result<()> {
                         // Present U.2 Sharkfin J hot swap controller (max5970)
                         // Present U.2 J NVMe Basic Management Control (nvme_bmc)
                     ],
+
+                    no_stage0_caboose: true,
+
+                    old_rot_state: false,
                 }},
             ],
         },
