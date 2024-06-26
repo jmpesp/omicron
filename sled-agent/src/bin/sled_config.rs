@@ -18,9 +18,11 @@ use omicron_common::address::Ipv6Range;
 use omicron_common::api::internal::shared::RackNetworkConfig;
 use omicron_common::api::internal::shared::PortSpeed;
 use omicron_common::api::internal::shared::PortFec;
+use omicron_common::api::internal::shared::PortConfigV2;
 use omicron_common::api::internal::shared::SwitchLocation;
-use omicron_common::api::internal::shared::UplinkConfig;
 use omicron_common::api::internal::shared::AllowedSourceIps;
+use omicron_common::api::internal::shared::UplinkAddressConfig;
+use omicron_common::api::internal::shared::RouteConfig;
 use omicron_common::zpool_name::ZpoolName;
 use omicron_common::zpool_name::ZPOOL_EXTERNAL_PREFIX;
 use omicron_common::zpool_name::ZPOOL_INTERNAL_PREFIX;
@@ -167,32 +169,38 @@ fn main() -> Result<()> {
             // rack_network_config: None,
 
             rack_network_config: RackNetworkConfig {
-                rack_subnet: "fd00:1122:3344:0100::/64".parse()?,
+                rack_subnet: "fd00:1122:3344:0100::/64".parse().unwrap(),
 
                 // pool for switch ports
                 infra_ip_first: "192.168.1.100".parse().unwrap(),
                 infra_ip_last: "192.168.1.150".parse().unwrap(),
 
                 ports: vec![
-                    UplinkConfig {
-                        // fancyfeast interface connected to 10G network
-                        gateway_ip: "192.168.1.1".parse().unwrap(),
+                    PortConfigV2 {
+                        routes: vec![RouteConfig {
+                            destination: "0.0.0.0/0".parse().unwrap(),
+                            // fancyfeast interface connected to 10G network
+                            nexthop: "192.168.1.1".parse().unwrap(),
+                            vlan_id: None,
+                        }],
+
+                        addresses: vec![UplinkAddressConfig {
+                            // address from the infra ip pool to assign to the qsfp port
+                            address: "192.168.1.100/24".parse().unwrap(),
+                            vlan_id: None,
+                        }],
 
                         // the frostypaws uplink should have 192.168.1.1
                         switch: SwitchLocation::Switch0,
 
                         // the name of the qsfp interface to use for reaching the
                         // default gateway (generally qsfp0)
-                        uplink_port: String::from("qsfp0"),
-
+                        port: String::from("qsfp0"),
                         uplink_port_speed: PortSpeed::Speed10G,
                         uplink_port_fec: PortFec::None,
-
-                        // address from the infra ip pool to assign to the qsfp port
-                        uplink_cidr: "192.168.1.100/24".parse().unwrap(),
-
-                        uplink_vid: None,
-                    }.into(),
+                        bgp_peers: vec![],
+                        autoneg: false,
+                    },
 
                     // XXX switch 1?
                 ],
