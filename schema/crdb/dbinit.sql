@@ -4017,6 +4017,63 @@ CREATE INDEX IF NOT EXISTS lookup_any_disk_by_volume_id ON omicron.public.disk (
 
 CREATE INDEX IF NOT EXISTS lookup_snapshot_by_destination_volume_id ON omicron.public.snapshot ( destination_volume_id );
 
+CREATE TYPE IF NOT EXISTS omicron.public.snapshot_replacement_state AS ENUM (
+  'requested',
+  'allocating',
+  'running',
+  'replacement_done',
+  'completing',
+  'complete'
+);
+
+CREATE TABLE IF NOT EXISTS omicron.public.snapshot_replacement (
+    /* unique ID for this snapshot replacement */
+    id UUID PRIMARY KEY,
+
+    request_time TIMESTAMPTZ NOT NULL,
+
+    old_dataset_id UUID NOT NULL,
+    old_region_id UUID NOT NULL,
+    old_snapshot_id UUID NOT NULL,
+
+    old_snapshot_volume_id UUID,
+
+    new_region_id UUID,
+
+    replacement_state omicron.public.snapshot_replacement_state NOT NULL,
+
+    operating_saga_id UUID
+);
+
+CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_by_state on omicron.public.snapshot_replacement (replacement_state);
+
+CREATE TYPE IF NOT EXISTS omicron.public.snapshot_replacement_step_state AS ENUM (
+  'requested',
+  'running',
+  'complete'
+);
+
+CREATE TABLE IF NOT EXISTS omicron.public.snapshot_replacement_step (
+    id UUID PRIMARY KEY,
+
+    request_id UUID NOT NULL,
+
+    request_time TIMESTAMPTZ NOT NULL,
+
+    volume_id UUID NOT NULL,
+
+    replacement_state omicron.public.snapshot_replacement_step_state NOT NULL,
+
+    operating_saga_id UUID
+);
+
+CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_step_by_state
+    on omicron.public.snapshot_replacement_step (replacement_state);
+
+CREATE UNIQUE INDEX IF NOT EXISTS unique_snapshot_replacement_per_volume
+    on omicron.public.snapshot_replacement_step (volume_id)
+    WHERE replacement_state != 'complete';
+
 /*
  * Metadata for the schema itself. This version number isn't great, as there's
  * nothing to ensure it gets bumped when it should be, but it's a start.
@@ -4145,7 +4202,7 @@ INSERT INTO omicron.public.db_metadata (
     version,
     target_version
 ) VALUES
-    (TRUE, NOW(), NOW(), '83.0.0', NULL)
+    (TRUE, NOW(), NOW(), '84.0.0', NULL)
 ON CONFLICT DO NOTHING;
 
 COMMIT;
