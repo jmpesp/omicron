@@ -32,6 +32,7 @@ use nexus_saga_recovery::LastPass;
 use nexus_types::deployment::Blueprint;
 use nexus_types::internal_api::background::LookupRegionPortStatus;
 use nexus_types::internal_api::background::RegionReplacementDriverStatus;
+use nexus_types::internal_api::background::SnapshotReplacementStartStatus;
 use nexus_types::inventory::BaseboardId;
 use omicron_uuid_kinds::CollectionUuid;
 use omicron_uuid_kinds::GenericUuid;
@@ -1256,6 +1257,38 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
                 }
             }
         };
+    } else if name == "snapshot_replacement" {
+        match serde_json::from_value::<SnapshotReplacementStartStatus>(
+            details.clone(),
+        ) {
+            Err(error) => eprintln!(
+                "warning: failed to interpret task details: {:?}: {:?}",
+                error, details
+            ),
+
+            Ok(status) => {
+                println!(
+                    "    total requests created ok: {}",
+                    status.requests_created_ok.len(),
+                );
+                for line in &status.requests_created_ok {
+                    println!("    > {line}");
+                }
+
+                println!(
+                    "    total start saga invoked ok: {}",
+                    status.start_invoked_ok.len(),
+                );
+                for line in &status.start_invoked_ok {
+                    println!("    > {line}");
+                }
+
+                println!("    errors: {}", status.errors.len());
+                for line in &status.errors {
+                    println!("    > {line}");
+                }
+            }
+        }
     } else {
         println!(
             "warning: unknown background task: {:?} \

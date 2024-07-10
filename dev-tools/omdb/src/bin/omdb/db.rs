@@ -73,9 +73,9 @@ use nexus_db_model::RegionReplacementStepType;
 use nexus_db_model::RegionSnapshot;
 use nexus_db_model::Sled;
 use nexus_db_model::Snapshot;
-use nexus_db_model::SnapshotState;
 use nexus_db_model::SnapshotReplacement;
 use nexus_db_model::SnapshotReplacementState;
+use nexus_db_model::SnapshotState;
 use nexus_db_model::SwCaboose;
 use nexus_db_model::SwRotPage;
 use nexus_db_model::UpstairsRepairNotification;
@@ -2881,7 +2881,9 @@ async fn cmd_db_snapshot_replacement_status(
         use db::schema::snapshot_replacement::dsl;
 
         dsl::snapshot_replacement
-            .filter(dsl::replacement_state.ne(SnapshotReplacementState::Complete))
+            .filter(
+                dsl::replacement_state.ne(SnapshotReplacementState::Complete),
+            )
             .limit(i64::from(u32::from(limit)))
             .select(SnapshotReplacement::as_select())
             .get_results_async(&*conn)
@@ -2891,19 +2893,20 @@ async fn cmd_db_snapshot_replacement_status(
     check_limit(&requests, limit, ctx);
 
     for request in requests {
-        let steps_left = datastore.non_complete_snapshot_replacement_steps(
-            opctx,
-            request.id,
-        )
-        .await?;
+        let steps_left = datastore
+            .non_complete_snapshot_replacement_steps(opctx, request.id)
+            .await?;
 
         println!("{}:", request.id);
         println!();
 
         println!("                    started: {}", request.request_time);
-        println!("                      state: {:?}",
-            request.replacement_state);
-        println!("            region snapshot: {} {} {}",
+        println!(
+            "                      state: {:?}",
+            request.replacement_state
+        );
+        println!(
+            "            region snapshot: {} {} {}",
             request.old_dataset_id,
             request.old_region_id,
             request.old_snapshot_id,
@@ -2927,22 +2930,18 @@ async fn cmd_db_snapshot_replacement_info(
         .await?;
 
     // Show details
-    let steps_left = datastore.non_complete_snapshot_replacement_steps(
-        opctx,
-        request.id,
-    )
-    .await?;
+    let steps_left = datastore
+        .non_complete_snapshot_replacement_steps(opctx, request.id)
+        .await?;
 
     println!("{}:", request.id);
     println!();
 
     println!("                    started: {}", request.request_time);
-    println!("                      state: {:?}",
-        request.replacement_state);
-    println!("            region snapshot: {} {} {}",
-        request.old_dataset_id,
-        request.old_region_id,
-        request.old_snapshot_id,
+    println!("                      state: {:?}", request.replacement_state);
+    println!(
+        "            region snapshot: {} {} {}",
+        request.old_dataset_id, request.old_region_id, request.old_snapshot_id,
     );
     println!("              new region id: {:?}", request.new_region_id);
     println!("    non-complete steps left: {:?}", steps_left);
@@ -2958,11 +2957,10 @@ async fn cmd_db_snapshot_replacement_request(
     args: &SnapshotReplacementRequestArgs,
     _destruction_token: DestructiveOperationToken,
 ) -> Result<(), anyhow::Error> {
-    let Some(region_snapshot) = datastore.region_snapshot_get(
-        args.dataset_id,
-        args.region_id,
-        args.snapshot_id,
-    ).await? else {
+    let Some(region_snapshot) = datastore
+        .region_snapshot_get(args.dataset_id, args.region_id, args.snapshot_id)
+        .await?
+    else {
         bail!("region snapshot not found!");
     };
 

@@ -19,3 +19,11 @@ pub struct LookupRegionPortStatus {
     pub found_port_ok: Vec<String>,
     pub errors: Vec<String>,
 }
+
+/// The status of a `snapshot_replacement_start` background task activation
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct SnapshotReplacementStartStatus {
+    pub requests_created_ok: Vec<String>,
+    pub start_invoked_ok: Vec<String>,
+    pub errors: Vec<String>,
+}

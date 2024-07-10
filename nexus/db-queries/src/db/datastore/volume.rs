@@ -3258,9 +3258,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_volumes_referencing_socket_addr() {
-        let logctx = dev::test_setup_log(
-            "test_find_volumes_referencing_socket_addr"
-        );
+        let logctx =
+            dev::test_setup_log("test_find_volumes_referencing_socket_addr");
         let log = logctx.log.new(o!());
         let mut db = test_setup_database(&log).await;
         let (opctx, db_datastore) = datastore_test(&logctx, &db).await;
@@ -3306,24 +3305,26 @@ mod tests {
             .await
             .unwrap();
 
-        let volumes = db_datastore.find_volumes_referencing_socket_addr(
-            &opctx,
-            "[fd00:1122:3344:104::1]:400".parse().unwrap(),
-        )
-        .await.
-        unwrap();
+        let volumes = db_datastore
+            .find_volumes_referencing_socket_addr(
+                &opctx,
+                "[fd00:1122:3344:104::1]:400".parse().unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert_eq!(volumes.len(), 1);
         assert_eq!(volumes[0].id(), volume_id);
 
         // case where the needle is missing
 
-        let volumes = db_datastore.find_volumes_referencing_socket_addr(
-            &opctx,
-            "[fd55:1122:3344:104::1]:400".parse().unwrap(),
-        )
-        .await.
-        unwrap();
+        let volumes = db_datastore
+            .find_volumes_referencing_socket_addr(
+                &opctx,
+                "[fd55:1122:3344:104::1]:400".parse().unwrap(),
+            )
+            .await
+            .unwrap();
 
         assert!(volumes.is_empty());
 
