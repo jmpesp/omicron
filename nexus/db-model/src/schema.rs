@@ -1775,6 +1775,7 @@ table! {
         request_id -> Uuid,
         request_time -> Timestamptz,
         volume_id -> Uuid,
+        old_snapshot_volume_id -> Nullable<Uuid>,
         replacement_state -> crate::SnapshotReplacementStepStateEnum,
         operating_saga_id -> Nullable<Uuid>,
     }

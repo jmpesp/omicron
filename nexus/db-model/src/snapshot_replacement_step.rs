@@ -68,6 +68,9 @@ pub struct SnapshotReplacementStep {
     /// A volume that references the snapshot
     pub volume_id: Uuid,
 
+    /// A synthetic volume that only is used to later delete the old snapshot
+    pub old_snapshot_volume_id: Option<Uuid>,
+
     pub replacement_state: SnapshotReplacementStepState,
 
     pub operating_saga_id: Option<Uuid>,
@@ -80,6 +83,7 @@ impl SnapshotReplacementStep {
             request_id,
             request_time: Utc::now(),
             volume_id,
+            old_snapshot_volume_id: None,
             replacement_state: SnapshotReplacementStepState::Requested,
             operating_saga_id: None,
         }
