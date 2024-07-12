@@ -109,6 +109,7 @@ use super::tasks::region_replacement_driver;
 use super::tasks::saga_recovery;
 use super::tasks::service_firewall_rules;
 use super::tasks::snapshot_replacement_finish;
+use super::tasks::snapshot_replacement_garbage_collect;
 use super::tasks::snapshot_replacement_start;
 use super::tasks::snapshot_replacement_step;
 use super::tasks::sync_service_zone_nat::ServiceZoneNatTracker;
@@ -163,6 +164,7 @@ pub struct BackgroundTasks {
     pub task_snapshot_replacement_start: Activator,
     pub task_snapshot_replacement_step: Activator,
     pub task_snapshot_replacement_finish: Activator,
+    pub task_snapshot_replacement_garbage_collection: Activator,
 
     // Handles to activate background tasks that do not get used by Nexus
     // at-large.  These background tasks are implementation details as far as
@@ -245,6 +247,7 @@ impl BackgroundTasksInitializer {
             task_snapshot_replacement_start: Activator::new(),
             task_snapshot_replacement_step: Activator::new(),
             task_snapshot_replacement_finish: Activator::new(),
+            task_snapshot_replacement_garbage_collection: Activator::new(),
 
             task_internal_dns_propagation: Activator::new(),
             task_external_dns_propagation: Activator::new(),
@@ -307,6 +310,7 @@ impl BackgroundTasksInitializer {
             task_snapshot_replacement_start,
             task_snapshot_replacement_step,
             task_snapshot_replacement_finish,
+            task_snapshot_replacement_garbage_collection,
             // Add new background tasks here.  Be sure to use this binding in a
             // call to `Driver::register()` below.  That's what actually wires
             // up the Activator to the corresponding background task.
@@ -737,13 +741,29 @@ impl BackgroundTasksInitializer {
             period: config.snapshot_replacement_finish.period_secs,
             task_impl: Box::new(
                 snapshot_replacement_finish::SnapshotReplacementFinishDetector::new(
-                    datastore,
+                    datastore.clone(),
                     sagas.clone(),
                 ),
             ),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_snapshot_replacement_finish,
+        });
+
+        driver.register(TaskDefinition {
+            name: "snapshot_replacement_garbage_collection",
+            description:
+                "clean up all snapshot replacement step volumes",
+            period: config.snapshot_replacement_garbage_collection.period_secs,
+            task_impl: Box::new(
+                snapshot_replacement_garbage_collect::SnapshotReplacementGarbageCollect::new(
+                    datastore,
+                    sagas.clone(),
+                ),
+            ),
+            opctx: opctx.child(BTreeMap::new()),
+            watchers: vec![],
+            activator: task_snapshot_replacement_garbage_collection,
         });
 
         driver

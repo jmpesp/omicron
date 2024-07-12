@@ -33,6 +33,7 @@ use nexus_types::deployment::Blueprint;
 use nexus_types::internal_api::background::LookupRegionPortStatus;
 use nexus_types::internal_api::background::RegionReplacementDriverStatus;
 use nexus_types::internal_api::background::SnapshotReplacementFinishStatus;
+use nexus_types::internal_api::background::SnapshotReplacementGarbageCollectStatus;
 use nexus_types::internal_api::background::SnapshotReplacementStartStatus;
 use nexus_types::internal_api::background::SnapshotReplacementStepStatus;
 use nexus_types::inventory::BaseboardId;
@@ -1338,6 +1339,30 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
                     status.records_set_to_done.len(),
                 );
                 for line in &status.records_set_to_done {
+                    println!("    > {line}");
+                }
+
+                println!("    errors: {}", status.errors.len());
+                for line in &status.errors {
+                    println!("    > {line}");
+                }
+            }
+        }
+    } else if name == "snapshot_replacement_garbage_collect" {
+        match serde_json::from_value::<SnapshotReplacementGarbageCollectStatus>(
+            details.clone(),
+        ) {
+            Err(error) => eprintln!(
+                "warning: failed to interpret task details: {:?}: {:?}",
+                error, details
+            ),
+
+            Ok(status) => {
+                println!(
+                    "    total volume deletes requested: {}",
+                    status.volume_deletes_requested.len(),
+                );
+                for line in &status.volume_deletes_requested {
                     println!("    > {line}");
                 }
 

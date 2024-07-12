@@ -393,6 +393,9 @@ pub struct BackgroundTaskConfig {
     pub snapshot_replacement_step: SnapshotReplacementStepConfig,
     /// configuration for snapshot replacement finisher task
     pub snapshot_replacement_finish: SnapshotReplacementFinishConfig,
+    /// configuration for snapshot replacement garbage collection
+    pub snapshot_replacement_garbage_collection:
+        SnapshotReplacementGarbageCollectionConfig,
 }
 
 #[serde_as]
@@ -617,6 +620,14 @@ pub struct SnapshotReplacementStepConfig {
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SnapshotReplacementFinishConfig {
+    /// period (in seconds) for periodic activations of this background task
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub period_secs: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SnapshotReplacementGarbageCollectionConfig {
     /// period (in seconds) for periodic activations of this background task
     #[serde_as(as = "DurationSeconds<u64>")]
     pub period_secs: Duration,
@@ -869,6 +880,7 @@ mod test {
             snapshot_replacement_start.period_secs = 30
             snapshot_replacement_step.period_secs = 30
             snapshot_replacement_finish.period_secs = 30
+            snapshot_replacement_garbage_collection.period_secs = 30
             [default_region_allocation_strategy]
             type = "random"
             seed = 0
@@ -1034,6 +1046,10 @@ mod test {
                             SnapshotReplacementFinishConfig {
                                 period_secs: Duration::from_secs(30),
                             },
+                        snapshot_replacement_garbage_collection:
+                            SnapshotReplacementGarbageCollectionConfig {
+                                period_secs: Duration::from_secs(30),
+                            },
                     },
                     default_region_allocation_strategy:
                         crate::nexus_config::RegionAllocationStrategy::Random {
@@ -1111,6 +1127,7 @@ mod test {
             snapshot_replacement_start.period_secs = 30
             snapshot_replacement_step.period_secs = 30
             snapshot_replacement_finish.period_secs = 30
+            snapshot_replacement_garbage_collection.period_secs = 30
             [default_region_allocation_strategy]
             type = "random"
             "##,
