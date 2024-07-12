@@ -295,7 +295,7 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        // Run the region replacement finish saga
+        // Run the snapshot replacement finish saga
         let params = Params {
             serialized_authn: Serialized::for_opctx(&opctx),
             old_snapshot_volume_id,
