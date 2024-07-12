@@ -39,7 +39,7 @@
 //! 3. For the affected Volume, swap the snapshot being replaced with the new
 //!    region.
 //!
-//! 4. Update the region replacement request by clearing the operating saga id
+//! 4. Update the snapshot replacement request by clearing the operating saga id
 //!    and changing the state to "Running".
 //!
 //! Any unwind will place the state back into Requested.
