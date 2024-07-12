@@ -536,12 +536,14 @@ impl DataStore {
 
         let updated = diesel::update(dsl::snapshot_replacement)
             .filter(dsl::id.eq(snapshot_replacement_id))
-            .filter(dsl::operating_saga_id.eq(Option::<Uuid>::None))
+            .filter(dsl::operating_saga_id.is_null())
             .filter(
                 dsl::replacement_state.eq(SnapshotReplacementState::Running),
             )
-            .set((dsl::replacement_state
-                .eq(SnapshotReplacementState::ReplacementDone),))
+            .set(
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::ReplacementDone),
+            )
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
             .execute_and_check(&*self.pool_connection_authorized(opctx).await?)
             .await;

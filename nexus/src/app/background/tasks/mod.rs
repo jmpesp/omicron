@@ -25,6 +25,7 @@ pub mod region_replacement;
 pub mod region_replacement_driver;
 pub mod saga_recovery;
 pub mod service_firewall_rules;
+pub mod snapshot_replacement_finish;
 pub mod snapshot_replacement_start;
 pub mod snapshot_replacement_step;
 pub mod sync_service_zone_nat;
