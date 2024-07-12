@@ -605,6 +605,22 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
+    pub async fn get_snapshot_replacement_step_by_id(
+        &self,
+        opctx: &OpContext,
+        id: Uuid,
+    ) -> Result<SnapshotReplacementStep, Error> {
+        use db::schema::snapshot_replacement_step::dsl;
+
+        dsl::snapshot_replacement_step
+            .filter(dsl::id.eq(id))
+            .get_result_async::<SnapshotReplacementStep>(
+                &*self.pool_connection_authorized(opctx).await?,
+            )
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
     pub async fn get_requested_snapshot_replacement_steps(
         &self,
         opctx: &OpContext,
@@ -831,6 +847,83 @@ impl DataStore {
         }
 
         Ok(records)
+    }
+
+    /// Return all snapshot replacement steps for which the snapshot replacement
+    /// request is Complete where the volume still exists
+    pub async fn snapshot_replacement_steps_requiring_garbage_collection(
+        &self,
+        opctx: &OpContext,
+    ) -> Result<Vec<SnapshotReplacementStep>, Error> {
+        use db::schema::snapshot_replacement;
+        use db::schema::snapshot_replacement_step;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        snapshot_replacement_step::table
+            .inner_join(
+                snapshot_replacement::table.on(snapshot_replacement::id
+                    .eq(snapshot_replacement_step::request_id)),
+            )
+            .filter(
+                snapshot_replacement::replacement_state
+                    .eq(SnapshotReplacementState::Complete),
+            )
+            .select(SnapshotReplacementStep::as_select())
+            .get_results_async::<SnapshotReplacementStep>(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    /// Set the snapshot replacement step's state to VolumeDeleted
+    pub async fn set_snapshot_replacement_step_volume_deleted(
+        &self,
+        opctx: &OpContext,
+        snapshot_replacement_step_id: Uuid,
+    ) -> Result<(), Error> {
+        use db::schema::snapshot_replacement_step::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let updated = diesel::update(dsl::snapshot_replacement_step)
+            .filter(dsl::id.eq(snapshot_replacement_step_id))
+            .filter(
+                dsl::replacement_state
+                    .eq(SnapshotReplacementStepState::Complete),
+            )
+            .set(
+                dsl::replacement_state
+                    .eq(SnapshotReplacementStepState::VolumeDeleted),
+            )
+            .check_if_exists::<SnapshotReplacementStep>(
+                snapshot_replacement_step_id,
+            )
+            .execute_and_check(&conn)
+            .await;
+
+        match updated {
+            Ok(result) => match result.status {
+                UpdateStatus::Updated => Ok(()),
+
+                UpdateStatus::NotUpdatedButExists => {
+                    let record = result.found;
+
+                    if record.replacement_state
+                        == SnapshotReplacementStepState::VolumeDeleted
+                    {
+                        Ok(())
+                    } else {
+                        Err(Error::conflict(format!(
+                            "snapshot replacement step {} set to {:?}",
+                            snapshot_replacement_step_id,
+                            record.replacement_state,
+                        )))
+                    }
+                }
+            },
+
+            Err(e) => Err(public_error_from_diesel(e, ErrorHandler::Server)),
+        }
     }
 }
 
@@ -1113,6 +1206,59 @@ mod test {
             .unwrap();
 
         datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
+
+        db.cleanup().await.unwrap();
+        logctx.cleanup_successful();
+    }
+
+    #[tokio::test]
+    async fn snapshot_replacement_step_gc() {
+        let logctx = dev::test_setup_log("snapshot_replacement_step_gc");
+        let mut db = test_setup_database(&logctx.log).await;
+        let (opctx, datastore) = datastore_test(&logctx, &db).await;
+
+        let mut request = SnapshotReplacement::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        request.replacement_state = SnapshotReplacementState::Complete;
+
+        let request_id = request.id;
+
+        datastore
+            .insert_snapshot_replacement_request_with_volume_id(
+                &opctx,
+                request,
+                Uuid::new_v4(),
+            )
+            .await
+            .unwrap();
+
+        assert!(datastore
+            .snapshot_replacement_steps_requiring_garbage_collection(&opctx,)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut step = SnapshotReplacementStep::new(request_id, Uuid::new_v4());
+        step.replacement_state = SnapshotReplacementStepState::Complete;
+        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
+
+        let mut step = SnapshotReplacementStep::new(request_id, Uuid::new_v4());
+        step.replacement_state = SnapshotReplacementStepState::Complete;
+        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
+
+        assert_eq!(
+            2,
+
+            datastore.snapshot_replacement_steps_requiring_garbage_collection(
+                &opctx,
+            )
+            .await
+            .unwrap()
+            .len(),
+        );
 
         db.cleanup().await.unwrap();
         logctx.cleanup_successful();

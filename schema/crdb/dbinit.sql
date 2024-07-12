@@ -4050,7 +4050,8 @@ CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_by_state on omicron.publi
 CREATE TYPE IF NOT EXISTS omicron.public.snapshot_replacement_step_state AS ENUM (
   'requested',
   'running',
-  'complete'
+  'complete',
+  'volume_deleted'
 );
 
 CREATE TABLE IF NOT EXISTS omicron.public.snapshot_replacement_step (

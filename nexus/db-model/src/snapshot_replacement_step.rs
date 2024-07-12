@@ -22,6 +22,7 @@ impl_enum_type!(
     Requested => b"requested"
     Running => b"running"
     Complete => b"complete"
+    VolumeDeleted => b"volume_deleted"
 );
 
 // FromStr impl required for use with clap (aka omdb)
@@ -33,6 +34,7 @@ impl std::str::FromStr for SnapshotReplacementStepState {
             "requested" => Ok(SnapshotReplacementStepState::Requested),
             "running" => Ok(SnapshotReplacementStepState::Running),
             "complete" => Ok(SnapshotReplacementStepState::Complete),
+            "volume_deleted" => Ok(SnapshotReplacementStepState::VolumeDeleted),
             _ => Err(format!("unrecognized value {} for enum", s)),
         }
     }

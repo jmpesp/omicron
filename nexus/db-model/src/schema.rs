@@ -1781,6 +1781,12 @@ table! {
     }
 }
 
+allow_tables_to_appear_in_same_query!(
+    snapshot_replacement,
+    snapshot_replacement_step,
+    volume
+);
+
 table! {
     db_metadata (singleton) {
         singleton -> Bool,

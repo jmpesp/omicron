@@ -77,7 +77,7 @@ impl std::str::FromStr for SnapshotReplacementState {
 ///         |                        |
 ///         v                        |
 ///                                  |
-///     Completed                    ---
+///     Complete                     ---
 /// ```
 ///
 /// which are captured in the SnapshotReplacementState enum. Annotated on the
