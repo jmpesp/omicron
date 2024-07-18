@@ -84,7 +84,8 @@ impl SnapshotReplacementFindAffected {
             request,
         };
 
-        let saga_dag = SagaSnapshotReplacementStepGarbageCollect::prepare(&params)?;
+        let saga_dag =
+            SagaSnapshotReplacementStepGarbageCollect::prepare(&params)?;
         self.sagas.saga_start(saga_dag).await
     }
 
@@ -113,7 +114,8 @@ impl SnapshotReplacementFindAffected {
         for request in requests {
             let request_id = request.id;
 
-            let result = self.send_garbage_collect_request(opctx, request).await;
+            let result =
+                self.send_garbage_collect_request(opctx, request).await;
 
             match result {
                 Ok(()) => {
@@ -261,17 +263,19 @@ impl SnapshotReplacementFindAffected {
                 // we're duplicating the replacement work: that volume will be
                 // garbage collected later. There's a unique index that will
                 // prevent the same step being inserted with the same volume id.
-                let existing_step = match self.datastore.get_snapshot_replacement_step_by_old_snapshot_volume_id(
-                    &opctx,
-                    volume.id(),
-                )
-                .await {
+                let existing_step = match self
+                    .datastore
+                    .get_snapshot_replacement_step_by_old_snapshot_volume_id(
+                        &opctx,
+                        volume.id(),
+                    )
+                    .await
+                {
                     Ok(step) => step,
 
                     Err(e) => {
-                        let s = format!(
-                            "error querying for existing step: {e}"
-                        );
+                        let s =
+                            format!("error querying for existing step: {e}");
                         error!(
                             log,
                             "{s}";
@@ -542,8 +546,6 @@ mod test {
                 &opctx,
                 request_id,
                 operating_saga_id,
-                new_region_id,
-                old_snapshot_volume_id,
             )
             .await
             .unwrap();

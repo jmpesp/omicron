@@ -37,7 +37,9 @@ impl std::str::FromStr for SnapshotReplacementState {
             "requested" => Ok(SnapshotReplacementState::Requested),
             "allocating" => Ok(SnapshotReplacementState::Allocating),
             "replacement_done" => Ok(SnapshotReplacementState::ReplacementDone),
-            "deleting_old_volume" => Ok(SnapshotReplacementState::DeletingOldVolume),
+            "deleting_old_volume" => {
+                Ok(SnapshotReplacementState::DeletingOldVolume)
+            }
             "running" => Ok(SnapshotReplacementState::Running),
             "complete" => Ok(SnapshotReplacementState::Complete),
             _ => Err(format!("unrecognized value {} for enum", s)),

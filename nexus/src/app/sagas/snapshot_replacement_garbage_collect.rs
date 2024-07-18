@@ -21,7 +21,8 @@
 //!       Running
 //! ```
 
-use super::{ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,
+use super::{
+    ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,
     ACTION_GENERATE_ID,
 };
 use crate::app::sagas::declare_saga_actions;
@@ -139,7 +140,11 @@ async fn srgs_set_saga_id(
     // request.
     osagactx
         .datastore()
-        .set_snapshot_replacement_deleting_old_volume(&opctx, params.request.id, saga_id)
+        .set_snapshot_replacement_deleting_old_volume(
+            &opctx,
+            params.request.id,
+            saga_id,
+        )
         .await
         .map_err(ActionError::action_failed)?;
 
@@ -200,8 +205,8 @@ pub(crate) mod test {
     use crate::app::sagas::snapshot_replacement_garbage_collect::{
         Params, SagaSnapshotReplacementGarbageCollect,
     };
-    use nexus_db_model::SnapshotReplacementStep;
-    use nexus_db_model::SnapshotReplacementStepState;
+    use nexus_db_model::SnapshotReplacement;
+    use nexus_db_model::SnapshotReplacementState;
     use nexus_db_model::Volume;
     use nexus_db_queries::authn::saga::Serialized;
     use nexus_db_queries::context::OpContext;
@@ -262,13 +267,20 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        let mut request =
-            SnapshotReplacementStep::new(Uuid::new_v4(), Uuid::new_v4());
-        request.replacement_state = SnapshotReplacementStepState::Complete;
+        let mut request = SnapshotReplacement::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        request.replacement_state = SnapshotReplacementState::ReplacementDone;
         request.old_snapshot_volume_id = Some(old_snapshot_volume_id);
 
         datastore
-            .insert_snapshot_replacement_step(&opctx, request.clone())
+            .insert_snapshot_replacement_request_with_volume_id(
+                &opctx,
+                request.clone(),
+                Uuid::new_v4(),
+            )
             .await
             .unwrap();
 
@@ -287,14 +299,11 @@ pub(crate) mod test {
 
         // Validate the state transition
         let result = datastore
-            .get_snapshot_replacement_step_by_id(&opctx, request.id)
+            .get_snapshot_replacement_request_by_id(&opctx, request.id)
             .await
             .unwrap();
 
-        assert_eq!(
-            result.replacement_state,
-            SnapshotReplacementStepState::VolumeDeleted
-        );
+        assert_eq!(result.replacement_state, SnapshotReplacementState::Running);
 
         // Validate the Volume was deleted
         assert!(datastore

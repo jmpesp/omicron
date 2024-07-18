@@ -344,8 +344,6 @@ mod test {
                 &opctx,
                 request_id,
                 operating_saga_id,
-                new_region_id,
-                old_snapshot_volume_id,
             )
             .await
             .unwrap();

@@ -82,13 +82,13 @@ impl SnapshotReplacementGarbageCollect {
         for request in requests {
             let request_id = request.id;
 
-            let result = self.send_garbage_collect_request(opctx, request).await;
+            let result =
+                self.send_garbage_collect_request(opctx, request).await;
 
             match result {
                 Ok(()) => {
-                    let s = format!(
-                        "garbage collect request ok for {request_id}"
-                    );
+                    let s =
+                        format!("garbage collect request ok for {request_id}");
 
                     info!(&log, "{s}");
                     status.garbage_collect_requested.push(s);
@@ -164,16 +164,17 @@ mod test {
         assert_eq!(result, SnapshotReplacementGarbageCollectStatus::default());
         assert_eq!(starter.count_reset(), 0);
 
-        // Add a snapshot request with two steps that need garbage collection
+        // Add two snapshot requests that need garbage collection
 
         let mut request = SnapshotReplacement::new(
             Uuid::new_v4(),
             Uuid::new_v4(),
             Uuid::new_v4(),
         );
-        request.replacement_state = SnapshotReplacementState::Complete;
+        request.replacement_state = SnapshotReplacementState::ReplacementDone;
+        request.old_snapshot_volume_id = Some(Uuid::new_v4());
 
-        let request_id = request.id;
+        let request_1_id = request.id;
 
         datastore
             .insert_snapshot_replacement_request_with_volume_id(
@@ -184,27 +185,26 @@ mod test {
             .await
             .unwrap();
 
-        assert!(datastore
-            .snapshot_replacement_steps_requiring_garbage_collection(&opctx,)
+        let mut request = SnapshotReplacement::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        request.replacement_state = SnapshotReplacementState::ReplacementDone;
+        request.old_snapshot_volume_id = Some(Uuid::new_v4());
+
+        let request_2_id = request.id;
+
+        datastore
+            .insert_snapshot_replacement_request_with_volume_id(
+                &opctx,
+                request,
+                Uuid::new_v4(),
+            )
             .await
-            .unwrap()
-            .is_empty());
+            .unwrap();
 
-        let mut step = SnapshotReplacementStep::new(request_id, Uuid::new_v4());
-        step.replacement_state = SnapshotReplacementStepState::Complete;
-        step.old_snapshot_volume_id = Some(Uuid::new_v4());
-
-        let step_1_id = step.id;
-        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
-
-        let mut step = SnapshotReplacementStep::new(request_id, Uuid::new_v4());
-        step.replacement_state = SnapshotReplacementStepState::Complete;
-        step.old_snapshot_volume_id = Some(Uuid::new_v4());
-
-        let step_2_id = step.id;
-        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
-
-        // Activate the task - it should pick up the two steps
+        // Activate the task - it should pick up the two requests
 
         let result: SnapshotReplacementGarbageCollectStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
@@ -213,15 +213,13 @@ mod test {
             eprintln!("{error}");
         }
 
-        /* // XXX make this make sense for garbage collects requested
-        assert_eq!(result.volume_deletes_requested.len(), 2);
+        assert_eq!(result.garbage_collect_requested.len(), 2);
 
-        let s = format!("delete request ok for {step_1_id}");
-        assert!(result.volume_deletes_requested.contains(&s));
+        let s = format!("garbage collect request ok for {request_1_id}");
+        assert!(result.garbage_collect_requested.contains(&s));
 
-        let s = format!("delete request ok for {step_2_id}");
-        assert!(result.volume_deletes_requested.contains(&s));
-        */
+        let s = format!("garbage collect request ok for {request_2_id}");
+        assert!(result.garbage_collect_requested.contains(&s));
 
         assert_eq!(result.errors.len(), 0);
 

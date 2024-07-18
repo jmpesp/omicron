@@ -117,8 +117,8 @@ async fn srsgs_update_request_record(
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::app::sagas::snapshot_replacement_garbage_collect::{
-        Params, SagaSnapshotReplacementGarbageCollect,
+    use crate::app::sagas::snapshot_replacement_step_garbage_collect::{
+        Params, SagaSnapshotReplacementStepGarbageCollect,
     };
     use nexus_db_model::SnapshotReplacementStep;
     use nexus_db_model::SnapshotReplacementStepState;
@@ -134,7 +134,7 @@ pub(crate) mod test {
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
 
     #[nexus_test(server = crate::Server)]
-    async fn test_snapshot_replacement_garbage_collect_saga(
+    async fn test_snapshot_replacement_step_garbage_collect_saga(
         cptestctx: &ControlPlaneTestContext,
     ) {
         let nexus = &cptestctx.server.server_context().nexus;
@@ -201,7 +201,7 @@ pub(crate) mod test {
 
         let _output = nexus
             .sagas
-            .saga_execute::<SagaSnapshotReplacementGarbageCollect>(params)
+            .saga_execute::<SagaSnapshotReplacementStepGarbageCollect>(params)
             .await
             .unwrap();
 

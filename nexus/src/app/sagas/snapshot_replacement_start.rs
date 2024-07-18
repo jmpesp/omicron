@@ -407,17 +407,19 @@ async fn ssrs_new_region_ensure(
     // downstairs port. Once this goes away, Nexus will require a way to query
     // for the repair port!
 
-    let mut repair_addr: SocketAddrV6 = match region_snapshot.snapshot_addr.parse() {
-        Ok(addr) => addr,
+    let mut repair_addr: SocketAddrV6 =
+        match region_snapshot.snapshot_addr.parse() {
+            Ok(addr) => addr,
 
-        Err(e) => {
-            return Err(ActionError::action_failed(format!(
-                "error parsing region_snapshot.snapshot_addr: {e}"
-            )));
-        }
-    };
+            Err(e) => {
+                return Err(ActionError::action_failed(format!(
+                    "error parsing region_snapshot.snapshot_addr: {e}"
+                )));
+            }
+        };
 
-    repair_addr.set_port(repair_addr.port() + crucible_common::REPAIR_PORT_OFFSET);
+    repair_addr
+        .set_port(repair_addr.port() + crucible_common::REPAIR_PORT_OFFSET);
 
     let ensured_region = osagactx
         .nexus()
@@ -899,8 +901,10 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        assert_eq!(result.replacement_state,
-        SnapshotReplacementState::ReplacementDone);
+        assert_eq!(
+            result.replacement_state,
+            SnapshotReplacementState::ReplacementDone
+        );
         assert!(result.new_region_id.is_some());
         assert!(result.operating_saga_id.is_none());
 

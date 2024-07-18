@@ -320,9 +320,8 @@ impl DataStore {
                 dsl::replacement_state.eq(SnapshotReplacementState::Allocating),
             )
             .set((
-                dsl::replacement_state.eq(
-                    SnapshotReplacementState::ReplacementDone
-                ),
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::ReplacementDone),
                 dsl::old_snapshot_volume_id.eq(Some(old_snapshot_volume_id)),
                 dsl::new_region_id.eq(Some(new_region_id)),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
@@ -373,14 +372,12 @@ impl DataStore {
         let updated = diesel::update(dsl::snapshot_replacement)
             .filter(dsl::id.eq(snapshot_replacement_id))
             .filter(
-                dsl::replacement_state.eq(
-                    SnapshotReplacementState::ReplacementDone
-                )
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::ReplacementDone),
             )
             .set((
-                dsl::replacement_state.eq(
-                    SnapshotReplacementState::DeletingOldVolume
-                ),
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::DeletingOldVolume),
                 dsl::operating_saga_id.eq(operating_saga_id),
             ))
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
@@ -426,11 +423,13 @@ impl DataStore {
         let updated = diesel::update(dsl::snapshot_replacement)
             .filter(dsl::id.eq(snapshot_replacement_id))
             .filter(
-                dsl::replacement_state.eq(SnapshotReplacementState::DeletingOldVolume),
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::DeletingOldVolume),
             )
             .filter(dsl::operating_saga_id.eq(operating_saga_id))
             .set((
-                dsl::replacement_state.eq(SnapshotReplacementState::ReplacementDone),
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::ReplacementDone),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
             ))
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
@@ -477,12 +476,11 @@ impl DataStore {
             .filter(dsl::id.eq(snapshot_replacement_id))
             .filter(dsl::operating_saga_id.eq(operating_saga_id))
             .filter(
-                dsl::replacement_state.eq(SnapshotReplacementState::DeletingOldVolume),
+                dsl::replacement_state
+                    .eq(SnapshotReplacementState::DeletingOldVolume),
             )
             .set((
-                dsl::replacement_state.eq(
-                    SnapshotReplacementState::Running
-                ),
+                dsl::replacement_state.eq(SnapshotReplacementState::Running),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
             ))
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
