@@ -183,8 +183,8 @@ impl DataStore {
     }
 
     /// Return snapshot replacement requests that are in state `ReplacementDone`
-    /// with no currently operating saga. These need to be completed.
-    pub async fn get_done_snapshot_replacements(
+    /// with no currently operating saga.
+    pub async fn get_replacement_done_snapshot_replacements(
         &self,
         opctx: &OpContext,
     ) -> Result<Vec<SnapshotReplacement>, Error> {
@@ -302,8 +302,9 @@ impl DataStore {
         }
     }
 
-    /// Transition from Allocating to Running, and clear the operating saga id.
-    pub async fn set_snapshot_replacement_running(
+    /// Transition from Allocating to ReplacementDone, and clear the operating
+    /// saga id.
+    pub async fn set_snapshot_replacement_replacement_done(
         &self,
         opctx: &OpContext,
         snapshot_replacement_id: Uuid,
@@ -319,7 +320,9 @@ impl DataStore {
                 dsl::replacement_state.eq(SnapshotReplacementState::Allocating),
             )
             .set((
-                dsl::replacement_state.eq(SnapshotReplacementState::Running),
+                dsl::replacement_state.eq(
+                    SnapshotReplacementState::ReplacementDone
+                ),
                 dsl::old_snapshot_volume_id.eq(Some(old_snapshot_volume_id)),
                 dsl::new_region_id.eq(Some(new_region_id)),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
@@ -336,7 +339,7 @@ impl DataStore {
 
                     if record.operating_saga_id == None
                         && record.replacement_state
-                            == SnapshotReplacementState::Running
+                            == SnapshotReplacementState::ReplacementDone
                         && record.new_region_id == Some(new_region_id)
                         && record.old_snapshot_volume_id
                             == Some(old_snapshot_volume_id)
@@ -359,8 +362,8 @@ impl DataStore {
     }
 
     /// Transition a SnapshotReplacement record from ReplacementDone to
-    /// Completing, setting a unique id at the same time.
-    pub async fn set_snapshot_replacement_completing(
+    /// DeletingOldVolume, setting a unique id at the same time.
+    pub async fn set_snapshot_replacement_deleting_old_volume(
         &self,
         opctx: &OpContext,
         snapshot_replacement_id: Uuid,
@@ -370,11 +373,14 @@ impl DataStore {
         let updated = diesel::update(dsl::snapshot_replacement)
             .filter(dsl::id.eq(snapshot_replacement_id))
             .filter(
-                dsl::replacement_state
-                    .eq(SnapshotReplacementState::ReplacementDone),
+                dsl::replacement_state.eq(
+                    SnapshotReplacementState::ReplacementDone
+                )
             )
             .set((
-                dsl::replacement_state.eq(SnapshotReplacementState::Completing),
+                dsl::replacement_state.eq(
+                    SnapshotReplacementState::DeletingOldVolume
+                ),
                 dsl::operating_saga_id.eq(operating_saga_id),
             ))
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
@@ -389,12 +395,13 @@ impl DataStore {
 
                     if record.operating_saga_id == Some(operating_saga_id)
                         && record.replacement_state
-                            == SnapshotReplacementState::Completing
+                            == SnapshotReplacementState::DeletingOldVolume
                     {
                         Ok(())
                     } else {
                         Err(Error::conflict(format!(
-                            "snapshot replacement {} set to {:?} (operating saga id {:?})",
+                            "snapshot replacement {} set to {:?} \
+                            (operating saga id {:?})",
                             snapshot_replacement_id,
                             record.replacement_state,
                             record.operating_saga_id,
@@ -407,9 +414,9 @@ impl DataStore {
         }
     }
 
-    /// Transition a SnapshotReplacement record from Completing to ReplacementDone,
-    /// clearing the operating saga id.
-    pub async fn undo_set_snapshot_replacement_completing(
+    /// Transition a SnapshotReplacement record from DeletingOldVolume to
+    /// ReplacementDone, clearing the operating saga id.
+    pub async fn undo_set_snapshot_replacement_deleting_old_volume(
         &self,
         opctx: &OpContext,
         snapshot_replacement_id: Uuid,
@@ -419,12 +426,11 @@ impl DataStore {
         let updated = diesel::update(dsl::snapshot_replacement)
             .filter(dsl::id.eq(snapshot_replacement_id))
             .filter(
-                dsl::replacement_state.eq(SnapshotReplacementState::Completing),
+                dsl::replacement_state.eq(SnapshotReplacementState::DeletingOldVolume),
             )
             .filter(dsl::operating_saga_id.eq(operating_saga_id))
             .set((
-                dsl::replacement_state
-                    .eq(SnapshotReplacementState::ReplacementDone),
+                dsl::replacement_state.eq(SnapshotReplacementState::ReplacementDone),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
             ))
             .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
@@ -444,7 +450,8 @@ impl DataStore {
                         Ok(())
                     } else {
                         Err(Error::conflict(format!(
-                            "snapshot replacement {} set to {:?} (operating saga id {:?})",
+                            "snapshot replacement {} set to {:?} \
+                            (operating saga id {:?})",
                             snapshot_replacement_id,
                             record.replacement_state,
                             record.operating_saga_id,
@@ -457,14 +464,65 @@ impl DataStore {
         }
     }
 
-    /// Transition a SnapshotReplacement record from Completing to Complete,
-    /// clearing the operating saga id. Also removes the `volume_repair` record
-    /// that is taking a "lock" on the Volume.
-    pub async fn set_snapshot_replacement_complete(
+    /// Transition from DeletingOldVolume to Running, and clear the operating
+    /// saga id.
+    pub async fn set_snapshot_replacement_running(
         &self,
         opctx: &OpContext,
         snapshot_replacement_id: Uuid,
         operating_saga_id: Uuid,
+    ) -> Result<(), Error> {
+        use db::schema::snapshot_replacement::dsl;
+        let updated = diesel::update(dsl::snapshot_replacement)
+            .filter(dsl::id.eq(snapshot_replacement_id))
+            .filter(dsl::operating_saga_id.eq(operating_saga_id))
+            .filter(
+                dsl::replacement_state.eq(SnapshotReplacementState::DeletingOldVolume),
+            )
+            .set((
+                dsl::replacement_state.eq(
+                    SnapshotReplacementState::Running
+                ),
+                dsl::operating_saga_id.eq(Option::<Uuid>::None),
+            ))
+            .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
+            .execute_and_check(&*self.pool_connection_authorized(opctx).await?)
+            .await;
+
+        match updated {
+            Ok(result) => match result.status {
+                UpdateStatus::Updated => Ok(()),
+                UpdateStatus::NotUpdatedButExists => {
+                    let record = result.found;
+
+                    if record.operating_saga_id == None
+                        && record.replacement_state
+                            == SnapshotReplacementState::Running
+                    {
+                        Ok(())
+                    } else {
+                        Err(Error::conflict(format!(
+                            "snapshot replacement {} set to {:?} (operating \
+                            saga id {:?})",
+                            snapshot_replacement_id,
+                            record.replacement_state,
+                            record.operating_saga_id,
+                        )))
+                    }
+                }
+            },
+
+            Err(e) => Err(public_error_from_diesel(e, ErrorHandler::Server)),
+        }
+    }
+
+    /// Transition a SnapshotReplacement record from Running to Complete. Also
+    /// removes the `volume_repair` record that is taking a "lock" on the
+    /// Volume.
+    pub async fn set_snapshot_replacement_complete(
+        &self,
+        opctx: &OpContext,
+        snapshot_replacement_id: Uuid,
     ) -> Result<(), Error> {
         type TxnError = TransactionError<Error>;
 
@@ -485,12 +543,10 @@ impl DataStore {
                 let result = diesel::update(dsl::snapshot_replacement)
                     .filter(dsl::id.eq(snapshot_replacement_id))
                     .filter(
-                        dsl::replacement_state.eq(SnapshotReplacementState::Completing),
+                        dsl::replacement_state.eq(SnapshotReplacementState::Running),
                     )
-                    .filter(dsl::operating_saga_id.eq(operating_saga_id))
                     .set((
                         dsl::replacement_state.eq(SnapshotReplacementState::Complete),
-                        dsl::operating_saga_id.eq(Option::<Uuid>::None),
                     ))
                     .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
                     .execute_and_check(&conn)
@@ -501,8 +557,7 @@ impl DataStore {
                     UpdateStatus::NotUpdatedButExists => {
                         let record = result.found;
 
-                        if record.operating_saga_id == None
-                            && record.replacement_state
+                        if record.replacement_state
                                 == SnapshotReplacementState::Complete
                         {
                             Ok(())
@@ -525,53 +580,6 @@ impl DataStore {
                     public_error_from_diesel(error, ErrorHandler::Server)
                 }
             })
-    }
-
-    pub async fn mark_snapshot_replacement_as_done(
-        &self,
-        opctx: &OpContext,
-        snapshot_replacement_id: Uuid,
-    ) -> Result<(), Error> {
-        use db::schema::snapshot_replacement::dsl;
-
-        let updated = diesel::update(dsl::snapshot_replacement)
-            .filter(dsl::id.eq(snapshot_replacement_id))
-            .filter(dsl::operating_saga_id.is_null())
-            .filter(
-                dsl::replacement_state.eq(SnapshotReplacementState::Running),
-            )
-            .set(
-                dsl::replacement_state
-                    .eq(SnapshotReplacementState::ReplacementDone),
-            )
-            .check_if_exists::<SnapshotReplacement>(snapshot_replacement_id)
-            .execute_and_check(&*self.pool_connection_authorized(opctx).await?)
-            .await;
-
-        match updated {
-            Ok(result) => match result.status {
-                UpdateStatus::Updated => Ok(()),
-
-                UpdateStatus::NotUpdatedButExists => {
-                    let record = result.found;
-
-                    if record.replacement_state
-                        == SnapshotReplacementState::ReplacementDone
-                    {
-                        Ok(())
-                    } else {
-                        Err(Error::conflict(format!(
-                            "snapshot replacement {} set to {:?} (operating saga id {:?})",
-                            snapshot_replacement_id,
-                            record.replacement_state,
-                            record.operating_saga_id,
-                        )))
-                    }
-                }
-            },
-
-            Err(e) => Err(public_error_from_diesel(e, ErrorHandler::Server)),
-        }
     }
 
     pub async fn create_snapshot_replacement_step(
@@ -597,6 +605,11 @@ impl DataStore {
 
         let conn = self.pool_connection_authorized(opctx).await?;
 
+        // how does this violate volume_repair constraint?
+        // unique_snapshot_replacement_per_volume is not the volume repair
+        // constraint! snapshot replacement steps aren't cleaned up?
+        // wrong terminal state for constraint
+
         diesel::insert_into(dsl::snapshot_replacement_step)
             .values(request)
             .execute_async(&*conn)
@@ -618,6 +631,23 @@ impl DataStore {
                 &*self.pool_connection_authorized(opctx).await?,
             )
             .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn get_snapshot_replacement_step_by_old_snapshot_volume_id(
+        &self,
+        opctx: &OpContext,
+        volume_id: Uuid,
+    ) -> Result<Option<SnapshotReplacementStep>, Error> {
+        use db::schema::snapshot_replacement_step::dsl;
+
+        dsl::snapshot_replacement_step
+            .filter(dsl::old_snapshot_volume_id.eq(volume_id))
+            .get_result_async::<SnapshotReplacementStep>(
+                &*self.pool_connection_authorized(opctx).await?,
+            )
+            .await
+            .optional()
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
@@ -765,11 +795,13 @@ impl DataStore {
         opctx: &OpContext,
         snapshot_replacement_step_id: Uuid,
         operating_saga_id: Uuid,
+        old_snapshot_volume_id: Uuid,
     ) -> Result<(), Error> {
         use db::schema::snapshot_replacement_step::dsl;
         let updated = diesel::update(dsl::snapshot_replacement_step)
             .filter(dsl::id.eq(snapshot_replacement_step_id))
             .filter(dsl::operating_saga_id.eq(operating_saga_id))
+            .filter(dsl::old_snapshot_volume_id.is_null())
             .filter(
                 dsl::replacement_state
                     .eq(SnapshotReplacementStepState::Running),
@@ -778,6 +810,7 @@ impl DataStore {
                 dsl::replacement_state
                     .eq(SnapshotReplacementStepState::Complete),
                 dsl::operating_saga_id.eq(Option::<Uuid>::None),
+                dsl::old_snapshot_volume_id.eq(old_snapshot_volume_id),
             ))
             .check_if_exists::<SnapshotReplacementStep>(
                 snapshot_replacement_step_id,
@@ -812,9 +845,9 @@ impl DataStore {
         }
     }
 
-    /// Count all non-complete snapshot replacement steps for a particular
+    /// Count all in-progress snapshot replacement steps for a particular
     /// snapshot replacement id.
-    pub async fn non_complete_snapshot_replacement_steps(
+    pub async fn in_progress_snapshot_replacement_steps(
         &self,
         opctx: &OpContext,
         snapshot_replacement_id: Uuid,
@@ -836,7 +869,7 @@ impl DataStore {
             .filter(dsl::request_id.eq(snapshot_replacement_id))
             .filter(
                 dsl::replacement_state
-                    .ne(SnapshotReplacementStepState::Complete),
+                    .ne(SnapshotReplacementStepState::VolumeDeleted),
             )
             .get_results_async::<SnapshotReplacementStep>(&*conn)
             .await
@@ -849,25 +882,19 @@ impl DataStore {
         Ok(records)
     }
 
-    /// Return all snapshot replacement steps for which the snapshot replacement
-    /// request is Complete where the volume still exists
+    /// Return all snapshot replacement steps that are Complete
     pub async fn snapshot_replacement_steps_requiring_garbage_collection(
         &self,
         opctx: &OpContext,
     ) -> Result<Vec<SnapshotReplacementStep>, Error> {
-        use db::schema::snapshot_replacement;
         use db::schema::snapshot_replacement_step;
 
         let conn = self.pool_connection_authorized(opctx).await?;
 
         snapshot_replacement_step::table
-            .inner_join(
-                snapshot_replacement::table.on(snapshot_replacement::id
-                    .eq(snapshot_replacement_step::request_id)),
-            )
             .filter(
-                snapshot_replacement::replacement_state
-                    .eq(SnapshotReplacementState::Complete),
+                snapshot_replacement_step::replacement_state
+                    .eq(SnapshotReplacementStepState::Complete),
             )
             .select(SnapshotReplacementStep::as_select())
             .get_results_async::<SnapshotReplacementStep>(&*conn)
@@ -1041,7 +1068,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .non_complete_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
                 .await
                 .unwrap(),
             0,
@@ -1069,7 +1096,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .non_complete_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
                 .await
                 .unwrap(),
             1,
@@ -1100,7 +1127,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .non_complete_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
                 .await
                 .unwrap(),
             2,
@@ -1131,7 +1158,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .non_complete_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
                 .await
                 .unwrap(),
             2,
@@ -1201,6 +1228,7 @@ mod test {
                 &opctx,
                 first_request_id,
                 saga_id,
+                Uuid::new_v4(), // old_snapshot_volume_id
             )
             .await
             .unwrap();

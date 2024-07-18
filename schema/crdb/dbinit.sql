@@ -4020,9 +4020,9 @@ CREATE INDEX IF NOT EXISTS lookup_snapshot_by_destination_volume_id ON omicron.p
 CREATE TYPE IF NOT EXISTS omicron.public.snapshot_replacement_state AS ENUM (
   'requested',
   'allocating',
-  'running',
   'replacement_done',
-  'completing',
+  'deleting_old_volume',
+  'running',
   'complete'
 );
 
@@ -4075,7 +4075,11 @@ CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_step_by_state
 
 CREATE UNIQUE INDEX IF NOT EXISTS unique_snapshot_replacement_per_volume
     on omicron.public.snapshot_replacement_step (volume_id)
-    WHERE replacement_state != 'complete';
+    WHERE replacement_state != 'volume_deleted';
+
+/* XXX put in upgrade schema thing */
+CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_step_by_old_volume_id
+    on omicron.public.snapshot_replacement_step (old_snapshot_volume_id);
 
 /*
  * Metadata for the schema itself. This version number isn't great, as there's

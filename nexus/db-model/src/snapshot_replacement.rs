@@ -22,9 +22,9 @@ impl_enum_type!(
     // Enum values
     Requested => b"requested"
     Allocating => b"allocating"
-    Running => b"running"
     ReplacementDone => b"replacement_done"
-    Completing => b"completing"
+    DeletingOldVolume => b"deleting_old_volume"
+    Running => b"running"
     Complete => b"complete"
 );
 
@@ -36,10 +36,10 @@ impl std::str::FromStr for SnapshotReplacementState {
         match s {
             "requested" => Ok(SnapshotReplacementState::Requested),
             "allocating" => Ok(SnapshotReplacementState::Allocating),
-            "running" => Ok(SnapshotReplacementState::Running),
             "replacement_done" => Ok(SnapshotReplacementState::ReplacementDone),
+            "deleting_old_volume" => Ok(SnapshotReplacementState::DeletingOldVolume),
+            "running" => Ok(SnapshotReplacementState::Running),
             "complete" => Ok(SnapshotReplacementState::Complete),
-            "completing" => Ok(SnapshotReplacementState::Completing),
             _ => Err(format!("unrecognized value {} for enum", s)),
         }
     }
@@ -52,32 +52,32 @@ impl std::str::FromStr for SnapshotReplacementState {
 /// states:
 ///
 /// ```text
-///     Requested   <--              ---
-///                   |              |
-///         |         |              |
-///         v         |              |  responsibility of snapshot
-///                   |              |  replacement start saga
-///     Allocating  --               |
-///                                  |
-///         |                        |
-///         v                        |
-///                                  |
-///      Running                     ---
-///
-///         |
-///         v
-///
-///  ReplacementDone  <--            ---
-///                     |            |
-///         |           |            |
-///         v           |            |
-///                     |            | responsibility of snapshot
-///     Completing    --             | replacement finish saga
-///                                  |
-///         |                        |
-///         v                        |
-///                                  |
-///     Complete                     ---
+///      Requested   <--              ---
+///                    |              |
+///          |         |              |
+///          v         |              |  responsibility of snapshot
+///                    |              |  replacement start saga
+///      Allocating  --               |
+///                                   |
+///          |                        |
+///          v                        ---
+///                                   ---
+///    ReplacementDone  <--           |
+///                       |           |
+///          |            |           |
+///          v            |           | responsibility of snapshot
+///                       |           | replacement garbage collect saga
+///  DeletingOldVolume  --            |
+///                                   |
+///          |                        |
+///          v                        ---
+///                                   ---
+///       Running                     |
+///                                   | set in snapshot replacement
+///          |                        | finish background task
+///          v                        |
+///                                   |
+///      Complete                     ---
 /// ```
 ///
 /// which are captured in the SnapshotReplacementState enum. Annotated on the
