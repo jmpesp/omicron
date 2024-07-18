@@ -1066,14 +1066,14 @@ mod test {
 
         assert_eq!(
             datastore
-                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id)
                 .await
                 .unwrap(),
             0,
         );
 
         assert!(datastore
-            .get_requested_snapshot_replacement_steps(&opctx,)
+            .get_requested_snapshot_replacement_steps(&opctx)
             .await
             .unwrap()
             .is_empty());
@@ -1102,7 +1102,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .get_requested_snapshot_replacement_steps(&opctx,)
+                .get_requested_snapshot_replacement_steps(&opctx)
                 .await
                 .unwrap()
                 .len(),
@@ -1125,7 +1125,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id)
                 .await
                 .unwrap(),
             2,
@@ -1133,7 +1133,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .get_requested_snapshot_replacement_steps(&opctx,)
+                .get_requested_snapshot_replacement_steps(&opctx)
                 .await
                 .unwrap()
                 .len(),
@@ -1146,7 +1146,9 @@ mod test {
                 Uuid::new_v4(), // volume id
             );
 
-            step.replacement_state = SnapshotReplacementStepState::Complete;
+            // VolumeDeleted does not count as "in-progress"
+            step.replacement_state =
+                SnapshotReplacementStepState::VolumeDeleted;
 
             datastore
                 .insert_snapshot_replacement_step(&opctx, step)
@@ -1156,7 +1158,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .in_progress_snapshot_replacement_steps(&opctx, request_id,)
+                .in_progress_snapshot_replacement_steps(&opctx, request_id)
                 .await
                 .unwrap(),
             2,
@@ -1164,7 +1166,7 @@ mod test {
 
         assert_eq!(
             datastore
-                .get_requested_snapshot_replacement_steps(&opctx,)
+                .get_requested_snapshot_replacement_steps(&opctx)
                 .await
                 .unwrap()
                 .len(),
@@ -1218,8 +1220,8 @@ mod test {
             .await
             .unwrap_err();
 
-        // Ensure that transitioning the first step to completed means another
-        // step can be inserted.
+        // Ensure that transitioning the first step to complete doesn't change
+        // things.
 
         datastore
             .set_snapshot_replacement_step_complete(
@@ -1227,6 +1229,22 @@ mod test {
                 first_request_id,
                 saga_id,
                 Uuid::new_v4(), // old_snapshot_volume_id
+            )
+            .await
+            .unwrap();
+
+        datastore
+            .insert_snapshot_replacement_step(&opctx, step.clone())
+            .await
+            .unwrap_err();
+
+        // Ensure that transitioning the first step to volume deleted means another
+        // step can be inserted.
+
+        datastore
+            .set_snapshot_replacement_step_volume_deleted(
+                &opctx,
+                first_request_id,
             )
             .await
             .unwrap();

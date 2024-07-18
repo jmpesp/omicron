@@ -525,7 +525,8 @@ mod test {
             .await
             .unwrap();
 
-        // Transition that to Allocating then to Running
+        // Transition that to Allocating -> ReplacementDone -> DeletingOldVolume
+        // -> Running
 
         let operating_saga_id = Uuid::new_v4();
 
@@ -540,6 +541,26 @@ mod test {
 
         let new_region_id = Uuid::new_v4();
         let old_snapshot_volume_id = Uuid::new_v4();
+
+        datastore
+            .set_snapshot_replacement_replacement_done(
+                &opctx,
+                request_id,
+                operating_saga_id,
+                new_region_id,
+                old_snapshot_volume_id,
+            )
+            .await
+            .unwrap();
+
+        datastore
+            .set_snapshot_replacement_deleting_old_volume(
+                &opctx,
+                request_id,
+                operating_saga_id,
+            )
+            .await
+            .unwrap();
 
         datastore
             .set_snapshot_replacement_running(

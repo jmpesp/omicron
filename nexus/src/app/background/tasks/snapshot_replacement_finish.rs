@@ -10,9 +10,7 @@
 
 use crate::app::authn;
 use crate::app::background::BackgroundTask;
-use crate::app::saga::StartSaga;
 use crate::app::sagas;
-//use crate::app::sagas::snapshot_replacement_finish::SagaSnapshotReplacementFinish;
 use crate::app::sagas::NexusSaga;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -25,43 +23,12 @@ use std::sync::Arc;
 
 pub struct SnapshotReplacementFinishDetector {
     datastore: Arc<DataStore>,
-    sagas: Arc<dyn StartSaga>,
 }
 
 impl SnapshotReplacementFinishDetector {
-    pub fn new(datastore: Arc<DataStore>, sagas: Arc<dyn StartSaga>) -> Self {
-        SnapshotReplacementFinishDetector { datastore, sagas }
+    pub fn new(datastore: Arc<DataStore>) -> Self {
+        SnapshotReplacementFinishDetector { datastore }
     }
-
-    /*
-    async fn send_finish_request(
-        &self,
-        serialized_authn: authn::saga::Serialized,
-        request: SnapshotReplacement,
-    ) -> Result<(), omicron_common::api::external::Error> {
-        let Some(old_snapshot_volume_id) = request.old_snapshot_volume_id
-        else {
-            // This state is illegal!
-            let s = format!(
-                "request {} old snapshot volume id is None!",
-                request.id,
-            );
-
-            return Err(omicron_common::api::external::Error::internal_error(
-                &s,
-            ));
-        };
-
-        let params = sagas::snapshot_replacement_finish::Params {
-            serialized_authn,
-            old_snapshot_volume_id,
-            request,
-        };
-
-        let saga_dag = SagaSnapshotReplacementFinish::prepare(&params)?;
-        self.sagas.saga_start(saga_dag).await
-    }
-    */
 
     async fn transition_requests_to_done(
         &self,
@@ -178,59 +145,6 @@ impl SnapshotReplacementFinishDetector {
             }
         }
     }
-
-    /*
-    async fn finish_done_snapshot_replacements(
-        &self,
-        opctx: &OpContext,
-        status: &mut SnapshotReplacementFinishStatus,
-    ) {
-        let log = &opctx.log;
-
-        // Trigger finish saga(s) as appropriate
-        let requests =
-            match self.datastore.get_done_snapshot_replacements(opctx).await {
-                Ok(requests) => requests,
-
-                Err(e) => {
-                    let s = format!(
-                    "query for done snapshot replacement requests failed: {e}"
-                );
-                    error!(&log, "{s}");
-                    status.errors.push(s);
-                    return;
-                }
-            };
-
-        for request in requests {
-            let request_id = request.id;
-
-            let result = self
-                .send_finish_request(
-                    authn::saga::Serialized::for_opctx(opctx),
-                    request,
-                )
-                .await;
-
-            match result {
-                Ok(()) => {
-                    let s = format!("finish invoked ok for {request_id}");
-
-                    info!(&log, "{s}");
-                    status.finish_invoked_ok.push(s);
-                }
-
-                Err(e) => {
-                    let s = format!(
-                        "sending snapshot replacement finish \
-                        request failed: {e}",
-                    );
-                    error!(&log, "{s}");
-                    status.errors.push(s);
-                }
-            }
-        }
-    }*/
 }
 
 impl BackgroundTask for SnapshotReplacementFinishDetector {
@@ -245,8 +159,6 @@ impl BackgroundTask for SnapshotReplacementFinishDetector {
             let mut status = SnapshotReplacementFinishStatus::default();
 
             self.transition_requests_to_done(opctx, &mut status).await;
-
-            // self.finish_done_snapshot_replacements(opctx, &mut status).await;
 
             info!(&log, "snapshot replacement finish task done");
 
@@ -281,17 +193,13 @@ mod test {
             datastore.clone(),
         );
 
-        let starter = Arc::new(NoopStartSaga::new());
-        let mut task = SnapshotReplacementFinishDetector::new(
-            datastore.clone(),
-            starter.clone(),
-        );
+        let mut task =
+            SnapshotReplacementFinishDetector::new(datastore.clone());
 
         // Noop test
         let result: SnapshotReplacementFinishStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
         assert_eq!(result, SnapshotReplacementFinishStatus::default());
-        assert_eq!(starter.count_reset(), 0);
 
         // Add a snapshot replacement request for a fake region snapshot.
 
@@ -300,14 +208,8 @@ mod test {
         let snapshot_id = Uuid::new_v4();
         let snapshot_addr = String::from("[fd00:1122:3344::101]:9876");
 
-        let fake_region_snapshot = RegionSnapshot::new(
-            dataset_id,
-            region_id,
-            snapshot_id,
-            snapshot_addr.clone(),
-        );
-
-        datastore.region_snapshot_create(fake_region_snapshot).await.unwrap();
+        // Do not add the fake region snapshot to the database, as it should
+        // have been deleted by the time the request transitions to "Running"
 
         let request =
             SnapshotReplacement::new(dataset_id, region_id, snapshot_id);
@@ -323,7 +225,8 @@ mod test {
             .await
             .unwrap();
 
-        // Transition that to Allocating then to Running
+        // Transition that to Allocating -> ReplacementDone -> DeletingOldVolume
+        // -> Running
 
         let operating_saga_id = Uuid::new_v4();
 
@@ -340,6 +243,26 @@ mod test {
         let old_snapshot_volume_id = Uuid::new_v4();
 
         datastore
+            .set_snapshot_replacement_replacement_done(
+                &opctx,
+                request_id,
+                operating_saga_id,
+                new_region_id,
+                old_snapshot_volume_id,
+            )
+            .await
+            .unwrap();
+
+        datastore
+            .set_snapshot_replacement_deleting_old_volume(
+                &opctx,
+                request_id,
+                operating_saga_id,
+            )
+            .await
+            .unwrap();
+
+        datastore
             .set_snapshot_replacement_running(
                 &opctx,
                 request_id,
@@ -354,13 +277,13 @@ mod test {
 
         let mut step_1 =
             SnapshotReplacementStep::new(request_id, Uuid::new_v4());
-        step_1.replacement_state = SnapshotReplacementStepState::Running;
+        step_1.replacement_state = SnapshotReplacementStepState::Complete;
         step_1.operating_saga_id = Some(operating_saga_id);
         let step_1_id = step_1.id;
 
         let mut step_2 =
             SnapshotReplacementStep::new(request_id, Uuid::new_v4());
-        step_2.replacement_state = SnapshotReplacementStepState::Running;
+        step_2.replacement_state = SnapshotReplacementStepState::Complete;
         step_2.operating_saga_id = Some(operating_saga_id);
         let step_2_id = step_2.id;
 
@@ -378,34 +301,22 @@ mod test {
         let result: SnapshotReplacementFinishStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
         assert_eq!(result, SnapshotReplacementFinishStatus::default());
-        assert_eq!(starter.count_reset(), 0);
 
         // Transition one record to Complete, the task should still do nothing
 
         datastore
-            .set_snapshot_replacement_step_complete(
-                &opctx,
-                step_1_id,
-                operating_saga_id,
-                Uuid::new_v4(),
-            )
+            .set_snapshot_replacement_step_volume_deleted(&opctx, step_1_id)
             .await
             .unwrap();
 
         let result: SnapshotReplacementFinishStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
         assert_eq!(result, SnapshotReplacementFinishStatus::default());
-        assert_eq!(starter.count_reset(), 0);
 
         // Transition the other record to Complete
 
         datastore
-            .set_snapshot_replacement_step_complete(
-                &opctx,
-                step_2_id,
-                operating_saga_id,
-                Uuid::new_v4(),
-            )
+            .set_snapshot_replacement_step_volume_deleted(&opctx, step_2_id)
             .await
             .unwrap();
 
@@ -420,13 +331,8 @@ mod test {
                 records_set_to_done: vec![format!(
                     "set request {request_id} to done"
                 )],
-                finish_invoked_ok: vec![format!(
-                    "finish invoked ok for {request_id}"
-                )],
                 errors: vec![],
             },
         );
-
-        assert_eq!(starter.count_reset(), 1);
     }
 }

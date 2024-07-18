@@ -742,7 +742,6 @@ impl BackgroundTasksInitializer {
             task_impl: Box::new(
                 snapshot_replacement_finish::SnapshotReplacementFinishDetector::new(
                     datastore.clone(),
-                    sagas.clone(),
                 ),
             ),
             opctx: opctx.child(BTreeMap::new()),

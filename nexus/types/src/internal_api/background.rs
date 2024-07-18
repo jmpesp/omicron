@@ -41,7 +41,6 @@ pub struct SnapshotReplacementStepStatus {
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
 pub struct SnapshotReplacementFinishStatus {
     pub records_set_to_done: Vec<String>,
-    pub finish_invoked_ok: Vec<String>,
     pub errors: Vec<String>,
 }
 
