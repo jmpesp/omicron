@@ -2,28 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Clean up the volume that stashes the target replaced during the snapshot
-//! replacement start saga. After that's done, change the snapshot replacement
-//! state to Running. This saga handles the following snapshot replacement
-//! request state transitions:
-//!
-//! ```text
-//!    ReplacementDone  <--
-//!                       |
-//!          |            |
-//!          v            |
-//!                       |
-//!  DeletingOldVolume  --
-//!
-//!          |
-//!          v
-//!
-//!       Running
-//! ```
+//! Clean up the volume that stashes the target replaced during a snapshot
+//! replacement "step". After that's done, change the snapshot replacement
+//! step's state to "VolumeDeleted".
 
-use super::{ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,
-    ACTION_GENERATE_ID,
-};
+use super::{ActionRegistry, NexusActionContext, NexusSaga, SagaInitError};
 use crate::app::sagas::declare_saga_actions;
 use crate::app::sagas::volume_delete;
 use crate::app::{authn, db};
@@ -33,7 +16,7 @@ use steno::ActionError;
 use steno::Node;
 use uuid::Uuid;
 
-// snapshot replacement garbage collect saga: input parameters
+// snapshot replacement step garbage collect saga: input parameters
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Params {
@@ -42,46 +25,34 @@ pub(crate) struct Params {
     // Note: this is only required in the params to build the volume-delete sub
     // saga
     pub old_snapshot_volume_id: Uuid,
-    pub request: db::model::SnapshotReplacement,
+    pub request: db::model::SnapshotReplacementStep,
 }
 
-// snapshot replacement garbage collect saga: actions
+// snapshot replacement step garbage collect saga: actions
 
 declare_saga_actions! {
-    snapshot_replacement_garbage_collect;
-    SET_SAGA_ID -> "unused_1" {
-        + srgs_set_saga_id
-        - srgs_set_saga_id_undo
-    }
-    UPDATE_REQUEST_RECORD -> "unused_2" {
-        + srgs_update_request_record
+    snapshot_replacement_step_garbage_collect;
+    UPDATE_REQUEST_RECORD -> "unused_1" {
+        + srsgs_update_request_record
     }
 }
 
-// snapshot replacement garbage collect saga: definition
+// snapshot replacement step garbage collect saga: definition
 
 #[derive(Debug)]
-pub(crate) struct SagaSnapshotReplacementGarbageCollect;
-impl NexusSaga for SagaSnapshotReplacementGarbageCollect {
-    const NAME: &'static str = "snapshot-replacement-garbage-collect";
+pub(crate) struct SagaSnapshotReplacementStepGarbageCollect;
+impl NexusSaga for SagaSnapshotReplacementStepGarbageCollect {
+    const NAME: &'static str = "snapshot-replacement-step-garbage-collect";
     type Params = Params;
 
     fn register_actions(registry: &mut ActionRegistry) {
-        snapshot_replacement_garbage_collect_register_actions(registry);
+        snapshot_replacement_step_garbage_collect_register_actions(registry);
     }
 
     fn make_saga_dag(
         params: &Self::Params,
         mut builder: steno::DagBuilder,
     ) -> Result<steno::Dag, SagaInitError> {
-        builder.append(Node::action(
-            "saga_id",
-            "GenerateSagaId",
-            ACTION_GENERATE_ID.as_ref(),
-        ));
-
-        builder.append(set_saga_id_action());
-
         let subsaga_params = volume_delete::Params {
             serialized_authn: params.serialized_authn.clone(),
             volume_id: params.old_snapshot_volume_id,
@@ -119,58 +90,9 @@ impl NexusSaga for SagaSnapshotReplacementGarbageCollect {
     }
 }
 
-// snapshot replacement garbage collect saga: action implementations
+// snapshot replacement step garbage collect saga: action implementations
 
-async fn srgs_set_saga_id(
-    sagactx: NexusActionContext,
-) -> Result<(), ActionError> {
-    let osagactx = sagactx.user_data();
-    let params = sagactx.saga_params::<Params>()?;
-
-    let opctx = crate::context::op_context_for_saga_action(
-        &sagactx,
-        &params.serialized_authn,
-    );
-
-    let saga_id = sagactx.lookup::<Uuid>("saga_id")?;
-
-    // Change the request record here to an intermediate "deleting old volume"
-    // state to block out other sagas that will be triggered for the same
-    // request.
-    osagactx
-        .datastore()
-        .set_snapshot_replacement_deleting_old_volume(&opctx, params.request.id, saga_id)
-        .await
-        .map_err(ActionError::action_failed)?;
-
-    Ok(())
-}
-
-async fn srgs_set_saga_id_undo(
-    sagactx: NexusActionContext,
-) -> Result<(), anyhow::Error> {
-    let osagactx = sagactx.user_data();
-    let params = sagactx.saga_params::<Params>()?;
-    let opctx = crate::context::op_context_for_saga_action(
-        &sagactx,
-        &params.serialized_authn,
-    );
-
-    let saga_id = sagactx.lookup::<Uuid>("saga_id")?;
-
-    osagactx
-        .datastore()
-        .undo_set_snapshot_replacement_deleting_old_volume(
-            &opctx,
-            params.request.id,
-            saga_id,
-        )
-        .await?;
-
-    Ok(())
-}
-
-async fn srgs_update_request_record(
+async fn srsgs_update_request_record(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let params = sagactx.saga_params::<Params>()?;
@@ -181,14 +103,12 @@ async fn srgs_update_request_record(
         &params.serialized_authn,
     );
 
-    let saga_id = sagactx.lookup::<Uuid>("saga_id")?;
-
-    // Now that the snapshot volume has been deleted, update the replacement
-    // request record to 'Running'. There is no undo step for this, it should
-    // succeed idempotently.
+    // Now that the snapshot step volume has been deleted, update the
+    // replacement request record to 'VolumeDeleted'. There is no undo step for
+    // this, it should succeed idempotently.
 
     datastore
-        .set_snapshot_replacement_running(&opctx, params.request.id, saga_id)
+        .set_snapshot_replacement_step_volume_deleted(&opctx, params.request.id)
         .await
         .map_err(ActionError::action_failed)?;
 

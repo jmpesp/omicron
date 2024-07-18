@@ -571,6 +571,7 @@ async fn srss_update_request_record(
     );
 
     let saga_id = sagactx.lookup::<Uuid>("saga_id")?;
+    let new_volume_id = sagactx.lookup::<Uuid>("new_volume_id")?;
 
     // Update the request record to 'Completed' and clear the operating saga id.
     // There is no undo step for this, it should succeed idempotently.
@@ -579,6 +580,7 @@ async fn srss_update_request_record(
             &opctx,
             params.request.id,
             saga_id,
+            new_volume_id,
         )
         .await
         .map_err(ActionError::action_failed)?;

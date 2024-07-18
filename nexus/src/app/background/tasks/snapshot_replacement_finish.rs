@@ -12,7 +12,7 @@ use crate::app::authn;
 use crate::app::background::BackgroundTask;
 use crate::app::saga::StartSaga;
 use crate::app::sagas;
-use crate::app::sagas::snapshot_replacement_finish::SagaSnapshotReplacementFinish;
+//use crate::app::sagas::snapshot_replacement_finish::SagaSnapshotReplacementFinish;
 use crate::app::sagas::NexusSaga;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -33,6 +33,7 @@ impl SnapshotReplacementFinishDetector {
         SnapshotReplacementFinishDetector { datastore, sagas }
     }
 
+    /*
     async fn send_finish_request(
         &self,
         serialized_authn: authn::saga::Serialized,
@@ -60,6 +61,7 @@ impl SnapshotReplacementFinishDetector {
         let saga_dag = SagaSnapshotReplacementFinish::prepare(&params)?;
         self.sagas.saga_start(saga_dag).await
     }
+    */
 
     async fn transition_requests_to_done(
         &self,
@@ -90,7 +92,7 @@ impl SnapshotReplacementFinishDetector {
             // completed.
             let count = match self
                 .datastore
-                .non_complete_snapshot_replacement_steps(opctx, request.id)
+                .in_progress_snapshot_replacement_steps(opctx, request.id)
                 .await
             {
                 Ok(count) => count,
@@ -108,10 +110,55 @@ impl SnapshotReplacementFinishDetector {
             };
 
             if count == 0 {
-                // Transition snapshot replacement to ReplacementDone
+                // If the region snapshot has been deleted, then the snapshot
+                // replacement is done: the reference number went to zero and it
+                // was deleted, therefore there aren't any volumes left that
+                // reference it!
+                //
+                // XXX does this need to be transactional? is that above
+                // statement true?
+
+                let region_snapshot = match self
+                    .datastore
+                    .region_snapshot_get(
+                        request.old_dataset_id,
+                        request.old_region_id,
+                        request.old_snapshot_id,
+                    )
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        continue;
+                    }
+
+                    Ok(None) => {
+                        // gone!
+                    }
+
+                    Err(e) => {
+                        let s = format!(
+                            "error querying for region snapshot {} {} {}: {e}",
+                            request.old_dataset_id,
+                            request.old_region_id,
+                            request.old_snapshot_id,
+                        );
+                        error!(&log, "{s}");
+                        status.errors.push(s);
+
+                        continue;
+                    }
+                };
+
+                // Transition snapshot replacement to Complete
+                // XXX what if code does a checkout of a volume, that volume is
+                // deleted, but code does a modification then volume create?
+                // if that's not done in a transaction then there could be
+                // incorrect reference counts what if volume create detected
+                // when a constituent snapshot was missing? write a unit test
+                // for this
                 match self
                     .datastore
-                    .mark_snapshot_replacement_as_done(opctx, request.id)
+                    .set_snapshot_replacement_complete(opctx, request.id)
                     .await
                 {
                     Ok(()) => {
@@ -132,6 +179,7 @@ impl SnapshotReplacementFinishDetector {
         }
     }
 
+    /*
     async fn finish_done_snapshot_replacements(
         &self,
         opctx: &OpContext,
@@ -182,7 +230,7 @@ impl SnapshotReplacementFinishDetector {
                 }
             }
         }
-    }
+    }*/
 }
 
 impl BackgroundTask for SnapshotReplacementFinishDetector {
@@ -198,7 +246,7 @@ impl BackgroundTask for SnapshotReplacementFinishDetector {
 
             self.transition_requests_to_done(opctx, &mut status).await;
 
-            self.finish_done_snapshot_replacements(opctx, &mut status).await;
+            // self.finish_done_snapshot_replacements(opctx, &mut status).await;
 
             info!(&log, "snapshot replacement finish task done");
 
@@ -341,6 +389,7 @@ mod test {
                 &opctx,
                 step_1_id,
                 operating_saga_id,
+                Uuid::new_v4(),
             )
             .await
             .unwrap();
@@ -357,6 +406,7 @@ mod test {
                 &opctx,
                 step_2_id,
                 operating_saga_id,
+                Uuid::new_v4(),
             )
             .await
             .unwrap();

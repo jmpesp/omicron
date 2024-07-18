@@ -1358,6 +1358,7 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
             ),
 
             Ok(status) => {
+                /*
                 println!(
                     "    total volume deletes requested: {}",
                     status.volume_deletes_requested.len(),
@@ -1365,6 +1366,7 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
                 for line in &status.volume_deletes_requested {
                     println!("    > {line}");
                 }
+                */
 
                 println!("    errors: {}", status.errors.len());
                 for line in &status.errors {

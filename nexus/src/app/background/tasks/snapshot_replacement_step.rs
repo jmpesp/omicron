@@ -24,6 +24,7 @@ use crate::app::background::BackgroundTask;
 use crate::app::saga::StartSaga;
 use crate::app::sagas;
 use crate::app::sagas::snapshot_replacement_step::SagaSnapshotReplacementStep;
+use crate::app::sagas::snapshot_replacement_step_garbage_collect::SagaSnapshotReplacementStepGarbageCollect;
 use crate::app::sagas::NexusSaga;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -59,6 +60,81 @@ impl SnapshotReplacementFindAffected {
         self.sagas.saga_start(saga_dag).await
     }
 
+    async fn send_garbage_collect_request(
+        &self,
+        opctx: &OpContext,
+        request: SnapshotReplacementStep,
+    ) -> Result<(), omicron_common::api::external::Error> {
+        let Some(old_snapshot_volume_id) = request.old_snapshot_volume_id
+        else {
+            // This state is illegal!
+            let s = format!(
+                "request {} old snapshot volume id is None!",
+                request.id,
+            );
+
+            return Err(omicron_common::api::external::Error::internal_error(
+                &s,
+            ));
+        };
+
+        let params = sagas::snapshot_replacement_step_garbage_collect::Params {
+            serialized_authn: authn::saga::Serialized::for_opctx(opctx),
+            old_snapshot_volume_id,
+            request,
+        };
+
+        let saga_dag = SagaSnapshotReplacementStepGarbageCollect::prepare(&params)?;
+        self.sagas.saga_start(saga_dag).await
+    }
+
+    async fn clean_up_snapshot_replacement_step_volumes(
+        &self,
+        opctx: &OpContext,
+        status: &mut SnapshotReplacementStepStatus,
+    ) {
+        let log = &opctx.log;
+
+        let requests = match self
+            .datastore
+            .snapshot_replacement_steps_requiring_garbage_collection(opctx)
+            .await
+        {
+            Ok(requests) => requests,
+
+            Err(e) => {
+                let s = format!("querying for steps to collect failed! {e}");
+                error!(&log, "{s}");
+                status.errors.push(s);
+                return;
+            }
+        };
+
+        for request in requests {
+            let request_id = request.id;
+
+            let result = self.send_garbage_collect_request(opctx, request).await;
+
+            match result {
+                Ok(()) => {
+                    let s = format!("delete request ok for {request_id}");
+
+                    info!(&log, "{s}");
+                    status.volume_deletes_requested.push(s);
+                }
+
+                Err(e) => {
+                    let s = format!(
+                        "sending snapshot replacement finish \
+                        request failed: {e}",
+                    );
+                    error!(&log, "{s}");
+                    status.errors.push(s);
+                }
+            }
+        }
+    }
+
     async fn create_step_records_for_affected_volumes(
         &self,
         opctx: &OpContext,
@@ -84,7 +160,21 @@ impl SnapshotReplacementFindAffected {
             };
 
         for request in requests {
-            // Find all volumes that reference the replaced region
+            // Grab the old snapshot volume id for later comparison.
+            let Some(old_snapshot_volume_id) = request.old_snapshot_volume_id
+            else {
+                // This state is illegal!
+                let s = format!(
+                    "request {} old snapshot volume id is None!",
+                    request.id,
+                );
+
+                error!(&log, "{s}");
+                status.errors.push(s);
+                continue;
+            };
+
+            // Find all volumes that reference the replaced snapshot
             let region_snapshot = match self
                 .datastore
                 .region_snapshot_get(
@@ -159,8 +249,46 @@ impl SnapshotReplacementFindAffected {
             };
 
             for volume in volumes {
-                // Any volume referencing the old socket addr needs to be
-                // replaced. Create a record for this.
+                // Skip if we found our own `old_snapshot_volume_id`: this does
+                // not need a snapshot replacement step record, it will be
+                // deleted later by the finish saga.
+                if volume.id() == old_snapshot_volume_id {
+                    continue;
+                }
+
+                // Skip if we found another snapshot replacement step with this
+                // volume in the step's `old_snapshot_volume_id`, as that means
+                // we're duplicating the replacement work: that volume will be
+                // garbage collected later. There's a unique index that will
+                // prevent the same step being inserted with the same volume id.
+                let existing_step = match self.datastore.get_snapshot_replacement_step_by_old_snapshot_volume_id(
+                    &opctx,
+                    volume.id(),
+                )
+                .await {
+                    Ok(step) => step,
+
+                    Err(e) => {
+                        let s = format!(
+                            "error querying for existing step: {e}"
+                        );
+                        error!(
+                            log,
+                            "{s}";
+                            "request id" => ?request.id,
+                            "volume id" => ?volume.id(),
+                        );
+                        status.errors.push(s);
+                        continue;
+                    }
+                };
+
+                if existing_step.is_some() {
+                    continue;
+                }
+
+                // Otherwise, any volume referencing the old socket addr needs
+                // to be replaced. Create a record for this.
                 match self
                     .datastore
                     .create_snapshot_replacement_step(
@@ -170,8 +298,8 @@ impl SnapshotReplacementFindAffected {
                     )
                     .await
                 {
-                    Ok(volume_request_id) => {
-                        let s = format!("created {volume_request_id}");
+                    Ok(step_request_id) => {
+                        let s = format!("created {step_request_id}");
                         info!(
                             log,
                             "{s}";
@@ -182,7 +310,7 @@ impl SnapshotReplacementFindAffected {
                     }
 
                     Err(e) => {
-                        let s = format!("error creating volume request: {e}");
+                        let s = format!("error creating step request: {e}");
                         error!(
                             log,
                             "{s}";
@@ -262,6 +390,12 @@ impl BackgroundTask for SnapshotReplacementFindAffected {
             );
 
             let mut status = SnapshotReplacementStepStatus::default();
+
+            // XXX importantly, clean up before finding affected volumes!
+            // otherwise, will continue to find the snapshot in volumes to
+            // delete!
+            self.clean_up_snapshot_replacement_step_volumes(opctx, &mut status)
+                .await;
 
             self.create_step_records_for_affected_volumes(opctx, &mut status)
                 .await;

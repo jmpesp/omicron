@@ -22,7 +22,7 @@
 //!             |
 //!             v
 //!
-//!          Running
+//!       ReplacementDone
 //! ```
 //!
 //! The first thing this saga does is set itself as the "operating saga" for the
@@ -40,7 +40,7 @@
 //!    region.
 //!
 //! 4. Update the snapshot replacement request by clearing the operating saga id
-//!    and changing the state to "Running".
+//!    and changing the state to "ReplacementDone".
 //!
 //! Any unwind will place the state back into Requested.
 //!
@@ -403,13 +403,29 @@ async fn ssrs_new_region_ensure(
 
     let (new_dataset, new_region) = new_dataset_and_region;
 
+    // Currently, the repair port is set using a fixed offset above the
+    // downstairs port. Once this goes away, Nexus will require a way to query
+    // for the repair port!
+
+    let mut repair_addr: SocketAddrV6 = match region_snapshot.snapshot_addr.parse() {
+        Ok(addr) => addr,
+
+        Err(e) => {
+            return Err(ActionError::action_failed(format!(
+                "error parsing region_snapshot.snapshot_addr: {e}"
+            )));
+        }
+    };
+
+    repair_addr.set_port(repair_addr.port() + crucible_common::REPAIR_PORT_OFFSET);
+
     let ensured_region = osagactx
         .nexus()
         .ensure_region_in_dataset(
             log,
             &new_dataset,
             &new_region,
-            Some(region_snapshot.snapshot_addr),
+            Some(repair_addr.to_string()),
         )
         .await
         .map_err(ActionError::action_failed)?;
@@ -715,11 +731,11 @@ async fn ssrs_update_request_record(
     let old_region_volume_id = sagactx.lookup::<Uuid>("new_volume_id")?;
 
     // Now that the region has been ensured and the construction request has
-    // been updated, update the replacement request record to 'Running' and
-    // clear the operating saga id. There is no undo step for this, it should
-    // succeed idempotently.
+    // been updated, update the replacement request record to 'ReplacementDone'
+    // and clear the operating saga id. There is no undo step for this, it
+    // should succeed idempotently.
     datastore
-        .set_snapshot_replacement_running(
+        .set_snapshot_replacement_replacement_done(
             &opctx,
             params.request.id,
             saga_id,
@@ -883,7 +899,8 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        assert_eq!(result.replacement_state, SnapshotReplacementState::Running);
+        assert_eq!(result.replacement_state,
+        SnapshotReplacementState::ReplacementDone);
         assert!(result.new_region_id.is_some());
         assert!(result.operating_saga_id.is_none());
 

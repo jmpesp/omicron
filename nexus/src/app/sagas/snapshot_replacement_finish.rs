@@ -146,11 +146,12 @@ async fn srfs_set_saga_id(
     // Change the request record here to an intermediate "completing" state to
     // block out other sagas that will be triggered for the same request.
 
-    osagactx
-        .datastore()
-        .set_snapshot_replacement_completing(&opctx, params.request.id, saga_id)
-        .await
-        .map_err(ActionError::action_failed)?;
+    // XXX remove this saga
+    //osagactx
+    //    .datastore()
+    //    .set_snapshot_replacement_completing(&opctx, params.request.id, saga_id)
+    //    .await
+    //    .map_err(ActionError::action_failed)?;
 
     Ok(())
 }
@@ -167,14 +168,15 @@ async fn srfs_set_saga_id_undo(
 
     let saga_id = sagactx.lookup::<Uuid>("saga_id")?;
 
-    osagactx
-        .datastore()
-        .undo_set_snapshot_replacement_completing(
-            &opctx,
-            params.request.id,
-            saga_id,
-        )
-        .await?;
+    // XXX remove this saga
+    //osagactx
+    //    .datastore()
+    //    .undo_set_snapshot_replacement_completing(
+    //        &opctx,
+    //        params.request.id,
+    //        saga_id,
+    //    )
+    //    .await?;
 
     Ok(())
 }
@@ -195,10 +197,11 @@ async fn srfs_update_request_record(
     // Now that the snapshot has been deleted, update the replacement request
     // record to 'Complete' and clear the operating saga id. There is no undo
     // step for this, it should succeed idempotently.
-    datastore
-        .set_snapshot_replacement_complete(&opctx, params.request.id, saga_id)
-        .await
-        .map_err(ActionError::action_failed)?;
+    // XXX remove this saga
+    //datastore
+    //    .set_snapshot_replacement_complete(&opctx, params.request.id, saga_id)
+    //    .await
+    //    .map_err(ActionError::action_failed)?;
 
     Ok(())
 }

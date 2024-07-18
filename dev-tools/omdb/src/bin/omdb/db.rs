@@ -2894,7 +2894,7 @@ async fn cmd_db_snapshot_replacement_status(
 
     for request in requests {
         let steps_left = datastore
-            .non_complete_snapshot_replacement_steps(opctx, request.id)
+            .in_progress_snapshot_replacement_steps(opctx, request.id)
             .await?;
 
         println!("{}:", request.id);
@@ -2912,7 +2912,7 @@ async fn cmd_db_snapshot_replacement_status(
             request.old_snapshot_id,
         );
         println!("              new region id: {:?}", request.new_region_id);
-        println!("    non-complete steps left: {:?}", steps_left);
+        println!("     in-progress steps left: {:?}", steps_left);
         println!();
     }
 
@@ -2931,7 +2931,7 @@ async fn cmd_db_snapshot_replacement_info(
 
     // Show details
     let steps_left = datastore
-        .non_complete_snapshot_replacement_steps(opctx, request.id)
+        .in_progress_snapshot_replacement_steps(opctx, request.id)
         .await?;
 
     println!("{}:", request.id);
@@ -2944,7 +2944,7 @@ async fn cmd_db_snapshot_replacement_info(
         request.old_dataset_id, request.old_region_id, request.old_snapshot_id,
     );
     println!("              new region id: {:?}", request.new_region_id);
-    println!("    non-complete steps left: {:?}", steps_left);
+    println!("     in-progress steps left: {:?}", steps_left);
     println!();
 
     Ok(())
@@ -2964,10 +2964,33 @@ async fn cmd_db_snapshot_replacement_request(
         bail!("region snapshot not found!");
     };
 
-    let request_id = datastore
-        .create_snapshot_replacement_request_for_region_snapshot(
+    let request = SnapshotReplacement::for_region_snapshot(&region_snapshot);
+    let request_id = request.id;
+
+    // If this function indirectly uses `insert_snapshot_replacement_request`,
+    // there could be an authz related `ObjectNotFound` due to the opctx being
+    // for the privileged test user. Lookup the snapshot here, and directly use
+    // `insert_snapshot_replacement_request_with_volume_id` instead.
+
+    let db_snapshots = {
+        use db::schema::snapshot::dsl;
+        let conn = datastore.pool_connection_for_tests().await?;
+        dsl::snapshot
+            .filter(dsl::id.eq(args.snapshot_id))
+            .limit(1)
+            .select(Snapshot::as_select())
+            .load_async(&*conn)
+            .await
+            .context("loading requested snapshot")?
+    };
+
+    assert_eq!(db_snapshots.len(), 1);
+
+    datastore
+        .insert_snapshot_replacement_request_with_volume_id(
             opctx,
-            &region_snapshot,
+            request,
+            db_snapshots[0].volume_id,
         )
         .await?;
 
