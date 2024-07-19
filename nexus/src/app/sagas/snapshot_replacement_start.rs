@@ -44,8 +44,8 @@
 //!
 //! Any unwind will place the state back into Requested.
 //!
-//! See the documentation for the "snapshot replacement step" saga for the next
-//! steps in the process.
+//! See the documentation for the "snapshot replacement garbage collect" saga
+//! for the next step in the process.
 
 use super::{
     ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,

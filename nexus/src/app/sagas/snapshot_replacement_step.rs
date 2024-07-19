@@ -38,6 +38,9 @@
 //! associated state and operating saga id for the same reason that snapshot
 //! replacement requests do: multiple background tasks will invoke multiple
 //! sagas, and there needs to be some exclusive access.
+//!
+//! See the documentation for the "snapshot replacement step garbage collect"
+//! saga for the next step in the process.
 
 use super::{
     ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,
