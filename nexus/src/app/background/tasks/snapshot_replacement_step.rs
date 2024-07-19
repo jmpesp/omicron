@@ -251,48 +251,13 @@ impl SnapshotReplacementFindAffected {
             };
 
             for volume in volumes {
-                // Skip if we found our own `old_snapshot_volume_id`: this does
-                // not need a snapshot replacement step record, it will be
-                // deleted later by the finish saga.
-                if volume.id() == old_snapshot_volume_id {
-                    continue;
-                }
-
-                // Skip if we found another snapshot replacement step with this
-                // volume in the step's `old_snapshot_volume_id`, as that means
-                // we're duplicating the replacement work: that volume will be
-                // garbage collected later. There's a unique index that will
-                // prevent the same step being inserted with the same volume id.
-                let existing_step = match self
-                    .datastore
-                    .get_snapshot_replacement_step_by_old_snapshot_volume_id(
-                        &opctx,
-                        volume.id(),
-                    )
-                    .await
-                {
-                    Ok(step) => step,
-
-                    Err(e) => {
-                        let s =
-                            format!("error querying for existing step: {e}");
-                        error!(
-                            log,
-                            "{s}";
-                            "request id" => ?request.id,
-                            "volume id" => ?volume.id(),
-                        );
-                        status.errors.push(s);
-                        continue;
-                    }
-                };
-
-                if existing_step.is_some() {
-                    continue;
-                }
-
                 // Otherwise, any volume referencing the old socket addr needs
-                // to be replaced. Create a record for this.
+                // to be replaced. Create a record for this. This may return a
+                // conflict error if there already exists a step referencing
+                // this volume ID in the "old snapshot volume id" column -
+                // that's ok, because otherwise steps could be indefinitely
+                // created that continuously perform the target replacement of
+                // the snapshoot address!
                 match self
                     .datastore
                     .create_snapshot_replacement_step(

@@ -9,6 +9,7 @@ use super::DataStore;
 use crate::context::OpContext;
 use crate::db;
 use crate::db::datastore::SQL_BATCH_SIZE;
+use crate::transaction_retry::OptionalError;
 use crate::db::error::public_error_from_diesel;
 use crate::db::error::ErrorHandler;
 use crate::db::lookup::LookupPath;
@@ -599,21 +600,67 @@ impl DataStore {
         opctx: &OpContext,
         request: SnapshotReplacementStep,
     ) -> Result<(), Error> {
-        use db::schema::snapshot_replacement_step::dsl;
-
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        // how does this violate volume_repair constraint?
-        // unique_snapshot_replacement_per_volume is not the volume repair
-        // constraint! snapshot replacement steps aren't cleaned up?
-        // wrong terminal state for constraint
+        let err = OptionalError::new();
+        self.transaction_retry_wrapper("insert_snapshot_replacement_step")
+            .transaction(&conn, |conn| {
+                let err = err.clone();
+                let request = request.clone();
 
-        diesel::insert_into(dsl::snapshot_replacement_step)
-            .values(request)
-            .execute_async(&*conn)
+                async move {
+                    use db::schema::snapshot_replacement_step::dsl;
+
+                    // Skip inserting this new record if we found another snapshot
+                    // replacement step with this volume in the step's
+                    // `old_snapshot_volume_id`, as that means we're duplicating the
+                    // replacement work: that volume will be garbage collected
+                    // later. There's a unique index that will prevent the same step
+                    // being inserted with the same volume id.
+
+                    let maybe_record = dsl::snapshot_replacement_step
+                        .filter(dsl::old_snapshot_volume_id.eq(request.volume_id))
+                        .get_result_async::<SnapshotReplacementStep>(
+                            &conn,
+                        )
+                        .await
+                        .optional()?;
+
+                    if let Some(found_record) = maybe_record {
+                        return Err(err.bail(Error::conflict(format!(
+                            "{:?} already referenced in old snapshot volume for \
+                            request {:?}",
+                            request.volume_id,
+                            found_record.id,
+                        ))));
+                    }
+
+                    // XXX volume repair
+                    /*
+                    use db::schema::volume_repair::dsl as volume_repair_dsl;
+
+                    diesel::insert_into(volume_repair_dsl::volume_repair)
+                        .values(VolumeRepair { volume_id, repair_id: request.id })
+                        .execute_async(&conn)
+                        .await?;
+                    */
+
+                    diesel::insert_into(dsl::snapshot_replacement_step)
+                        .values(request)
+                        .execute_async(&conn)
+                        .await?;
+
+                    Ok(())
+                }
+            })
             .await
-            .map(|_| ())
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+            .map_err(|e| {
+                if let Some(err) = err.take() {
+                    return err;
+                }
+
+                public_error_from_diesel(e, ErrorHandler::Server)
+            })
     }
 
     pub async fn get_snapshot_replacement_step_by_id(
@@ -629,23 +676,6 @@ impl DataStore {
                 &*self.pool_connection_authorized(opctx).await?,
             )
             .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
-    }
-
-    pub async fn get_snapshot_replacement_step_by_old_snapshot_volume_id(
-        &self,
-        opctx: &OpContext,
-        volume_id: Uuid,
-    ) -> Result<Option<SnapshotReplacementStep>, Error> {
-        use db::schema::snapshot_replacement_step::dsl;
-
-        dsl::snapshot_replacement_step
-            .filter(dsl::old_snapshot_volume_id.eq(volume_id))
-            .get_result_async::<SnapshotReplacementStep>(
-                &*self.pool_connection_authorized(opctx).await?,
-            )
-            .await
-            .optional()
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
@@ -1303,6 +1333,32 @@ mod test {
             .unwrap()
             .len(),
         );
+
+        db.cleanup().await.unwrap();
+        logctx.cleanup_successful();
+    }
+
+    #[tokio::test]
+    async fn snapshot_replacement_step_conflict() {
+        let logctx = dev::test_setup_log("snapshot_replacement_step_conflict");
+        let mut db = test_setup_database(&logctx.log).await;
+        let (opctx, datastore) = datastore_test(&logctx, &db).await;
+
+        // Assert that a snapshot replacement step cannot be created for a
+        // volume that is the "old snapshot volume" for another snapshot
+        // replacement step.
+
+        let request_id = Uuid::new_v4();
+        let volume_id = Uuid::new_v4();
+        let old_snapshot_volume_id = Uuid::new_v4();
+
+        let mut step = SnapshotReplacementStep::new(request_id, volume_id);
+        step.replacement_state = SnapshotReplacementStepState::Complete;
+        step.old_snapshot_volume_id = Some(old_snapshot_volume_id);
+        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
+
+        let step = SnapshotReplacementStep::new(request_id, old_snapshot_volume_id);
+        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap_err();
 
         db.cleanup().await.unwrap();
         logctx.cleanup_successful();
