@@ -20,6 +20,9 @@
 //!
 //!       Running
 //! ```
+//!
+//! See the documentation for the "snapshot replacement step" saga for the next
+//! step(s) in the process.
 
 use super::{
     ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,

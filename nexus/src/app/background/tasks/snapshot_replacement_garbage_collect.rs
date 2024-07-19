@@ -2,27 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Once a snapshot's replacement has been allocated and swapped in, the next
-//! step is to delete the volume where the replaced snapshot was stashed. This
-//! saga transitions the snapshot replacement request through the following
-//! states:
-//!
-//! ```text
-///    ReplacementDone  <--
-///                       |
-///          |            |
-///          v            |
-///                       |
-///  DeletingOldVolume  --
-///
-///          |
-///          v
-///
-///       Running
-//! ```
-//!
-//! See the documentation for the "snapshot replacement step" saga for the next
-//! step(s) in the process.
+//! Background task for deleting volumes that stash a replaced snapshot
 
 use crate::app::authn;
 use crate::app::background::BackgroundTask;
