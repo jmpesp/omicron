@@ -332,6 +332,14 @@ task: "service_zone_nat_tracker"
     ensures service zone nat records are recorded in NAT RPW table
 
 
+task: "snapshot_replacement_finish"
+    complete a snapshot replacement if all the steps are done
+
+
+task: "snapshot_replacement_garbage_collection"
+    clean up all snapshot replacement step volumes
+
+
 task: "snapshot_replacement_start"
     detect if snapshots need replacement and begin the process
 
@@ -580,6 +588,21 @@ task: "service_zone_nat_tracker"
   last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
     started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
     last completion reported error: inventory collection is None
+
+task: "snapshot_replacement_finish"
+  configured period: every 30s
+  currently executing: no
+  last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
+    started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
+    total records transitioned to done: 0
+    errors: 0
+
+task: "snapshot_replacement_garbage_collection"
+  configured period: every 30s
+  currently executing: no
+  last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
+    started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
+warning: unknown background task: "snapshot_replacement_garbage_collection" (don't know how to interpret details: Object {"errors": Array [], "garbage_collect_requested": Array []})
 
 task: "snapshot_replacement_start"
   configured period: every 30s

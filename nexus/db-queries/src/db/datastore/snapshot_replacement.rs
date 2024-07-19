@@ -1281,8 +1281,8 @@ mod test {
             .await
             .unwrap_err();
 
-        // Ensure that transitioning the first step to complete doesn't change
-        // things.
+        // Ensure that transitioning the first step to complete means another
+        // can be added.
 
         datastore
             .set_snapshot_replacement_step_complete(
@@ -1297,10 +1297,10 @@ mod test {
         datastore
             .insert_snapshot_replacement_step(&opctx, step.clone())
             .await
-            .unwrap_err();
+            .unwrap();
 
-        // Ensure that transitioning the first step to volume deleted means another
-        // step can be inserted.
+        // Ensure that transitioning the first step to volume deleted still
+        // works.
 
         datastore
             .set_snapshot_replacement_step_volume_deleted(
@@ -1309,8 +1309,6 @@ mod test {
             )
             .await
             .unwrap();
-
-        datastore.insert_snapshot_replacement_step(&opctx, step).await.unwrap();
 
         db.cleanup().await.unwrap();
         logctx.cleanup_successful();
