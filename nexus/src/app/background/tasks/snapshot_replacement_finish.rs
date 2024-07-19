@@ -8,13 +8,9 @@
 //! Once all related snapshot replacement steps are done, the snapshot
 //! replacement can be completed.
 
-use crate::app::authn;
 use crate::app::background::BackgroundTask;
-use crate::app::sagas;
-use crate::app::sagas::NexusSaga;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use nexus_db_model::SnapshotReplacement;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
 use nexus_types::internal_api::background::SnapshotReplacementFinishStatus;
@@ -81,11 +77,7 @@ impl SnapshotReplacementFinishDetector {
                 // replacement is done: the reference number went to zero and it
                 // was deleted, therefore there aren't any volumes left that
                 // reference it!
-                //
-                // XXX does this need to be transactional? is that above
-                // statement true?
-
-                let region_snapshot = match self
+                match self
                     .datastore
                     .region_snapshot_get(
                         request.old_dataset_id,
@@ -117,12 +109,6 @@ impl SnapshotReplacementFinishDetector {
                 };
 
                 // Transition snapshot replacement to Complete
-                // XXX what if code does a checkout of a volume, that volume is
-                // deleted, but code does a modification then volume create?
-                // if that's not done in a transaction then there could be
-                // incorrect reference counts what if volume create detected
-                // when a constituent snapshot was missing? write a unit test
-                // for this
                 match self
                     .datastore
                     .set_snapshot_replacement_complete(opctx, request.id)
@@ -171,8 +157,6 @@ impl BackgroundTask for SnapshotReplacementFinishDetector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::app::background::init::test::NoopStartSaga;
-    use nexus_db_model::RegionSnapshot;
     use nexus_db_model::SnapshotReplacement;
     use nexus_db_model::SnapshotReplacementStep;
     use nexus_db_model::SnapshotReplacementStepState;
@@ -206,7 +190,6 @@ mod test {
         let dataset_id = Uuid::new_v4();
         let region_id = Uuid::new_v4();
         let snapshot_id = Uuid::new_v4();
-        let snapshot_addr = String::from("[fd00:1122:3344::101]:9876");
 
         // Do not add the fake region snapshot to the database, as it should
         // have been deleted by the time the request transitions to "Running"

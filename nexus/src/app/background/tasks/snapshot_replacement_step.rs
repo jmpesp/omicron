@@ -162,20 +162,6 @@ impl SnapshotReplacementFindAffected {
             };
 
         for request in requests {
-            // Grab the old snapshot volume id for later comparison.
-            let Some(old_snapshot_volume_id) = request.old_snapshot_volume_id
-            else {
-                // This state is illegal!
-                let s = format!(
-                    "request {} old snapshot volume id is None!",
-                    request.id,
-                );
-
-                error!(&log, "{s}");
-                status.errors.push(s);
-                continue;
-            };
-
             // Find all volumes that reference the replaced snapshot
             let region_snapshot = match self
                 .datastore
