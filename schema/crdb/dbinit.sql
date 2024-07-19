@@ -4073,10 +4073,6 @@ CREATE TABLE IF NOT EXISTS omicron.public.snapshot_replacement_step (
 CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_step_by_state
     on omicron.public.snapshot_replacement_step (replacement_state);
 
-CREATE UNIQUE INDEX IF NOT EXISTS unique_snapshot_replacement_per_volume
-    on omicron.public.snapshot_replacement_step (volume_id)
-    WHERE replacement_state != 'volume_deleted';
-
 CREATE INDEX IF NOT EXISTS lookup_snapshot_replacement_step_by_old_volume_id
     on omicron.public.snapshot_replacement_step (old_snapshot_volume_id);
 
