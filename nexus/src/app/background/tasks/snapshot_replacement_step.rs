@@ -346,9 +346,9 @@ impl BackgroundTask for SnapshotReplacementFindAffected {
 
             let mut status = SnapshotReplacementStepStatus::default();
 
-            // XXX importantly, clean up before finding affected volumes!
-            // otherwise, will continue to find the snapshot in volumes to
-            // delete!
+            // Importantly, clean old steps up before finding affected volumes!
+            // Otherwise, will continue to find the snapshot in volumes to
+            // delete, and will continue to see conflicts in next function.
             self.clean_up_snapshot_replacement_step_volumes(opctx, &mut status)
                 .await;
 
