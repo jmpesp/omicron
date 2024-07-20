@@ -59,6 +59,7 @@ use crate::app::sagas::declare_saga_actions;
 use crate::app::RegionAllocationStrategy;
 use crate::app::{authn, db};
 use anyhow::bail;
+use nexus_types::identity::Asset;
 use nexus_types::identity::Resource;
 use omicron_common::api::external::Error;
 use serde::Deserialize;
@@ -590,8 +591,15 @@ async fn ssrs_replace_snapshot_in_volume(
         "ensured_dataset_and_region",
     )?;
 
+    let Some(new_dataset_address) = new_dataset.address() else {
+        return Err(ActionError::action_failed(format!(
+            "dataset {} does not have an address!",
+            new_dataset.id(),
+        )));
+    };
+
     let new_region_address = SocketAddrV6::new(
-        *new_dataset.address().ip(),
+        *new_dataset_address.ip(),
         ensured_region.port_number,
         0,
         0,
@@ -677,8 +685,12 @@ async fn ssrs_replace_snapshot_in_volume_undo(
         "ensured_dataset_and_region",
     )?;
 
+    let Some(new_dataset_address) = new_dataset.address() else {
+        bail!("dataset {} does not have an address!", new_dataset.id());
+    };
+
     let new_region_address = SocketAddrV6::new(
-        *new_dataset.address().ip(),
+        *new_dataset_address.ip(),
         ensured_region.port_number,
         0,
         0,

@@ -1432,7 +1432,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-rustls 0.24.1",
- "toml 0.8.13",
+ "toml 0.8.15",
  "twox-hash",
  "uuid",
  "vergen",
