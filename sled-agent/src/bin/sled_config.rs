@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::path::PathBuf;
 use sled_hardware::disk::UnparsedDisk;
+use sled_hardware::DiskFirmware;
 use sled_hardware_types::Baseboard;
 use sled_hardware_types::underlay::mac_to_bootstrap_ip;
 use nexus_client::types::RecoverySiloConfig;
@@ -318,6 +319,12 @@ fn main() -> Result<()> {
                         model: String::from(model),
                     },
                     false, // is_boot_disk
+                    DiskFirmware::new(
+                        /*active_slot*/ 0,
+                        /*next_active_slot*/ None,
+                        /*slot1_read_only*/ true,
+                        /*slots*/ vec![Some(String::from("firmware"))],
+                    ),
                 ));
 
                 slot += 1;
