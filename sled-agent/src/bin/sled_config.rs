@@ -6,11 +6,11 @@ use dropshot::ConfigLogging;
 use dropshot::ConfigLoggingIfExists;
 use dropshot::ConfigLoggingLevel;
 use illumos_utils::dladm::PhysicalLink;
-use omicron_sled_agent::bootstrap::params::BootstrapAddressDiscovery;
+use sled_agent_types::rack_init::BootstrapAddressDiscovery;
+use sled_agent_types::rack_init::RackInitializeRequest;
 use omicron_sled_agent::config::Config as SledConfig;
 use omicron_sled_agent::config::SledMode;
 use omicron_sled_agent::config::SidecarRevision;
-use omicron_sled_agent::rack_setup::config::SetupServiceConfig as RssConfig;
 use omicron_sled_agent::updates::ConfigUpdates;
 use omicron_common::address::IpRange;
 use omicron_common::address::Ipv4Range;
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
         // frostypaws ixgbe3
         bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("80:61:5f:11:ab:31".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
 
-        let rss_config = RssConfig {
+        let rss_config = RackInitializeRequest {
             trust_quorum_peers: Some(vec![
                 Baseboard::new_pc(String::from("dinnerbone"), String::from("i86pc")),
                 Baseboard::new_pc(String::from("kibblesnbits"), String::from("i86pc")),
