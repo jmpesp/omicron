@@ -1359,6 +1359,7 @@ impl ServiceManager {
         gw_addr: Option<&Ipv6Addr>,
         zone: &InstalledZone,
         static_addrs: &[Ipv6Addr],
+        is_switch_zone: bool,
     ) -> Result<ServiceBuilder, Error> {
         let datalink = zone.get_control_vnic_name();
 
@@ -1381,6 +1382,22 @@ impl ServiceManager {
                 "static_addr",
                 "astring",
                 &s.to_string(),
+            );
+        }
+
+        if is_switch_zone {
+            // If running in the Canada region as a scrimlet, then enable
+            // forwarding
+            config_builder = config_builder.add_property(
+                "forwarding",
+                "astring",
+                "true",
+            );
+        } else {
+            config_builder = config_builder.add_property(
+                "forwarding",
+                "astring",
+                "false",
             );
         }
 
@@ -1597,6 +1614,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None)?;
@@ -1767,6 +1785,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None)?;
@@ -1858,6 +1877,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None)?;
@@ -1921,6 +1941,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dataset_name =
@@ -1974,6 +1995,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let config = PropertyGroupBuilder::new("config")
@@ -2018,6 +2040,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let oximeter_config = PropertyGroupBuilder::new("config")
@@ -2060,7 +2083,9 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*http_address.ip()],
+                    false,
                 )?;
+
                 // Like Nexus, we need to be reachable externally via
                 // `dns_address` but we don't listen on that address
                 // directly but instead on a VPC private IP. OPTE will
@@ -2132,6 +2157,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let rack_net =
@@ -2312,6 +2338,7 @@ impl ServiceManager {
                     Some(gz_address),
                     &installed_zone,
                     &underlay_ips,
+                    false,
                 )?;
 
                 // Internal DNS zones require a special route through
@@ -2405,6 +2432,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*internal_address.ip()],
+                    false,
                 )?;
 
                 // While Nexus will be reachable via `external_ip`, it
@@ -2580,6 +2608,7 @@ impl ServiceManager {
             gw_addr,
             &installed_zone,
             addresses,
+            true,
         )?;
 
         let sidecar_revision = match &self.inner.sidecar_revision {
