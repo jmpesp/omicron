@@ -1442,6 +1442,7 @@ impl ServiceManager {
         gw_addr: Option<&Ipv6Addr>,
         zone: &InstalledZone,
         static_addrs: &[Ipv6Addr],
+        is_switch_zone: bool,
     ) -> Result<ServiceBuilder, Error> {
         let datalink = zone.get_control_vnic_name();
 
@@ -1464,6 +1465,22 @@ impl ServiceManager {
                 "static_addr",
                 "astring",
                 &s.to_string(),
+            );
+        }
+
+        if is_switch_zone {
+            // If running in the Canada region as a scrimlet, then enable
+            // forwarding
+            config_builder = config_builder.add_property(
+                "forwarding",
+                "astring",
+                "true",
+            );
+        } else {
+            config_builder = config_builder.add_property(
+                "forwarding",
+                "astring",
+                "false",
             );
         }
 
@@ -1626,6 +1643,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None).await?;
@@ -1806,6 +1824,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None).await?;
@@ -1897,6 +1916,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None).await?;
@@ -1960,6 +1980,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dataset_name = DatasetName::new(
@@ -2019,6 +2040,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let config = PropertyGroupBuilder::new("config")
@@ -2067,6 +2089,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let oximeter_config = PropertyGroupBuilder::new("config")
@@ -2113,7 +2136,9 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*http_address.ip()],
+                    false,
                 )?;
+
                 // Like Nexus, we need to be reachable externally via
                 // `dns_address` but we don't listen on that address
                 // directly but instead on a VPC private IP. OPTE will
@@ -2177,6 +2202,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let rack_net =
@@ -2327,6 +2353,7 @@ impl ServiceManager {
                     Some(gz_address),
                     &installed_zone,
                     &underlay_ips,
+                    false,
                 )?;
 
                 // Internal DNS zones require a special route through
@@ -2409,6 +2436,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*internal_address.ip()],
+                    false,
                 )?;
 
                 // While Nexus will be reachable via `external_ip`, it
@@ -2539,6 +2567,7 @@ impl ServiceManager {
                     gw_addr,
                     &installed_zone,
                     addresses,
+                    true,
                 )?;
 
                 let sidecar_revision = match &self.inner.sidecar_revision {
@@ -3093,23 +3122,23 @@ impl ServiceManager {
                                 }
                             }
 
+                            mgd_config = mgd_config.add_property("admin_host", "astring", "::");
+
                             mgd_service = mgd_service.add_instance(
                                 ServiceInstanceBuilder::new("default")
                                     .add_property_group(mgd_config),
                             );
-
-                            smfh.setprop("config/admin_host", "::")?;
-                            smfh.refresh()?;
                         }
                         SwitchService::MgDdm { mode } => {
                             info!(self.inner.log, "Setting up mg-ddm service");
 
                             let mut mg_ddm_config =
                                 PropertyGroupBuilder::new("config")
-                                    .add_property("mode", "astring", mode)
-                                    .add_property(
-                                        "dendrite", "astring", "true",
-                                    );
+                                    .add_property("mode", "astring", mode);
+                                    // JWM canada region: need illumos routes
+                                    //.add_property(
+                                    //    "dendrite", "astring", "true",
+                                    //);
 
                             if let Some(i) = info {
                                 mg_ddm_config = mg_ddm_config
