@@ -44,3 +44,10 @@ pub struct SnapshotReplacementStepStatus {
     pub step_invoked_ok: Vec<String>,
     pub errors: Vec<String>,
 }
+
+/// The status of a `snapshot_replacement_finish` background task activation
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct SnapshotReplacementFinishStatus {
+    pub records_set_to_done: Vec<String>,
+    pub errors: Vec<String>,
+}
