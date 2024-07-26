@@ -39,6 +39,7 @@ pub mod region_replacement_finish;
 pub mod region_replacement_start;
 pub mod snapshot_create;
 pub mod snapshot_delete;
+pub mod snapshot_replacement_start;
 pub mod test_saga;
 pub mod volume_delete;
 pub mod volume_remove_rop;
@@ -182,6 +183,9 @@ fn make_action_registry() -> ActionRegistry {
         &mut registry,
     );
     <region_replacement_finish::SagaRegionReplacementFinish as NexusSaga>::register_actions(
+        &mut registry,
+    );
+    <snapshot_replacement_start::SagaSnapshotReplacementStart as NexusSaga>::register_actions(
         &mut registry,
     );
 

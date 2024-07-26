@@ -722,7 +722,7 @@ dependencies = [
  "omicron-workspace-hack",
  "oxnet",
  "progenitor",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "serde",
@@ -784,9 +784,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
-version = "1.6.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
+checksum = "a12916984aab3fa6e39d655a33e09c0071eb36d6ab3aea5c2d78551f1df6d952"
 dependencies = [
  "serde",
 ]
@@ -909,9 +909,13 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.97"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "099a5357d84c4c61eb35fc8eafa9a79a902c2f76911e5747ced4e032edd8d9b4"
+checksum = "2aba8f4e9906c7ce3c73463f62a7f0c65183ada1a2d47e397cc8810827f9694f"
+dependencies = [
+ "jobserver",
+ "libc",
+]
 
 [[package]]
 name = "cexpr"
@@ -1445,6 +1449,36 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "crucible-common"
+version = "0.0.1"
+source = "git+https://github.com/oxidecomputer/crucible?rev=e10f8793f8414fdb9a165219f17e45fa014d088b#e10f8793f8414fdb9a165219f17e45fa014d088b"
+dependencies = [
+ "anyhow",
+ "atty",
+ "crucible-workspace-hack",
+ "dropshot",
+ "nix 0.28.0",
+ "rusqlite",
+ "rustls-pemfile 1.0.4",
+ "schemars",
+ "serde",
+ "serde_json",
+ "slog",
+ "slog-async",
+ "slog-bunyan",
+ "slog-dtrace",
+ "slog-term",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-rustls 0.24.1",
+ "toml 0.8.15",
+ "twox-hash",
+ "uuid",
+ "vergen",
 ]
 
 [[package]]
@@ -2063,7 +2097,7 @@ dependencies = [
  "progenitor-client",
  "quote",
  "rand 0.8.5",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "rustfmt-wrapper",
  "schemars",
@@ -2380,6 +2414,18 @@ name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fancy-regex"
@@ -2853,15 +2899,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "getopts"
-version = "0.2.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14dbbfd5c71d70241ecf9e6f13737f7b5ce823821063188d7e46c41d371eebd5"
-dependencies = [
- "unicode-width",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2900,6 +2937,19 @@ name = "gimli"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
+
+[[package]]
+name = "git2"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b903b73e45dc0c6c596f2d37eccece7c1c8bb6e4407b001096387c63d0d93724"
+dependencies = [
+ "bitflags 2.5.0",
+ "libc",
+ "libgit2-sys",
+ "log",
+ "url",
+]
 
 [[package]]
 name = "glob"
@@ -3045,6 +3095,15 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash",
  "allocator-api2",
+]
+
+[[package]]
+name = "hashlink"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
+dependencies = [
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -3347,7 +3406,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3557,7 +3616,7 @@ dependencies = [
  "oxide-vpc",
  "oxlog",
  "oxnet",
- "regress",
+ "regress 0.9.1",
  "schemars",
  "serde",
  "serde_json",
@@ -3711,7 +3770,7 @@ dependencies = [
  "installinator-common",
  "omicron-workspace-hack",
  "progenitor",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "serde",
@@ -3910,6 +3969,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 
 [[package]]
+name = "jobserver"
+version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48d1dbcbbeb6a7fec7e059840aa538bd62aaccf972c7346c4d9d2059312853d0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4069,6 +4137,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "libgit2-sys"
+version = "0.17.0+1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10472326a8a6477c3c20a64547b0059e4b0d086869eee31e6d7da728a8eb7224"
+dependencies = [
+ "cc",
+ "libc",
+ "libz-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "libloading"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4151,6 +4231,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libsqlite3-sys"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f"
+dependencies = [
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
 name = "libsw"
 version = "3.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4177,6 +4267,18 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fe73cdec2bcb36d25a9fe3f607ffcd44bb8907ca0100c4098d1aa342d1e7bec"
 dependencies = [
+ "libc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
+name = "libz-sys"
+version = "1.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c15da26e5af7e25c90b37a2d75cdbf940cf4a55316de9d84c679c9b8bfabf82e"
+dependencies = [
+ "cc",
  "libc",
  "pkg-config",
  "vcpkg",
@@ -4212,9 +4314,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.21"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
+checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
 name = "lpc55_areas"
@@ -4591,7 +4693,7 @@ dependencies = [
  "omicron-workspace-hack",
  "oxnet",
  "progenitor",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "serde",
@@ -5465,7 +5567,7 @@ dependencies = [
  "progenitor-client",
  "proptest",
  "rand 0.8.5",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "semver 1.0.23",
@@ -5605,6 +5707,7 @@ dependencies = [
  "cockroach-admin-client",
  "criterion",
  "crucible-agent-client",
+ "crucible-common",
  "crucible-pantry-client",
  "diesel",
  "display-error-chain",
@@ -6375,7 +6478,7 @@ dependencies = [
  "omicron-workspace-hack",
  "progenitor",
  "rand 0.8.5",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "serde",
  "serde_json",
@@ -7183,7 +7286,7 @@ dependencies = [
  "base64 0.21.7",
  "byteorder",
  "bytes",
- "fallible-iterator",
+ "fallible-iterator 0.2.0",
  "hmac",
  "md-5",
  "memchr",
@@ -7200,7 +7303,7 @@ checksum = "8d2234cdee9408b523530a9b6d2d6b373d1db34f6a8e51dc03ded1828d7fb67c"
 dependencies = [
  "bytes",
  "chrono",
- "fallible-iterator",
+ "fallible-iterator 0.2.0",
  "postgres-protocol",
  "serde",
  "serde_json",
@@ -7350,18 +7453,17 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.7.0"
-source = "git+https://github.com/oxidecomputer/progenitor?branch=main#c59c6d64ed2a206bbbc9949abd3457bc0e3810e2"
+source = "git+https://github.com/oxidecomputer/progenitor?branch=main#5fededb4f56191e833cb2263b5c1f99b48a229cc"
 dependencies = [
  "progenitor-client",
  "progenitor-impl",
  "progenitor-macro",
- "serde_json",
 ]
 
 [[package]]
 name = "progenitor-client"
 version = "0.7.0"
-source = "git+https://github.com/oxidecomputer/progenitor?branch=main#c59c6d64ed2a206bbbc9949abd3457bc0e3810e2"
+source = "git+https://github.com/oxidecomputer/progenitor?branch=main#5fededb4f56191e833cb2263b5c1f99b48a229cc"
 dependencies = [
  "bytes",
  "futures-core",
@@ -7375,9 +7477,8 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.7.0"
-source = "git+https://github.com/oxidecomputer/progenitor?branch=main#c59c6d64ed2a206bbbc9949abd3457bc0e3810e2"
+source = "git+https://github.com/oxidecomputer/progenitor?branch=main#5fededb4f56191e833cb2263b5c1f99b48a229cc"
 dependencies = [
- "getopts",
  "heck 0.5.0",
  "http 0.2.12",
  "indexmap 2.2.6",
@@ -7397,7 +7498,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.7.0"
-source = "git+https://github.com/oxidecomputer/progenitor?branch=main#c59c6d64ed2a206bbbc9949abd3457bc0e3810e2"
+source = "git+https://github.com/oxidecomputer/progenitor?branch=main#5fededb4f56191e833cb2263b5c1f99b48a229cc"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -7955,6 +8056,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "regress"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16fe0a24af5daaae947294213d2fd2646fbf5e1fbacc1d4ba3e84b2393854842"
+dependencies = [
+ "hashbrown 0.14.5",
+ "memchr",
+]
+
+[[package]]
 name = "relative-path"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8166,6 +8277,20 @@ checksum = "c247d24e63230cdb56463ae328478bd5eac8b8faa8c69461a77e8e323afac90e"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "rusqlite"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae"
+dependencies = [
+ "bitflags 2.5.0",
+ "fallible-iterator 0.3.0",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec 1.13.2",
 ]
 
 [[package]]
@@ -9001,7 +9126,7 @@ dependencies = [
  "omicron-workspace-hack",
  "oxnet",
  "progenitor",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "serde",
@@ -10072,7 +10197,7 @@ dependencies = [
  "async-trait",
  "byteorder",
  "bytes",
- "fallible-iterator",
+ "fallible-iterator 0.2.0",
  "futures-channel",
  "futures-util",
  "log",
@@ -10558,6 +10683,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "rand 0.7.3",
+ "static_assertions",
+]
+
+[[package]]
 name = "typed-path"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10584,7 +10720,7 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 [[package]]
 name = "typify"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/typify#ad1296f6ceb998ae8c247d999b7828703a232bdd"
+source = "git+https://github.com/oxidecomputer/typify#e1ef79f972152355ba80a255d6086d1ad3404815"
 dependencies = [
  "typify-impl",
  "typify-macro",
@@ -10593,13 +10729,13 @@ dependencies = [
 [[package]]
 name = "typify-impl"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/typify#ad1296f6ceb998ae8c247d999b7828703a232bdd"
+source = "git+https://github.com/oxidecomputer/typify#e1ef79f972152355ba80a255d6086d1ad3404815"
 dependencies = [
  "heck 0.5.0",
  "log",
  "proc-macro2",
  "quote",
- "regress",
+ "regress 0.10.0",
  "schemars",
  "semver 1.0.23",
  "serde",
@@ -10612,7 +10748,7 @@ dependencies = [
 [[package]]
 name = "typify-macro"
 version = "0.1.0"
-source = "git+https://github.com/oxidecomputer/typify#ad1296f6ceb998ae8c247d999b7828703a232bdd"
+source = "git+https://github.com/oxidecomputer/typify#e1ef79f972152355ba80a255d6086d1ad3404815"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10913,6 +11049,22 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "vergen"
+version = "8.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2990d9ea5967266ea0ccf413a4aa5c42a93dbcfda9cb49a97de6931726b12566"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "cfg-if",
+ "git2",
+ "regex",
+ "rustc_version 0.4.0",
+ "rustversion",
+ "time",
+]
 
 [[package]]
 name = "version_check"
@@ -11350,7 +11502,7 @@ dependencies = [
  "omicron-uuid-kinds",
  "omicron-workspace-hack",
  "progenitor",
- "regress",
+ "regress 0.9.1",
  "reqwest",
  "schemars",
  "serde",
