@@ -337,6 +337,19 @@ task: "service_zone_nat_tracker"
     ensures service zone nat records are recorded in NAT RPW table
 
 
+task: "snapshot_replacement_garbage_collection"
+    clean up all snapshot replacement step volumes
+
+
+task: "snapshot_replacement_start"
+    detect if snapshots need replacement and begin the process
+
+
+task: "snapshot_replacement_step"
+    detect what volumes were affected by a snapshot replacement, and run the
+    step saga for them
+
+
 task: "switch_port_config_manager"
     manages switch port settings for rack switches
 
@@ -583,6 +596,29 @@ task: "service_zone_nat_tracker"
   last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
     started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
     last completion reported error: inventory collection is None
+
+task: "snapshot_replacement_garbage_collection"
+  configured period: every <REDACTED_DURATION>s
+  currently executing: no
+  last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
+    started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
+warning: unknown background task: "snapshot_replacement_garbage_collection" (don't know how to interpret details: Object {"errors": Array [], "garbage_collect_requested": Array []})
+
+task: "snapshot_replacement_start"
+  configured period: every <REDACTED_DURATION>s
+  currently executing: no
+  last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
+    started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
+warning: unknown background task: "snapshot_replacement_start" (don't know how to interpret details: Object {"errors": Array [], "requests_created_ok": Array [], "start_invoked_ok": Array []})
+
+task: "snapshot_replacement_step"
+  configured period: every <REDACTED_DURATION>s
+  currently executing: no
+  last completed activation: <REDACTED ITERATIONS>, triggered by a periodic timer firing
+    started at <REDACTED     TIMESTAMP> (<REDACTED DURATION>s ago) and ran for <REDACTED DURATION>ms
+    total step records created ok: 0
+    total step saga invoked ok: 0
+    errors: 0
 
 task: "switch_port_config_manager"
   configured period: every <REDACTED_DURATION>s

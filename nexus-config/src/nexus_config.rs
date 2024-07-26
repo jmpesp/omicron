@@ -394,6 +394,8 @@ pub struct BackgroundTaskConfig {
     /// configuration for snapshot replacement garbage collection
     pub snapshot_replacement_garbage_collection:
         SnapshotReplacementGarbageCollectionConfig,
+    /// configuration for snapshot replacement step task
+    pub snapshot_replacement_step: SnapshotReplacementStepConfig,
 }
 
 #[serde_as]
@@ -624,6 +626,14 @@ pub struct SnapshotReplacementStartConfig {
 #[serde_as]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SnapshotReplacementGarbageCollectionConfig {
+    /// period (in seconds) for periodic activations of this background task
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub period_secs: Duration,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SnapshotReplacementStepConfig {
     /// period (in seconds) for periodic activations of this background task
     #[serde_as(as = "DurationSeconds<u64>")]
     pub period_secs: Duration,
@@ -876,6 +886,7 @@ mod test {
             lookup_region_port.period_secs = 60
             snapshot_replacement_start.period_secs = 30
             snapshot_replacement_garbage_collection.period_secs = 30
+            snapshot_replacement_step.period_secs = 30
             [default_region_allocation_strategy]
             type = "random"
             seed = 0
@@ -1042,6 +1053,10 @@ mod test {
                             SnapshotReplacementGarbageCollectionConfig {
                                 period_secs: Duration::from_secs(30),
                             },
+                        snapshot_replacement_step:
+                            SnapshotReplacementStepConfig {
+                                period_secs: Duration::from_secs(30),
+                            },
                     },
                     default_region_allocation_strategy:
                         crate::nexus_config::RegionAllocationStrategy::Random {
@@ -1119,6 +1134,7 @@ mod test {
             lookup_region_port.period_secs = 60
             snapshot_replacement_start.period_secs = 30
             snapshot_replacement_garbage_collection.period_secs = 30
+            snapshot_replacement_step.period_secs = 30
             [default_region_allocation_strategy]
             type = "random"
             "##,

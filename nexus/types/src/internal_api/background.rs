@@ -35,3 +35,12 @@ pub struct SnapshotReplacementGarbageCollectStatus {
     pub garbage_collect_requested: Vec<String>,
     pub errors: Vec<String>,
 }
+
+/// The status of a `snapshot_replacement_step` background task activation
+#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct SnapshotReplacementStepStatus {
+    pub volume_deletes_requested: Vec<String>,
+    pub step_records_created_ok: Vec<String>,
+    pub step_invoked_ok: Vec<String>,
+    pub errors: Vec<String>,
+}
