@@ -33,6 +33,7 @@ use nexus_types::deployment::Blueprint;
 use nexus_types::internal_api::background::LookupRegionPortStatus;
 use nexus_types::internal_api::background::RegionReplacementDriverStatus;
 use nexus_types::internal_api::background::SnapshotReplacementStartStatus;
+use nexus_types::internal_api::background::SnapshotReplacementGarbageCollectStatus;
 use nexus_types::inventory::BaseboardId;
 use omicron_uuid_kinds::CollectionUuid;
 use omicron_uuid_kinds::GenericUuid;
@@ -1282,6 +1283,32 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
                 for line in &status.start_invoked_ok {
                     println!("    > {line}");
                 }
+
+                println!("    errors: {}", status.errors.len());
+                for line in &status.errors {
+                    println!("    > {line}");
+                }
+            }
+        }
+    } else if name == "snapshot_replacement_garbage_collect" {
+        match serde_json::from_value::<SnapshotReplacementGarbageCollectStatus>(
+            details.clone(),
+        ) {
+            Err(error) => eprintln!(
+                "warning: failed to interpret task details: {:?}: {:?}",
+                error, details
+            ),
+
+            Ok(status) => {
+                /*
+                println!(
+                    "    total volume deletes requested: {}",
+                    status.volume_deletes_requested.len(),
+                );
+                for line in &status.volume_deletes_requested {
+                    println!("    > {line}");
+                }
+                */
 
                 println!("    errors: {}", status.errors.len());
                 for line in &status.errors {
