@@ -35,8 +35,8 @@ use sled_hardware::disk::UnparsedDisk;
 use sled_hardware::DiskFirmware;
 use sled_hardware_types::Baseboard;
 use sled_hardware_types::underlay::mac_to_bootstrap_ip;
-use nexus_client::types::RecoverySiloConfig;
-use nexus_client::types::UserId;
+use sled_agent_types::rack_init::RecoverySiloConfig;
+use omicron_common::api::external::UserId;
 use omicron_passwords::NewPasswordHash;
 use omicron_passwords::Hasher;
 use omicron_passwords::Password;
@@ -47,6 +47,7 @@ use hex::FromHex;
 use gateway_messages::DeviceCapabilities;
 use gateway_messages::DevicePresence;
 use std::net::SocketAddrV6;
+use omicron_common::disk::DiskVariant;
 
 fn main() -> Result<()> {
     let cmd = Command::new("hostname").output()?;
@@ -162,7 +163,7 @@ fn main() -> Result<()> {
 
             recovery_silo: RecoverySiloConfig {
                 silo_name: "recovery".parse().unwrap(),
-                user_name: UserId::try_from("admin").unwrap(),
+                user_name: UserId::try_from(String::from("admin")).unwrap(),
                 user_password_hash,
             },
 
@@ -312,7 +313,7 @@ fn main() -> Result<()> {
                     Utf8PathBuf::from(devfs_path),
                     None, // XXX Some(Utf8PathBuf::from(disk)) ? or /dev/dsk/{disk} ?
                     slot,
-                    sled_hardware::DiskVariant::U2,
+                    DiskVariant::U2,
                     omicron_common::disk::DiskIdentity {
                         vendor: String::from("Synthetic"),
                         serial: String::from(serial),
