@@ -1100,3 +1100,5 @@ oximeter = { path = "oximeter/oximeter" }
 git = 'https://github.com/oxidecomputer/zone'
 branch = 'state-derive-eq-hash'
 
+#[patch."https://github.com/oxidecomputer/falcon"]
+#libfalcon = { path = "../falcon/lib" }
