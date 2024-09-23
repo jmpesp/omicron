@@ -1932,6 +1932,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*address.ip()],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None).await?;
