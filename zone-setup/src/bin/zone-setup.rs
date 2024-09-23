@@ -22,6 +22,7 @@ use omicron_common::cmd::fatal;
 use oxnet::Ipv6Net;
 use sled_agent_types::sled::SWITCH_ZONE_BASEBOARD_FILE;
 use slog::{Logger, info};
+use sled_hardware_types::Baseboard;
 use std::fmt::Write as _;
 use std::fs::{OpenOptions, metadata, read_to_string, set_permissions, write};
 use std::io::Write as _;
@@ -223,7 +224,7 @@ async fn switch_zone_setup(
         "baseboard file" => %file.display(),
         "baseboard info" => ?info,
     );
-    generate_switch_zone_baseboard_file(&file, info)?;
+    generate_switch_zone_baseboard_file(&file, info.clone())?;
 
     info!(log, "Setting up the users required for wicket and support");
     let wicket_user = SwitchZoneUser::new(
@@ -311,7 +312,18 @@ async fn switch_zone_setup(
 
     // Depending on the machine, forward boundary services to the fancyfeast
     // interface
-    if info.contains("frostypaws") {
+    let deserialized_baseboard: Baseboard = serde_json::from_value(info)?;
+
+    let frostypaws: bool = match &deserialized_baseboard {
+        Baseboard::Pc { identifier, .. } => identifier.contains("frostypaws"),
+        _ => false,
+    };
+    let kibblesnbits: bool = match &deserialized_baseboard {
+        Baseboard::Pc { identifier, .. } => identifier.contains("kibblesnbits"),
+        _ => false,
+    };
+
+    if frostypaws {
         // program in routes to fancyfeast for startup dendrite programming
         // (nexus using OPTE now)
         // the next hop is enp1s0 on fancyfeast
@@ -323,8 +335,7 @@ async fn switch_zone_setup(
             "fe80::21b:21ff:fec1:fb30",
             "-ifp",
             "ixgbe5",
-        ])
-        .map_err(|err| CmdError::Failure(err))?;
+        ])?;
 
         // program in a specific route to put geneve traffic through opte
         // the next hop is ixgbe3 in GZ
@@ -336,9 +347,8 @@ async fn switch_zone_setup(
             "fe80::8261:5fff:fe11:ab31",
             "-ifp",
             "ixgbe4",
-        ])
-        .map_err(|err| CmdError::Failure(err))?;
-    } else if info.contains("kibblesnbits") {
+        ])?;
+    } else if kibblesnbits {
         // program in routes to fancyfeast for startup dendrite programming
         // (nexus using OPTE now)
         // next hop is enp4s0 on fancyfeast
@@ -350,8 +360,7 @@ async fn switch_zone_setup(
             "fe80::4a22:54ff:fe40:8790",
             "-ifp",
             "e1000g4",
-        ])
-        .map_err(|err| CmdError::Failure(err))?;
+        ])?;
 
         // program in a specific route to put geneve traffic through opte
         // next hop is e1000g5 in GZ
@@ -363,8 +372,7 @@ async fn switch_zone_setup(
             "fe80::6a05:caff:fe15:bdec",
             "-ifp",
             "e1000g3",
-        ])
-        .map_err(|err| CmdError::Failure(err))?;
+        ])?;
     } else {
         // wat?
     }
@@ -693,7 +701,7 @@ async fn common_nw_set_up(
 ) -> anyhow::Result<()> {
     let zonename =
         zone::current().await.context("could not determine local zone name")?;
-    let CommonNetworkingArgs { datalink, gateway, static_addrs } = args;
+    let CommonNetworkingArgs { datalink, gateway, static_addrs, forwarding } = args;
 
     info!(
         log,
@@ -792,10 +800,9 @@ async fn common_nw_set_up(
 
     // JWM - support the Canada region, now that the switch zone is
     // self-assembling!
-    if args.forwarding {
+    if forwarding {
         info!(&log, "Enable ipv6-forwarding (for Canada region)");
-        command("routeadm", &["-e", "ipv6-forwarding", "-u"])
-            .map_err(|err| CmdError::Failure(err))?;
+        command("routeadm", &["-e", "ipv6-forwarding", "-u"])?;
     }
 
     Ok(())
