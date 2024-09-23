@@ -1682,6 +1682,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[listen_addr],
+                    false,
                 )?;
 
                 let dns_service = Self::dns_install(info, None, None).await?;
