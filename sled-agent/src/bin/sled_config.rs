@@ -48,22 +48,26 @@ use gateway_messages::DeviceCapabilities;
 use gateway_messages::DevicePresence;
 use std::net::SocketAddrV6;
 use omicron_common::disk::DiskVariant;
+use sprockets_tls::keys::SprocketsConfig;
+use sprockets_tls::keys::ResolveSetting;
+use omicron_gateway::RetryConfig;
 
 fn main() -> Result<()> {
     let cmd = Command::new("hostname").output()?;
-    let hostname = String::from_utf8_lossy(&cmd.stdout);
+    let hostname_with_newline = String::from_utf8_lossy(&cmd.stdout);
+    let hostname = hostname_with_newline.trim();
 
     //const MULTI_SWITCH_MODE: bool = true;
     const MULTI_SWITCH_MODE: bool = false;
 
     let sled_mode = if MULTI_SWITCH_MODE {
-        match hostname.trim() {
+        match hostname {
             "dinnerbone" | "gravytrain" => SledMode::Gimlet,
             "kibblesnbits" | "frostypaws" => SledMode::Scrimlet,
             _ => panic!("unknown hostname {}", hostname),
         }
     } else {
-        match hostname.trim() {
+        match hostname {
             "dinnerbone" | "gravytrain" | "kibblesnbits"  => SledMode::Gimlet,
             "frostypaws" => SledMode::Scrimlet,
 
@@ -78,7 +82,7 @@ fn main() -> Result<()> {
     // depends on active target!
     assert!(std::path::Path::new("smf/sled-agent/non-gimlet").exists());
 
-    eprintln!("sled mode \"{:?}\" hostname \"{}\"", sled_mode, hostname.trim());
+    eprintln!("sled mode \"{:?}\" hostname \"{}\"", sled_mode, hostname);
 
     let user_password_hash = {
         // echo -n 'testpostpleaseignore' | argon2 $(pwgen 32 1) -id -t 15 -k 98304 -l 32 -p 1
@@ -96,7 +100,7 @@ fn main() -> Result<()> {
     const BOOTSTRAP_INTERFACE_ID: u64 = 1;
 
     // config-rss.toml
-    if matches!(sled_mode, SledMode::Scrimlet) && hostname.trim() == "frostypaws" {
+    if matches!(sled_mode, SledMode::Scrimlet) && hostname == "frostypaws" {
         let mut bootstrap_discovery_addrs = BTreeSet::new();
 
         // if you change a sled's data link, change these mac addresses!
@@ -184,6 +188,7 @@ fn main() -> Result<()> {
                             // fancyfeast interface connected to 10G network
                             nexthop: "192.168.1.1".parse().unwrap(),
                             vlan_id: None,
+                            local_pref: None,
                         }],
 
                         addresses: vec![UplinkAddressConfig {
@@ -202,6 +207,7 @@ fn main() -> Result<()> {
                         uplink_port_fec: PortFec::None,
                         bgp_peers: vec![],
                         autoneg: false,
+                        lldp: None,
                     },
 
                     // XXX switch 1?
@@ -336,7 +342,7 @@ fn main() -> Result<()> {
 
         skip_timesync: Some(false),
 
-        data_link: Some(PhysicalLink(String::from(match hostname.trim() {
+        data_link: Some(PhysicalLink(String::from(match hostname {
             "dinnerbone" => "ixgbe0",
             "kibblesnbits" => "ixgbe0",
             "gravytrain" => "ixgbe0",
@@ -345,7 +351,7 @@ fn main() -> Result<()> {
         }))),
 
         data_links: if MULTI_SWITCH_MODE {
-            match hostname.trim() {
+            match hostname {
                 "dinnerbone" => ["ixgbe0".to_string(), "igb0".to_string()],
 
                 // kibblesnbits has e1000g3 and e1000g5 plugged into each other,
@@ -363,7 +369,7 @@ fn main() -> Result<()> {
                 _ => panic!("unknown hostname {}", hostname),
             }
         } else {
-            match hostname.trim() {
+            match hostname {
                 "dinnerbone" => ["ixgbe0".to_string(), "net1".to_string()],
                 "kibblesnbits" => ["ixgbe0".to_string(), "net1".to_string()],
                 "gravytrain" => ["ixgbe0".to_string(), "net1".to_string()],
@@ -374,7 +380,7 @@ fn main() -> Result<()> {
 
         updates: ConfigUpdates::default(),
 
-        switch_zone_maghemite_links: match hostname.trim() {
+        switch_zone_maghemite_links: match hostname {
             "dinnerbone" => vec![],
             "kibblesnbits" => if MULTI_SWITCH_MODE {
                 // kibblesnbits has e1000g3 and e1000g5 plugged into each other,
@@ -402,6 +408,22 @@ fn main() -> Result<()> {
             ],
             _ => panic!("unknown hostname {}", hostname),
         },
+
+        sprockets: SprocketsConfig {
+            resolve: ResolveSetting::Local {
+                priv_key: Utf8PathBuf::from(
+                    format!("/home/james/omicron/sprockets_tls/{hostname}.key.pem")
+                ),
+
+                cert_chain: Utf8PathBuf::from(
+                    format!("/home/james/omicron/sprockets_tls/{hostname}.cert.pem")
+                ),
+            },
+
+            roots: vec![
+                Utf8PathBuf::from("/home/james/omicron/sprockets_tls/canada_region_ca.cert.pem"),
+            ],
+        },
     };
 
     std::fs::write(
@@ -425,11 +447,11 @@ fn main() -> Result<()> {
                             "[::]:33301".parse().unwrap(),
                         ]),
 
-                        serial_number: match hostname.trim() {
+                        serial_number: match hostname {
                             "frostypaws" => String::from("switch0"),
                             "kibblesnbits" => String::from("switch1"),
 
-                            _ => panic!("unknown hostname {}", hostname.trim()),
+                            _ => panic!("unknown hostname {}", hostname),
                         },
 
                         // can ignore
@@ -483,7 +505,7 @@ fn main() -> Result<()> {
                         "[::]:33301".parse().unwrap(),
                     ]),
 
-                    serial_number: hostname.trim().to_string(),
+                    serial_number: hostname.to_string(),
 
                     // can ignore
                     manufacturing_root_cert_seed:
@@ -641,7 +663,7 @@ fn main() -> Result<()> {
                         // ixgbe0
                         addr: SocketAddrV6::new(
                             mac_to_bootstrap_ip("00:1b:21:c1:ff:e0".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname.trim() {
+                            match hostname {
                                 "frostypaws" => 33300,
                                 "kibblesnbits" => 33301,
                                 _ => panic!("unknown hostname {}", hostname),
@@ -678,7 +700,7 @@ fn main() -> Result<()> {
                         // ixgbe0
                         addr: SocketAddrV6::new(
                             mac_to_bootstrap_ip("00:1b:21:c1:fc:da".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname.trim() {
+                            match hostname {
                                 "frostypaws" => 33300,
                                 "kibblesnbits" => 33301,
                                 _ => panic!("unknown hostname {}", hostname),
@@ -715,7 +737,7 @@ fn main() -> Result<()> {
                         // ixgbe0
                         addr: SocketAddrV6::new(
                             mac_to_bootstrap_ip("00:1b:21:c1:fd:24".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname.trim() {
+                            match hostname {
                                 "frostypaws" => 33300,
                                 "kibblesnbits" => 33301,
                                 _ => panic!("unknown hostname {}", hostname),
@@ -752,7 +774,7 @@ fn main() -> Result<()> {
                         // ixgbe3
                         addr: SocketAddrV6::new(
                             mac_to_bootstrap_ip("80:61:5f:11:ab:31".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname.trim() {
+                            match hostname {
                                 "frostypaws" => 33300,
                                 "kibblesnbits" => 33301,
                                 _ => panic!("unknown hostname {}", hostname),
@@ -797,15 +819,20 @@ fn main() -> Result<()> {
                 udp_listen_port: 12225, // gateway_sp_comms::MGS_PORT
 
                 // name of interface, not port
-                local_ignition_controller_interface: match hostname.trim() {
+                local_ignition_controller_interface: match hostname {
                     "frostypaws" => String::from("sidecar0"),
                     "kibblesnbits" => String::from("sidecar1"),
 
-                    _ => panic!("unknown hostname {}", hostname.trim()),
+                    _ => panic!("unknown hostname {}", hostname),
                 },
 
-                rpc_max_attempts: 5,
-                rpc_per_attempt_timeout_millis: 2000,
+                rpc_retry_config: RetryConfig {
+                    per_attempt_timeout_millis: 2000,
+                    // how many attempts to reset before giving up
+                    max_attempts_reset: 30,
+                    // how many attempts other than to reset before giving up
+                    max_attempts_general: 5,
+                },
 
                 location: omicron_gateway::LocationConfig {
                     // name of location hashmap key
@@ -837,6 +864,8 @@ fn main() -> Result<()> {
                 path: "/dev/stdout".into(),
                 if_exists: ConfigLoggingIfExists::Append,
             },
+
+            metrics: None, // MetricsConfig
         };
 
         std::fs::write(
