@@ -1519,13 +1519,7 @@ impl ServiceManager {
             config_builder = config_builder.add_property(
                 "forwarding",
                 "astring",
-                "true",
-            );
-        } else {
-            config_builder = config_builder.add_property(
-                "forwarding",
-                "astring",
-                "false",
+                "-f",
             );
         }
 
