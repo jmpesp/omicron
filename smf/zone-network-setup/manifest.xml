@@ -27,7 +27,7 @@
   </dependency>
 
   <exec_method type='method' name='start'
-    exec='/opt/oxide/zone-setup-cli/bin/zone-setup common-networking -d %{config/datalink} -s %{config/static_addr} -g %{config/gateway} -f%{config/forwarding}'
+    exec='/opt/oxide/zone-setup-cli/bin/zone-setup common-networking -d %{config/datalink} -s %{config/static_addr} -g %{config/gateway} %{config/forwarding}'
     timeout_seconds='0' />
 
   <exec_method type='method' name='stop' exec=':true' timeout_seconds='0' />
@@ -44,7 +44,7 @@
     <propval name='datalink' type='astring' value='unknown' />
     <propval name='gateway' type='astring' value='' />
     <propval name='static_addr' type='astring' value='unknown' />
-    <propval name='forwarding' type='astring' value='unknown' />
+    <propval name='forwarding' type='astring' value='' />
   </property_group>
 
   <stability value='Unstable' />
