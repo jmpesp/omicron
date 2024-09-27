@@ -327,9 +327,10 @@ fn main() -> Result<()> {
                     },
                     false, // is_boot_disk
                     DiskFirmware::new(
-                        /*active_slot*/ 0,
+                        /*active_slot*/ 1, // NVMe spec has slots 1-7
                         /*next_active_slot*/ None,
                         /*slot1_read_only*/ true,
+                        /*number of slots*/1,
                         /*slots*/ vec![Some(String::from("firmware"))],
                     ),
                 ));
