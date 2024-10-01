@@ -2233,6 +2233,7 @@ impl ServiceManager {
                     Some(&info.underlay_address),
                     &installed_zone,
                     &[*underlay_address],
+                    false,
                 )?;
 
                 let rack_net =
