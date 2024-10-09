@@ -188,7 +188,7 @@ fn main() -> Result<()> {
                             // fancyfeast interface connected to 10G network
                             nexthop: "192.168.1.1".parse().unwrap(),
                             vlan_id: None,
-                            local_pref: None,
+                            rib_priority: None,
                         }],
 
                         addresses: vec![UplinkAddressConfig {
