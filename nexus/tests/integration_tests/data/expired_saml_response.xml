@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" Version="2.0" ID="_f2f02ca12d7292f8a4e03b7b99d71a45f8896c2677" IssueInstant="2022-05-04T15:36:12.631Z" Destination="https://customer.site/oxide_rack/saml">
+  <saml:Issuer>https://some.idp.test/oxide_rack/</saml:Issuer>
+  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference URI="#_f2f02ca12d7292f8a4e03b7b99d71a45f8896c2677">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+          <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>FQJZ7HexaUyvOl3n6ugO2/xMIBi+mszQYc5OMs+t54U=</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>HqJF1gBCf0DRgB53vJje39Ji6BVTU04TiOMkDo78fVfaAc1/ZRspteNA/WTfPSYJ
+wAHtpfQpu2DRZ6kvoS7zTwfqxCjxXMN/rT+yHmB8P5CaV0nHJdaUo105n/dxsTqn
+rtoaksRVa6sgAfAmgt26MBSxl2wb2JtMPEIiPkzLjJUeKJgwjGy8aMG2SO04u7eD
+8jzAhXF/Atl+eb2wkCULr1iX5ZNEqfvAgs/a8rGDw2NR37QPhl/FAve5GUPNCo9H
+kcwEhDzpqw/Rm+MB+f/aqcBPBDyA6XOVwWR5uYV8kzuZfTQMKLxbHeUXJ6qKQhsP
+gJ4uhbUd/j/n3xZZZk7ICg==</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>MIIDXjCCAkagAwIBAgIUFKla2OTQGUbt5QzyjGiAoBjk3ZgwDQYJKoZIhvcNAQEL
+BQAwRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1TYW4gRnJh
+bmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MB4XDTI0MTAzMTE4MDUwMFoXDTI0
+MTAzMTE4MDYwMFowRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQH
+Ew1TYW4gRnJhbmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv0V30ZQfnhf3kJKKctzGAhjXISBjZ9BA59tQ
+96/jJNvZLh7wEHm5lYNcTmBuBtv8MEcECrMgVovaJ3DGNsHWtTf/q/PWOrec6/Ms
+MmY+hFGJ6s+lv02BqKupp4I+DN+saGZFCXHR6Nvm/kdrwbEJbfi1GfhFIxtWw57Z
+k9EBYuo/t70s1Xm2zWGdiPxL2xOeKJmh482Yosawy1fJ2GwU4whvRAx1eMLjxEOW
+/nU6Wse1Is3e5k2+ZfMo+EtDG1JTsJWZ3rybq+F/QJxffrE/SHWMN/h24crywsED
+varvkE4czx7Onst7wXnN20FPcP0dFa9+ei+N9SgPrTosVQSSSwIDAQABo0IwQDAO
+BgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+dwnGLdq
+QPRgq6b25EUIELlppFcwDQYJKoZIhvcNAQELBQADggEBAA62Yv5U7fp/TqpKOghT
+PA+RAqwIHMqWIYGE32tiF9XH7u9JjtIkN5whu4L8yMjxnJ+wqZ1MQOHyipH/729P
+qVpAkUjqbx+++Va8zVKDDGVOPO4n4mBGWST73PYYKpp3pUknbwdhbISOrTF/A/hQ
+STQg3BD1ui4C+x8mqtmmL7z2w5Jc8Kt3sAxSvL0lJ8QpP7WZ+GKJ4989K6KIta/V
+uoi95D+LEOhxARtUHFiCl15boZZtiEuPDzwp2ebYa8WuhjpjWzf/zvA1kc39zFIR
+Cn4SR8fX7EAu3T1/w1NBBRK5/m+ePHohzTOdhiRXZ8EqhICx4mAsAdhlu78U3BWW
+2LQ=
+</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+  </ds:Signature>
+  <samlp:Status>
+    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+  </samlp:Status>
+  <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" Version="2.0" ID="_a8d644a6c83fc56337b0330d8b0ff684978a5fe56c" IssueInstant="2022-05-04T15:36:12.556Z">
+    <saml:Issuer>https://some.idp.test/oxide_rack/</saml:Issuer>
+    <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+      <ds:SignedInfo>
+        <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+        <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+        <ds:Reference URI="#_a8d644a6c83fc56337b0330d8b0ff684978a5fe56c">
+          <ds:Transforms>
+            <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+            <ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+          </ds:Transforms>
+          <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+          <ds:DigestValue>kLLhHLTkRH1h5sHv870sZ24QecQnyLMQ2vvIMhss7ZU=</ds:DigestValue>
+        </ds:Reference>
+      </ds:SignedInfo>
+      <ds:SignatureValue>NCOXlC0UWL0L/hoa7b8ge2q+NZkc1JHQN3zY43CRGOBKvm2K3Dw0gQtPKm/XbPV4
+GXwRGNRtitNjBm7RqfJ/k9DpeY9Uzkb+BDjESnVBagjSdkVlGMIlci6qtFgsYPr/
+Ix4r06IZR78ibD9vUMq761hDgzK/FJbVPS/yHHGLlO0AWFLMWHhmfF2bIQVByOW9
+a+F8HQq94bdNThnuI+KpyoRgJwMzFVM0NUGm5mn+JIoaM2WbBr6FEeS7wzxOF8ER
+deBkUjhzafbzvkX7RPEu08FyjTMybOPoGuoRxBDz8z7hVOOVmSQm4QohEOoDALJH
+KguFEkfn4TQAyyp5W/yJLQ==</ds:SignatureValue>
+      <ds:KeyInfo>
+        <ds:X509Data>
+          <ds:X509Certificate>MIIDXjCCAkagAwIBAgIUFKla2OTQGUbt5QzyjGiAoBjk3ZgwDQYJKoZIhvcNAQEL
+BQAwRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1TYW4gRnJh
+bmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MB4XDTI0MTAzMTE4MDUwMFoXDTI0
+MTAzMTE4MDYwMFowRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQH
+Ew1TYW4gRnJhbmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv0V30ZQfnhf3kJKKctzGAhjXISBjZ9BA59tQ
+96/jJNvZLh7wEHm5lYNcTmBuBtv8MEcECrMgVovaJ3DGNsHWtTf/q/PWOrec6/Ms
+MmY+hFGJ6s+lv02BqKupp4I+DN+saGZFCXHR6Nvm/kdrwbEJbfi1GfhFIxtWw57Z
+k9EBYuo/t70s1Xm2zWGdiPxL2xOeKJmh482Yosawy1fJ2GwU4whvRAx1eMLjxEOW
+/nU6Wse1Is3e5k2+ZfMo+EtDG1JTsJWZ3rybq+F/QJxffrE/SHWMN/h24crywsED
+varvkE4czx7Onst7wXnN20FPcP0dFa9+ei+N9SgPrTosVQSSSwIDAQABo0IwQDAO
+BgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+dwnGLdq
+QPRgq6b25EUIELlppFcwDQYJKoZIhvcNAQELBQADggEBAA62Yv5U7fp/TqpKOghT
+PA+RAqwIHMqWIYGE32tiF9XH7u9JjtIkN5whu4L8yMjxnJ+wqZ1MQOHyipH/729P
+qVpAkUjqbx+++Va8zVKDDGVOPO4n4mBGWST73PYYKpp3pUknbwdhbISOrTF/A/hQ
+STQg3BD1ui4C+x8mqtmmL7z2w5Jc8Kt3sAxSvL0lJ8QpP7WZ+GKJ4989K6KIta/V
+uoi95D+LEOhxARtUHFiCl15boZZtiEuPDzwp2ebYa8WuhjpjWzf/zvA1kc39zFIR
+Cn4SR8fX7EAu3T1/w1NBBRK5/m+ePHohzTOdhiRXZ8EqhICx4mAsAdhlu78U3BWW
+2LQ=
+</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </ds:Signature>
+    <saml:Subject>
+      <saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress">some@customer.com</saml:NameID>
+      <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+        <saml:SubjectConfirmationData NotOnOrAfter="3923-09-01T02:16:12.556Z" Recipient="https://customer.site/oxide_rack/saml"/>
+      </saml:SubjectConfirmation>
+    </saml:Subject>
+    <saml:Conditions NotBefore="2022-05-04T15:36:12.556Z" NotOnOrAfter="3923-09-01T02:16:12.556Z"/>
+    <saml:AuthnStatement AuthnInstant="2022-05-04T15:36:12.556Z" SessionNotOnOrAfter="3923-09-01T02:16:12.556Z" SessionIndex="_samling_4356273_859641652">
+      <saml:AuthnContext>
+        <saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:unspecified</saml:AuthnContextClassRef>
+      </saml:AuthnContext>
+    </saml:AuthnStatement>
+    <saml:AttributeStatement>
+      <saml:Attribute Name="groups" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified">
+        <saml:AttributeValue>SRE</saml:AttributeValue>
+        <saml:AttributeValue>Admins</saml:AttributeValue>
+      </saml:Attribute>
+    </saml:AttributeStatement>
+  </saml:Assertion>
+</samlp:Response>

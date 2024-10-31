@@ -1,0 +1,44 @@
+<md:EntityDescriptor entityID="https://some.idp.test/oxide_rack/" validUntil="3017-08-30T19:10:29Z"
+    xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    xmlns:mdrpi="urn:oasis:names:tc:SAML:metadata:rpi"
+    xmlns:mdattr="urn:oasis:names:tc:SAML:metadata:attribute"
+    xmlns:mdui="urn:oasis:names:tc:SAML:metadata:ui"
+    xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  <md:Extensions>
+    <mdrpi:RegistrationInfo registrationAuthority="https://registrar.example.net"/>
+    <mdrpi:PublicationInfo creationInstant="2017-08-16T19:10:29Z" publisher="https://registrar.example.net"/>
+    <mdattr:EntityAttributes>
+      <saml:Attribute Name="http://registrar.example.net/entity-category" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+        <saml:AttributeValue>https://registrar.example.net/category/self-certified</saml:AttributeValue>
+      </saml:Attribute>
+    </mdattr:EntityAttributes>
+  </md:Extensions>
+  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:Extensions>
+      <mdui:UIInfo>
+        <mdui:DisplayName xml:lang="en">Example.org</mdui:DisplayName>
+        <mdui:Description xml:lang="en">The identity provider at Example.org</mdui:Description>
+        <mdui:Logo height="32" width="32" xml:lang="en">https://idp.example.org/myicon.png</mdui:Logo>
+      </mdui:UIInfo>
+    </md:Extensions>
+    <md:KeyDescriptor use="signing">
+      <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+        <ds:X509Data>
+          <ds:X509Certificate>MIIDXjCCAkagAwIBAgIUFKla2OTQGUbt5QzyjGiAoBjk3ZgwDQYJKoZIhvcNAQELBQAwRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1TYW4gRnJhbmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MB4XDTI0MTAzMTE4MDUwMFoXDTI0MTAzMTE4MDYwMFowRzELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1TYW4gRnJhbmNpc2NvMRMwEQYDVQQDEwpveGlkZS50ZXN0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv0V30ZQfnhf3kJKKctzGAhjXISBjZ9BA59tQ96/jJNvZLh7wEHm5lYNcTmBuBtv8MEcECrMgVovaJ3DGNsHWtTf/q/PWOrec6/MsMmY+hFGJ6s+lv02BqKupp4I+DN+saGZFCXHR6Nvm/kdrwbEJbfi1GfhFIxtWw57Zk9EBYuo/t70s1Xm2zWGdiPxL2xOeKJmh482Yosawy1fJ2GwU4whvRAx1eMLjxEOW/nU6Wse1Is3e5k2+ZfMo+EtDG1JTsJWZ3rybq+F/QJxffrE/SHWMN/h24crywsEDvarvkE4czx7Onst7wXnN20FPcP0dFa9+ei+N9SgPrTosVQSSSwIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU+dwnGLdqQPRgq6b25EUIELlppFcwDQYJKoZIhvcNAQELBQADggEBAA62Yv5U7fp/TqpKOghTPA+RAqwIHMqWIYGE32tiF9XH7u9JjtIkN5whu4L8yMjxnJ+wqZ1MQOHyipH/729PqVpAkUjqbx+++Va8zVKDDGVOPO4n4mBGWST73PYYKpp3pUknbwdhbISOrTF/A/hQSTQg3BD1ui4C+x8mqtmmL7z2w5Jc8Kt3sAxSvL0lJ8QpP7WZ+GKJ4989K6KIta/Vuoi95D+LEOhxARtUHFiCl15boZZtiEuPDzwp2ebYa8WuhjpjWzf/zvA1kc39zFIRCn4SR8fX7EAu3T1/w1NBBRK5/m+ePHohzTOdhiRXZ8EqhICx4mAsAdhlu78U3BWW2LQ=</ds:X509Certificate>
+        </ds:X509Data>
+      </ds:KeyInfo>
+    </md:KeyDescriptor>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://idp.example.org/SAML2/SSO/Redirect"/>
+    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://idp.example.org/SAML2/SSO/POST"/>
+  </md:IDPSSODescriptor>
+  <md:Organization>
+    <md:OrganizationName xml:lang="en">Example.org Non-Profit Org</md:OrganizationName>
+    <md:OrganizationDisplayName xml:lang="en">Example.org</md:OrganizationDisplayName>
+    <md:OrganizationURL xml:lang="en">https://www.example.org/</md:OrganizationURL>
+  </md:Organization>
+  <md:ContactPerson contactType="technical">
+    <md:SurName>SAML Technical Support</md:SurName>
+    <md:EmailAddress>mailto:technical-support@example.org</md:EmailAddress>
+  </md:ContactPerson>
+</md:EntityDescriptor>
