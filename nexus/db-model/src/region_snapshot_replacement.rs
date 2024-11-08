@@ -122,6 +122,8 @@ pub struct RegionSnapshotReplacement {
     pub old_region_id: Uuid,
     pub old_snapshot_id: Uuid,
 
+    // XXX also make this work for read-only regions?
+
     /// A synthetic volume that only is used to later delete the old snapshot
     pub old_snapshot_volume_id: Option<Uuid>,
 

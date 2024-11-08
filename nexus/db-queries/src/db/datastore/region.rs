@@ -414,8 +414,8 @@ impl DataStore {
         }
     }
 
-    /// Find regions on expunged disks
-    pub async fn find_regions_on_expunged_physical_disks(
+    /// Find read-write regions on expunged disks
+    pub async fn find_read_write_regions_on_expunged_physical_disks(
         &self,
         opctx: &OpContext,
     ) -> LookupResult<Vec<Region>> {
@@ -442,6 +442,8 @@ impl DataStore {
                     ))
                     .select(dataset_dsl::id)
             ))
+            // only return read-write regions here
+            .filter(region_dsl::read_only.eq(false))
             .select(Region::as_select())
             .load_async(&*conn)
             .await

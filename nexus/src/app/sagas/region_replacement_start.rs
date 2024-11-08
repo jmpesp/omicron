@@ -223,10 +223,11 @@ async fn srrs_get_existing_datasets_and_regions(
         .await
         .map_err(ActionError::action_failed)?;
 
-    // XXX for now, bail out if requesting the replacement of a read-only region
+    // Bail out if requesting the replacement of a read-only region, that's not
+    // supported by the region replacement framework.
     if db_region.read_only() {
         return Err(ActionError::action_failed(String::from(
-            "replacing read-only region currently unsupported",
+            "replace read-only regions using region snapshot replacement!",
         )));
     }
 
