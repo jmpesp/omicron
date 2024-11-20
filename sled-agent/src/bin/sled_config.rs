@@ -204,10 +204,11 @@ fn main() -> Result<()> {
                         // default gateway (generally qsfp0)
                         port: String::from("qsfp0"),
                         uplink_port_speed: PortSpeed::Speed10G,
-                        uplink_port_fec: PortFec::None,
+                        uplink_port_fec: None,
                         bgp_peers: vec![],
                         autoneg: false,
                         lldp: None,
+                        tx_eq: None,
                     },
 
                     // XXX switch 1?
