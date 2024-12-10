@@ -946,6 +946,10 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
                     // The saga transitioned the request ok, and it's now being
                     // finished by the region replacement finish saga
                     Ok(())
+                } else if state == RegionReplacementState::Complete {
+                    // The saga transitioned the request ok, and it was finished
+                    // by the region replacement finish saga
+                    Ok(())
                 } else {
                     // Any other state is not expected
                     panic!("unexpected state {state:?}!");
