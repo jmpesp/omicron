@@ -1880,9 +1880,11 @@ async fn test_region_replacement_triple_sanity(
         datastore.get_allocated_regions(db_snapshot.volume_id).await.unwrap();
 
     assert_eq!(disk_allocated_regions.len(), 3);
+    assert!(disk_allocated_regions.iter().all(|(_, r)| !r.read_only()));
 
     // Assert region snapshots replaced with three read-only regions
     assert_eq!(snapshot_allocated_regions.len(), 3);
+    assert!(snapshot_allocated_regions.iter().all(|(_, r)| r.read_only()));
 }
 
 /// Tests that multiple replacements can occur until completion, after expunging
@@ -2019,7 +2021,9 @@ async fn test_region_replacement_triple_sanity_2(
         datastore.get_allocated_regions(db_snapshot.volume_id).await.unwrap();
 
     assert_eq!(disk_allocated_regions.len(), 3);
+    assert!(disk_allocated_regions.iter().all(|(_, r)| !r.read_only()));
 
     // Assert region snapshots replaced with three read-only regions
     assert_eq!(snapshot_allocated_regions.len(), 3);
+    assert!(snapshot_allocated_regions.iter().all(|(_, r)| r.read_only()));
 }
