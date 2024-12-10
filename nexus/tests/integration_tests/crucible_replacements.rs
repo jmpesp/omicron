@@ -862,11 +862,36 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
     .await;
 
     // Assert the region snapshot was deleted.
-    assert!(datastore
-        .region_snapshot_get(dataset.id(), region.id(), snapshot.identity.id)
-        .await
-        .unwrap()
-        .is_none());
+    wait_for_condition(
+        || {
+            let dataset_id = dataset.id();
+            let region_id = region.id();
+            let snapshot_id = snapshot.identity.id;
+
+            async move {
+                let region_snapshot = datastore
+                    .region_snapshot_get(dataset_id, region_id, snapshot_id)
+                    .await
+                    .unwrap();
+
+                match region_snapshot {
+                    Some(_) => {
+                        // Region snapshot not garbage collected yet
+                        Err(CondCheckError::<()>::NotYet)
+                    }
+
+                    None => {
+                        // Region snapshot garbage collected ok
+                        Ok(())
+                    }
+                }
+            }
+        },
+        &std::time::Duration::from_millis(500),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("region snapshot garbage collected");
 
     // Assert that the disk's volume is still only soft-deleted, because the two
     // other associated region snapshots still exist.
