@@ -940,7 +940,10 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
                     // The saga transitioned the request ok
                     Ok(())
                 } else if state == RegionReplacementState::Driving {
-                    // The saga is still running
+                    // The drive saga is still running
+                    Err(CondCheckError::<()>::NotYet)
+                } else if state == RegionReplacementState::Running {
+                    // The drive saga hasn't started yet
                     Err(CondCheckError::<()>::NotYet)
                 } else if state == RegionReplacementState::Completing {
                     // The saga transitioned the request ok, and it's now being
