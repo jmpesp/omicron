@@ -245,7 +245,7 @@ fn main() -> Result<()> {
         dropshot: ConfigDropshot {
             // bind address is ignored,
 
-            request_body_max_bytes: 2147483648,
+            default_request_body_max_bytes: 2147483648,
 
             ..ConfigDropshot::default()
         },
@@ -814,7 +814,7 @@ fn main() -> Result<()> {
             host_phase2_recovery_image_cache_max_images: 1,
 
             dropshot: omicron_gateway::PartialDropshotConfig {
-                request_body_max_bytes: 536870912,
+                default_request_body_max_bytes: 536870912,
             },
 
             switch: omicron_gateway::SwitchConfig {
