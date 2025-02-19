@@ -1033,6 +1033,7 @@ opt-level = 3
 bhyve_api = { path = "../propolis/crates/bhyve-api" }
 propolis-client = { path = "../propolis/lib/propolis-client" }
 propolis-mock-server = { path = "../propolis/bin/mock-server" }
+propolis_api_types = { path = "../propolis/crates/propolis-api-types" }
 
 [patch."https://github.com/oxidecomputer/crucible"]
 crucible-agent-client = { path = "../crucible/agent-client" }
@@ -1105,3 +1106,11 @@ branch = 'state-derive-eq-hash'
 
 [patch."https://github.com/oxidecomputer/sprockets.git"]
 sprockets-tls = { path = "../sprockets/tls" }
+
+[patch."https://github.com/oxidecomputer/daft"]
+daft = { path = "../daft/daft" }
+daft-derive = { path = "../daft/daft-derive" }
+
+[patch.crates-io.oxnet]
+path = "../oxnet"
+
