@@ -690,7 +690,7 @@ impl Handler {
             attached_mgs,
             incoming_serial_console,
             rot_active_slot: RotSlotId::A,
-            power_state: PowerState::A2,
+            power_state: PowerState::A0,
             startup_options: StartupOptions::empty(),
             update_state: SimSpUpdate::default(),
             reset_pending: None,
