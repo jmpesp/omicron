@@ -428,7 +428,7 @@ impl Handler {
             serial_number,
             ignition,
             rot_active_slot: RotSlotId::A,
-            power_state: PowerState::A2,
+            power_state: PowerState::A0,
             update_state: SimSpUpdate::default(),
             reset_pending: None,
             should_fail_to_respond_signal: None,
