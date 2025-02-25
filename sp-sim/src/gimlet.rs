@@ -876,6 +876,7 @@ impl Handler {
             leaked_component_description_strings,
             attached_mgs,
             incoming_serial_console,
+            power_state: PowerState::A0,
             startup_options: StartupOptions::empty(),
             update_state,
             reset_pending: None,
