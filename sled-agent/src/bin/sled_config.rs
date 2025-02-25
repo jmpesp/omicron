@@ -47,6 +47,7 @@ use hex::FromHex;
 use gateway_messages::DeviceCapabilities;
 use gateway_messages::DevicePresence;
 use std::net::SocketAddrV6;
+use std::net::Ipv6Addr;
 use omicron_common::disk::DiskVariant;
 use sprockets_tls::keys::SprocketsConfig;
 use sprockets_tls::keys::ResolveSetting;
@@ -439,16 +440,18 @@ fn main() -> Result<()> {
             sidecar: if matches!(sled_mode, SledMode::Scrimlet) {
                 vec![
                     sp_sim::config::SidecarConfig { common: SpCommonConfig {
-                        multicast_addr: None,
+                        network_config: Some([
+                            // should match mgs's SwitchPortDescription
+                            sp_sim::config::NetworkConfig::Simulated {
+                                bind_addr: "[::]:33300".parse().unwrap(),
+                            },
 
-                        // use first entry for switch 0, second for switch 1 MGS
-                        // will grab based on bootstrap address, listen on same port
-                        // for all
-                        bind_addrs: Some([
-                            "[::]:33300".parse().unwrap(),
-                            "[::]:33301".parse().unwrap(),
+                            sp_sim::config::NetworkConfig::Simulated {
+                                bind_addr: "[::]:33301".parse().unwrap(),
+                            }
                         ]),
 
+                        // XXX does this have to match mgs location map?
                         serial_number: match hostname {
                             "frostypaws" => String::from("switch0"),
                             "kibblesnbits" => String::from("switch1"),
@@ -490,6 +493,11 @@ fn main() -> Result<()> {
         toml::to_string(&sp_sim_config)?.as_bytes(),
     )?;
 
+    const MGS_TO_SP_MULTICAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0x1de, 2);
+    pub const SP_PORT: u16 = 11111;
+
+    let multicast_addr = SocketAddrV6::new(MGS_TO_SP_MULTICAST_ADDR, SP_PORT, 0, 0);
+
     // Simulated SP in the global zone for the sled
     let sp_sim_config = sp_sim::config::Config {
         simulated_sps: SimulatedSpsConfig {
@@ -497,14 +505,31 @@ fn main() -> Result<()> {
 
             gimlet: vec![
                 sp_sim::config::GimletConfig { common: SpCommonConfig {
-                    multicast_addr: None,
-
                     // use first entry for switch 0, second for switch 1 MGS
                     // will grab based on bootstrap address, listen on same port
                     // for all
-                    bind_addrs: Some([
-                        "[::]:33300".parse().unwrap(),
-                        "[::]:33301".parse().unwrap(),
+                    network_config: Some([
+                        sp_sim::config::NetworkConfig::Real {
+                            bind_addr: "[::]:11111".parse().unwrap(), // XXX has to be SP port
+                            multicast_addr: MGS_TO_SP_MULTICAST_ADDR,
+                            multicast_interface: match hostname {
+                                "dinnerbone" |
+                                "kibblesnbits" |
+                                "gravytrain" => String::from("ixgbe0"),
+
+                                "frostypaws" => String::from("ixgbe3"),
+
+                                _ => panic!("hostname not recognized!"),
+                            },
+                        },
+
+                        sp_sim::config::NetworkConfig::Real {
+                            // XXX would like same port, use link local addr?
+                            bind_addr: "[::1]:11112".parse().unwrap(),
+                            multicast_addr: MGS_TO_SP_MULTICAST_ADDR,
+                            // XXX MULTI_SWITCH_MODE
+                            multicast_interface: String::from("net1"),
+                        },
                     ]),
 
                     serial_number: hostname.to_string(),
@@ -589,19 +614,19 @@ fn main() -> Result<()> {
         // run simulated MGS in switch zone
         let port = {
             let mut port = vec![
-                // sidecar 0
+                // sidecar 0 - frostypaws
                 omicron_gateway::SwitchPortDescription {
+                    /*
+                    config: omicron_gateway::SwitchPortConfig::SwitchZoneInterface {
+                        interface: String::from("lo0"),
+                    },
+                    */
                     config: omicron_gateway::SwitchPortConfig::Simulated {
-                        fake_interface: String::from("sidecar0"),
-                        addr: SocketAddrV6::new(
-                            "fdb0:8061:5f11:ab31::2".parse().unwrap(),
-                            33300,
-                            0,
-                            0,
-                        ),
+                        fake_interface: String::from("sidecar0"), // has to match local ignition interface?
+                        addr: "[::1]:33300".parse().unwrap(),
                     },
 
-                    ignition_target: 1,
+                    ignition_target: 0,
 
                     location: vec![
                         (
@@ -623,189 +648,74 @@ fn main() -> Result<()> {
             ];
 
             if MULTI_SWITCH_MODE {
-                port.push(
-                    omicron_gateway::SwitchPortDescription {
-                        config: omicron_gateway::SwitchPortConfig::Simulated {
-                            fake_interface: String::from("sidecar1"),
-                            addr: SocketAddrV6::new(
-                                "fdb0:1b:21c1:fcda::2".parse().unwrap(),
-                                33301, // XXX match on hostname, switch ports here?
-                                0,
-                                0,
-                            ),
+                todo!("MULTI_SWITCH_MODE");
+
+                // XXX omicron_gateway::SwitchPortConfig::Simulated connecting
+                // to other switch zone? or, real, and listening for multicast?
+            }
+
+            struct PortConfig {
+                switch_zone_interface: String,
+                sled_number: usize,
+                ignition_target: u8,
+            }
+
+            let config = vec![
+                // dinnerbone interface in switch zone = sled 0
+                PortConfig {
+                    switch_zone_interface: String::from("ixgbe1"),
+                    sled_number: 0,
+                    ignition_target: 3,
+                },
+                // kibblesnbits interface in switch zone = sled 1
+                PortConfig {
+                    switch_zone_interface: String::from("ixgbe0"),
+                    sled_number: 1,
+                    ignition_target: 4,
+                },
+                // gravytrain interface in switch zone = sled 2
+                PortConfig {
+                    switch_zone_interface: String::from("ixgbe2"),
+                    sled_number: 2,
+                    ignition_target: 5,
+                },
+                // frostypaws interface in switch zone = sled 3
+                PortConfig {
+                    switch_zone_interface: String::from("ixgbe4"),
+                    sled_number: 3,
+                    ignition_target: 6,
+                },
+            ];
+
+            port.extend(
+                config
+                    .into_iter()
+                    .map(|config| omicron_gateway::SwitchPortDescription {
+                        config: omicron_gateway::SwitchPortConfig::SwitchZoneInterface {
+                            interface: config.switch_zone_interface,
                         },
 
-                        ignition_target: 2,
+                        ignition_target: config.ignition_target,
 
                         location: vec![
                             (
                                 String::from("switch0"),
                                 omicron_gateway::SpIdentifier {
-                                    typ: omicron_gateway::SpType::Switch,
-                                    slot: 0,
+                                    typ: omicron_gateway::SpType::Sled,
+                                    slot: config.sled_number,
                                 },
                             ),
                             (
                                 String::from("switch1"),
                                 omicron_gateway::SpIdentifier {
-                                    typ: omicron_gateway::SpType::Switch,
-                                    slot: 1,
+                                    typ: omicron_gateway::SpType::Sled,
+                                    slot: config.sled_number,
                                 },
                             ),
                         ].into_iter().collect(),
-                    },
-                );
-            }
-
-            port.extend(vec![
-                // dinnerbone
-                omicron_gateway::SwitchPortDescription {
-                    config: omicron_gateway::SwitchPortConfig::Simulated {
-                        fake_interface: String::from("dinnerbone"),
-                        // ixgbe0
-                        addr: SocketAddrV6::new(
-                            mac_to_bootstrap_ip("00:1b:21:c1:ff:e0".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname {
-                                "frostypaws" => 33300,
-                                "kibblesnbits" => 33301,
-                                _ => panic!("unknown hostname {}", hostname),
-                            },
-                            0,
-                            0,
-                        ),
-                    },
-
-                    ignition_target: 3,
-
-                    location: vec![
-                        (
-                            String::from("switch0"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 0,
-                            },
-                        ),
-                        (
-                            String::from("switch1"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 0,
-                            },
-                        ),
-                    ].into_iter().collect(),
-                },
-
-                // kibblesnbits
-                omicron_gateway::SwitchPortDescription {
-                    config: omicron_gateway::SwitchPortConfig::Simulated {
-                        fake_interface: String::from("kibblesnbits"),
-                        // ixgbe0
-                        addr: SocketAddrV6::new(
-                            mac_to_bootstrap_ip("00:1b:21:c1:fc:da".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname {
-                                "frostypaws" => 33300,
-                                "kibblesnbits" => 33301,
-                                _ => panic!("unknown hostname {}", hostname),
-                            },
-                            0,
-                            0,
-                        ),
-                    },
-
-                    ignition_target: 4,
-
-                    location: vec![
-                        (
-                            String::from("switch0"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 1,
-                            },
-                        ),
-                        (
-                            String::from("switch1"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 1,
-                            },
-                        ),
-                    ].into_iter().collect(),
-                },
-
-                // gravytrain
-                omicron_gateway::SwitchPortDescription {
-                    config: omicron_gateway::SwitchPortConfig::Simulated {
-                        fake_interface: String::from("gravytrain"),
-                        // ixgbe0
-                        addr: SocketAddrV6::new(
-                            mac_to_bootstrap_ip("00:1b:21:c1:fd:24".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname {
-                                "frostypaws" => 33300,
-                                "kibblesnbits" => 33301,
-                                _ => panic!("unknown hostname {}", hostname),
-                            },
-                            0,
-                            0,
-                        ),
-                    },
-
-                    ignition_target: 5,
-
-                    location: vec![
-                        (
-                            String::from("switch0"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 2,
-                            },
-                        ),
-                        (
-                            String::from("switch1"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 2,
-                            },
-                        ),
-                    ].into_iter().collect(),
-                },
-
-                // frostypaws
-                omicron_gateway::SwitchPortDescription {
-                    config: omicron_gateway::SwitchPortConfig::Simulated {
-                        fake_interface: String::from("frostypaws"),
-                        // ixgbe3
-                        addr: SocketAddrV6::new(
-                            mac_to_bootstrap_ip("80:61:5f:11:ab:31".parse().unwrap(), BOOTSTRAP_INTERFACE_ID),
-                            match hostname {
-                                "frostypaws" => 33300,
-                                "kibblesnbits" => 33301,
-                                _ => panic!("unknown hostname {}", hostname),
-                            },
-                            0,
-                            0,
-                        ),
-                    },
-
-                    ignition_target: 6,
-
-                    location: vec![
-                        (
-                            String::from("switch0"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 3,
-                            },
-                        ),
-                        (
-                            String::from("switch1"),
-                            omicron_gateway::SpIdentifier {
-                                typ: omicron_gateway::SpType::Sled,
-                                slot: 3,
-                            },
-                        ),
-                    ].into_iter().collect(),
-                },
-            ]);
+                    })
+                    .collect::<Vec<_>>(),
+            );
 
             port
         };
@@ -823,7 +733,7 @@ fn main() -> Result<()> {
                 // name of interface, not port
                 local_ignition_controller_interface: match hostname {
                     "frostypaws" => String::from("sidecar0"),
-                    "kibblesnbits" => String::from("sidecar1"),
+                    "kibblesnbits" => String::from("sidecar1"), // XXX TODO
 
                     _ => panic!("unknown hostname {}", hostname),
                 },
@@ -837,10 +747,10 @@ fn main() -> Result<()> {
                 },
 
                 location: omicron_gateway::LocationConfig {
-                    // name of location hashmap key
+                    // possible locations where MGS could be running
                     names: vec![
-                        String::from("switch0"),
-                        String::from("switch1"),
+                        String::from("switch0"), // XXX frostypaws
+                        String::from("switch1"), // XXX kibblesnbits
                     ],
 
                     // - the list of switch ports to contact to determine
@@ -848,10 +758,22 @@ fn main() -> Result<()> {
                     // - each port is a subset of names vec above
                     determination: vec![
                         omicron_gateway::LocationDeterminationConfig {
-                            interfaces: vec![
-                                String::from("frostypaws"),
-                                String::from("kibblesnbits"),
-                            ],
+                            interfaces: match hostname {
+                                "frostypaws" => vec![
+                                    String::from("ixgbe0"),
+                                    String::from("ixgbe1"),
+                                    String::from("ixgbe2"),
+                                    String::from("ixgbe4"),
+                                    String::from("sidecar0"),
+                                    // XXX sidecar1?
+                                ],
+
+                                "kibblesnbits" => {
+                                    todo!("MULTI_SWITCH_MODE");
+                                },
+
+                                _ => panic!("switch hostname not recognized"),
+                            },
                             sp_port_1: vec![String::from("switch0")],
                             sp_port_2: vec![String::from("switch1")],
                         }
