@@ -48,6 +48,8 @@ pub mod region_snapshot_replacement_step_garbage_collect;
 pub mod snapshot_create;
 pub mod snapshot_delete;
 pub mod test_saga;
+pub mod user_data_export_create;
+pub mod user_data_export_delete;
 pub mod volume_delete;
 pub mod volume_remove_rop;
 pub mod vpc_create;
@@ -184,7 +186,9 @@ fn make_action_registry() -> ActionRegistry {
         region_snapshot_replacement_step::SagaRegionSnapshotReplacementStep,
         region_snapshot_replacement_step_garbage_collect::SagaRegionSnapshotReplacementStepGarbageCollect,
         region_snapshot_replacement_finish::SagaRegionSnapshotReplacementFinish,
-        image_create::SagaImageCreate
+        image_create::SagaImageCreate,
+        user_data_export_create::SagaUserDataExportCreate,
+        user_data_export_delete::SagaUserDataExportDelete
     ];
 
     #[cfg(test)]

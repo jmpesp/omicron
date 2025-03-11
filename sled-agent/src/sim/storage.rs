@@ -11,6 +11,7 @@
 use crate::sim::SimulatedUpstairs;
 use crate::sim::http_entrypoints_pantry::ExpectedDigest;
 use crate::sim::http_entrypoints_pantry::PantryStatus;
+use crate::sim::http_entrypoints_pantry::ReplaceResult;
 use crate::sim::http_entrypoints_pantry::VolumeStatus;
 use crate::support_bundle::storage::SupportBundleManager;
 use anyhow::{self, Result, bail};
@@ -2128,6 +2129,85 @@ impl Pantry {
         Ok(())
     }
 
+    pub async fn bulk_read(
+        &self,
+        volume_id: String,
+        offset: u64,
+        size: usize,
+    ) -> Result<Vec<u8>, HttpError> {
+        let vcr = self.entry(volume_id)?;
+
+        // Currently, Nexus will only make volumes where the first subvolume is
+        // a Region. This will change in the future!
+        let (region_block_size, region_size) = match vcr {
+            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
+                match sub_volumes[0] {
+                    VolumeConstructionRequest::Region {
+                        block_size,
+                        blocks_per_extent,
+                        extent_count,
+                        ..
+                    } => (
+                        block_size,
+                        block_size
+                            * blocks_per_extent
+                            * u64::from(extent_count),
+                    ),
+
+                    _ => {
+                        panic!("unexpected Volume layout");
+                    }
+                }
+            }
+
+            VolumeConstructionRequest::Region { .. }
+            | VolumeConstructionRequest::Url { .. } => {
+                panic!("unexpected Volume layout");
+            }
+
+            VolumeConstructionRequest::File { block_size, .. } => {
+                // The File variant almost certainly corresponds to the propolis
+                // zone's alpine.iso image. Use the same hard coded value for
+                // size from image create saga, see comment there for rationale.
+                (block_size, 100 * 1024 * 1024)
+            }
+        };
+
+        if (offset % region_block_size) != 0 {
+            return Err(HttpError::for_bad_request(
+                None,
+                "offset not multiple of block size!".to_string(),
+            ));
+        }
+
+        if (size as u64 % region_block_size) != 0 {
+            return Err(HttpError::for_bad_request(
+                None,
+                "size not multiple of block size!".to_string(),
+            ));
+        }
+
+        if (offset + size as u64) > region_size {
+            return Err(HttpError::for_bad_request(
+                None,
+                "offset + size off end of region!".to_string(),
+            ));
+        }
+
+        let mut data = vec![0u8; size];
+
+        // Write some breadcrumbs into the returning block for validation
+        if size >= 16 {
+            let offset_bytes: [u8; 8] = offset.to_le_bytes();
+            let size_bytes: [u8; 8] = size.to_le_bytes();
+
+            data[0..8].copy_from_slice(&offset_bytes);
+            data[8..16].copy_from_slice(&size_bytes);
+        }
+
+        Ok(data)
+    }
+
     pub fn scrub(&self, volume_id: String) -> Result<String, HttpError> {
         self.entry(volume_id)?;
 
@@ -2143,6 +2223,29 @@ impl Pantry {
         let mut inner = self.inner.lock().unwrap();
         inner.volumes.remove(&volume_id);
         Ok(())
+    }
+
+    pub fn replace(
+        &self,
+        volume_id: String,
+        new_vcr: VolumeConstructionRequest,
+    ) -> Result<ReplaceResult, HttpError> {
+        let mut inner = self.inner.lock().unwrap();
+
+        let vcr = match inner.volumes.get_mut(&volume_id) {
+            Some(entry) => &mut entry.vcr,
+
+            None => {
+                return Err(HttpError::for_not_found(None, volume_id));
+            }
+        };
+
+        if *vcr == new_vcr {
+            Ok(ReplaceResult::StartedAlready)
+        } else {
+            *vcr = new_vcr;
+            Ok(ReplaceResult::Started)
+        }
     }
 }
 

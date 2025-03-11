@@ -1230,6 +1230,7 @@ pub(crate) mod test {
     use nexus_db_model::Volume;
     use nexus_db_queries::authn::saga::Serialized;
     use nexus_db_queries::context::OpContext;
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::DiskTest;
     use nexus_test_utils::resource_helpers::DiskTestBuilder;
     use nexus_test_utils::resource_helpers::create_disk;
@@ -1238,8 +1239,10 @@ pub(crate) mod test {
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::external_api::views;
     use nexus_types::identity::Asset;
+    use omicron_test_utils::dev::poll;
     use omicron_uuid_kinds::GenericUuid;
     use sled_agent_client::VolumeConstructionRequest;
+    use std::time::Duration;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
@@ -1289,13 +1292,48 @@ pub(crate) mod test {
         assert_eq!(region_allocations(&datastore).await, 6);
 
         let snapshot_id = snapshot.identity.id;
-        let (.., db_snapshot) = LookupPath::new(&opctx, datastore)
-            .snapshot_id(snapshot_id)
-            .fetch()
-            .await
-            .unwrap_or_else(|_| {
-                panic!("test snapshot {:?} should exist", snapshot_id)
-            });
+
+        let (.., authz_snapshot, db_snapshot) =
+            LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot_id)
+                .fetch()
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("test snapshot {:?} should exist", snapshot_id)
+                });
+
+        // Wait for the user data export object to be created, which will alter
+        // the volume and affect the clean slate validation code.
+
+        run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
+        poll::wait_for_condition(
+            || {
+                let opctx = test_opctx(cptestctx);
+                let datastore = datastore.clone();
+                let authz_snapshot = authz_snapshot.clone();
+
+                async move {
+                    let maybe_object = datastore
+                        .user_data_export_lookup_for_snapshot(
+                            &opctx,
+                            &authz_snapshot,
+                        )
+                        .await
+                        .unwrap();
+
+                    match maybe_object {
+                        Some(object) => Ok(object),
+
+                        None => Err(poll::CondCheckError::<Error>::NotYet),
+                    }
+                }
+            },
+            &Duration::from_millis(10),
+            &Duration::from_secs(20),
+        )
+        .await
+        .unwrap();
 
         PrepareResult { db_disk, snapshot, db_snapshot, disk_test }
     }
@@ -1460,6 +1498,7 @@ pub(crate) mod test {
             cptestctx, &datastore, &request,
         )
         .await;
+
         assert_volume_untouched(&datastore, &affected_volume_original).await;
     }
 

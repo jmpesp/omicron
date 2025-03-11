@@ -2053,6 +2053,19 @@ pub trait NexusExternalApi {
         query_params: Query<params::OptionalProjectSelector>,
     ) -> Result<HttpResponseOk<views::Image>, HttpError>;
 
+    /// Read blocks from an image
+    #[endpoint {
+        method = GET,
+        path = "/v1/images/{image}/read",
+        tags = ["images"],
+    }]
+    async fn image_read(
+        rqctx: RequestContext<Self::Context>,
+        headers: Header<headers::RangeRequest>,
+        path_params: Path<params::ImagePath>,
+        query_params: Query<params::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError>;
+
     /// Delete image
     ///
     /// Permanently delete an image from a project. This operation cannot be undone.
@@ -2251,6 +2264,19 @@ pub trait NexusExternalApi {
         path_params: Path<params::SnapshotPath>,
         query_params: Query<params::OptionalProjectSelector>,
     ) -> Result<HttpResponseDeleted, HttpError>;
+
+    /// Read blocks from a snapshot
+    #[endpoint {
+        method = GET,
+        path = "/v1/snapshots/{snapshot}/read",
+        tags = ["snapshots"],
+    }]
+    async fn snapshot_read(
+        rqctx: RequestContext<Self::Context>,
+        headers: Header<headers::RangeRequest>,
+        path_params: Path<params::SnapshotPath>,
+        query_params: Query<params::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError>;
 
     // VPCs
 

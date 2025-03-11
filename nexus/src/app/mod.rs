@@ -95,6 +95,7 @@ mod switch_interface;
 mod switch_port;
 pub mod test_interfaces;
 mod update;
+mod user_data_export;
 mod utilization;
 mod volume;
 mod vpc;
