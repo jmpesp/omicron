@@ -2216,6 +2216,43 @@ pub trait NexusExternalApi {
         query_params: Query<params::OptionalProjectSelector>,
     ) -> Result<HttpResponseDeleted, HttpError>;
 
+    /// Start a snapshot export
+    #[endpoint {
+        method = POST,
+        path = "/v1/snapshots/{snapshot}/bulk-read-start",
+        tags = ["snapshots"],
+    }]
+    async fn snapshot_bulk_read_export_start(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::SnapshotPath>,
+        query_params: Query<params::OptionalProjectSelector>,
+    ) -> Result<HttpResponseUpdatedNoContent, HttpError>;
+
+    /// Export blocks from a snapshot
+    #[endpoint {
+        method = GET,
+        path = "/v1/snapshots/{snapshot}/bulk-read",
+        tags = ["snapshots"],
+    }]
+    async fn snapshot_bulk_read_export(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::SnapshotPath>,
+        query_params: Query<params::OptionalProjectSelector>,
+        export_params: TypedBody<params::ExportBlocksBulkReadRequest>,
+    ) -> Result<HttpResponseOk<params::ExportBlocksBulkReadResponse>, HttpError>;
+
+    /// Stop a snapshot export
+    #[endpoint {
+        method = POST,
+        path = "/v1/snapshots/{snapshot}/bulk-read-stop",
+        tags = ["snapshots"],
+    }]
+    async fn snapshot_bulk_read_export_stop(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::SnapshotPath>,
+        query_params: Query<params::OptionalProjectSelector>,
+    ) -> Result<HttpResponseDeleted, HttpError>;
+
     // VPCs
 
     /// List VPCs
