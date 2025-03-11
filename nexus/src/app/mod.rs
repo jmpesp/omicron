@@ -88,6 +88,7 @@ mod silo;
 mod sled;
 mod sled_instance;
 mod snapshot;
+mod snapshot_export;
 mod ssh_key;
 pub(crate) mod support_bundles;
 mod switch;

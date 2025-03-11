@@ -162,6 +162,9 @@ utilization_view                         GET      /v1/utilization
 
 API operations found with tag "snapshots"
 OPERATION ID                             METHOD   URL PATH
+snapshot_bulk_read_export                GET      /v1/snapshots/{snapshot}/bulk-read
+snapshot_bulk_read_export_start          POST     /v1/snapshots/{snapshot}/bulk-read-start
+snapshot_bulk_read_export_stop           POST     /v1/snapshots/{snapshot}/bulk-read-stop
 snapshot_create                          POST     /v1/snapshots
 snapshot_delete                          DELETE   /v1/snapshots/{snapshot}
 snapshot_list                            GET      /v1/snapshots
