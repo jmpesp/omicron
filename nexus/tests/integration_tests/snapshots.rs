@@ -1317,8 +1317,9 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
     assert_eq!(snapshot_2.disk_id, base_disk.identity.id);
     assert_eq!(snapshot_3.disk_id, base_disk.identity.id);
 
-    // Simulate all three of these have snapshot delete sagas executing
-    // concurrently. First, delete the snapshot record:
+    // Delete each each associated user data export object once they're created:
+    // we're ensuring that Nexus correctly sends DELETE calls, which it won't do
+    // if there is another volume using the read-only resource.
 
     let opctx =
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
@@ -1329,6 +1330,23 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
             .fetch_for(authz::Action::Delete)
             .await
             .unwrap();
+
+    let (.., authz_snapshot_2, db_snapshot_2) =
+        LookupPath::new(&opctx, datastore)
+            .snapshot_id(snapshot_2.identity.id)
+            .fetch_for(authz::Action::Delete)
+            .await
+            .unwrap();
+
+    let (.., authz_snapshot_3, db_snapshot_3) =
+        LookupPath::new(&opctx, datastore)
+            .snapshot_id(snapshot_3.identity.id)
+            .fetch_for(authz::Action::Delete)
+            .await
+            .unwrap();
+
+    // Simulate all three of these have snapshot delete sagas executing
+    // concurrently. First, delete the snapshot record:
 
     datastore
         .project_delete_snapshot(
@@ -1345,13 +1363,6 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
         .await
         .unwrap();
 
-    let (.., authz_snapshot_2, db_snapshot_2) =
-        LookupPath::new(&opctx, datastore)
-            .snapshot_id(snapshot_2.identity.id)
-            .fetch_for(authz::Action::Delete)
-            .await
-            .unwrap();
-
     datastore
         .project_delete_snapshot(
             &opctx,
@@ -1366,13 +1377,6 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
         )
         .await
         .unwrap();
-
-    let (.., authz_snapshot_3, db_snapshot_3) =
-        LookupPath::new(&opctx, datastore)
-            .snapshot_id(snapshot_3.identity.id)
-            .fetch_for(authz::Action::Delete)
-            .await
-            .unwrap();
 
     datastore
         .project_delete_snapshot(

@@ -240,13 +240,14 @@ impl<'a> RequestBuilder<'a> {
                 self.error = Some(error);
             }
             Ok((name, value)) => {
+                self.allowed_headers.as_mut().unwrap().push(name.clone());
                 self.expected_response_headers.append(name, Some(value));
             }
         }
         self
     }
 
-    /// Tells the requst to expect headers related to range requests
+    /// Tells the request to expect headers related to range requests
     pub fn expect_range_requestable<V, VE>(mut self, content_type: V) -> Self
     where
         V: TryInto<http::header::HeaderValue, Error = VE> + Debug,
@@ -256,6 +257,7 @@ impl<'a> RequestBuilder<'a> {
             http::header::CONTENT_LENGTH,
             http::header::CONTENT_RANGE,
             http::header::CONTENT_TYPE,
+            http::header::CONTENT_DISPOSITION,
             http::header::ACCEPT_RANGES,
         ]);
         self.expect_response_header(http::header::CONTENT_TYPE, content_type)
@@ -363,6 +365,11 @@ impl<'a> RequestBuilder<'a> {
         // Check that we didn't have any unexpected headers.
         let headers = response.headers();
         if let Some(allowed_headers) = self.allowed_headers {
+            slog::info!(
+                self.testctx.client_log,
+                "allowed headers: {allowed_headers:?}"
+            );
+            slog::info!(self.testctx.client_log, "headers: {headers:?}");
             for header_name in headers.keys() {
                 ensure!(
                     allowed_headers.contains(header_name)

@@ -52,6 +52,7 @@ mod target_release;
 mod unauthorized;
 mod unauthorized_coverage;
 mod updates;
+mod user_data_export;
 mod users_builtin;
 mod utilization;
 mod volume_management;
