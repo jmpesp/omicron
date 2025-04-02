@@ -130,8 +130,8 @@ omicron-passwords.workspace = true
 omicron-zone-package.workspace = true
 once_cell.workspace = true
 tufaceous-brand-metadata.workspace = true
-sp-sim.workspace = true
-# Only used by the simulated sled agent.
+sp-sim.workspace = true # Only used by the simulated sled agent.
+
 rand = { workspace = true, features = ["os_rng"] }
 reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
 schemars = { workspace = true, features = ["chrono", "uuid1"] }
