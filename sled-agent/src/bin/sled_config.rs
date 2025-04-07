@@ -268,7 +268,7 @@ fn main() -> Result<()> {
         //
         // however, this seemed to panic some of my desktops. so go a little
         // lower.
-        vmm_reservoir_percentage: Some(60),
+        vmm_reservoir_percentage: Some(60.0),
         vmm_reservoir_size_mb: None,
 
         // If this is set, then the sled agent will try to configure swap for
@@ -427,6 +427,8 @@ fn main() -> Result<()> {
                 Utf8PathBuf::from("/home/james/omicron/sprockets_tls/canada_region_ca.cert.pem"),
             ],
         },
+
+        control_plane_memory_earmark_mb: Some(6144),
     };
 
     std::fs::write(
