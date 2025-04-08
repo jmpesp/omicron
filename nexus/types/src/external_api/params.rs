@@ -2158,6 +2158,27 @@ pub struct SnapshotCreate {
     pub disk: NameOrId,
 }
 
+/// Create-time parameters for a `SnapshotExport`
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SnapshotExportCreate {
+    /// The snapshot to be exported
+    pub snapshot: NameOrId,
+}
+
+/// Parameters for exporting blocks with a bulk read
+// equivalent to crucible_pantry_client::types::BulkReadRequest
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExportBlocksBulkReadRequest {
+    pub offset: u64,
+    pub size: u32,
+}
+
+// equivalent to crucible_pantry_client::types::BulkReadResponse
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ExportBlocksBulkReadResponse {
+    pub base64_encoded_data: String,
+}
+
 // USERS AND GROUPS
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]

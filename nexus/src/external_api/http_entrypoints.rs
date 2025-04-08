@@ -4855,6 +4855,41 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
+    async fn snapshot_bulk_read_export(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::SnapshotPath>,
+        query_params: Query<params::OptionalProjectSelector>,
+        export_params: TypedBody<params::ExportBlocksBulkReadRequest>,
+    ) -> Result<HttpResponseOk<params::ExportBlocksBulkReadResponse>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let path = path_params.into_inner();
+            let query = query_params.into_inner();
+            let snapshot_selector = params::SnapshotSelector {
+                project: query.project,
+                snapshot: path.snapshot,
+            };
+            let snapshot_lookup =
+                nexus.snapshot_lookup(&opctx, snapshot_selector)?;
+
+            let response = nexus.snapshot_export(
+                &opctx,
+                &snapshot_lookup,
+                export_params.into_inner(),
+            ).await?;
+
+            Ok(HttpResponseOk(response))
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
     // VPCs
 
     async fn vpc_list(

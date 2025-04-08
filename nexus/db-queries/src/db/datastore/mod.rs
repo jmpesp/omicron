@@ -95,6 +95,7 @@ mod silo_user;
 mod sled;
 mod sled_instance;
 mod snapshot;
+mod snapshot_export;
 mod ssh_key;
 mod support_bundle;
 mod switch;
