@@ -86,16 +86,9 @@ fn main() -> Result<()> {
     eprintln!("sled mode \"{:?}\" hostname \"{}\"", sled_mode, hostname);
 
     let user_password_hash = {
-        // echo -n 'testpostpleaseignore' | argon2 $(pwgen 32 1) -id -t 15 -k 98304 -l 32 -p 1
-        let user_password_hash_str =
-            "$argon2id$v=19$m=98304,t=15,p=1$dGVpTGFlcXVvb2Nob3RoYWhyZXdhMWVpRnVjMmNhdTA$zc81Dk4+UGJemtcK2NzC/e/7y962cKBm8nIYx5I894o";
-        let user_password_hash = NewPasswordHash::try_from(user_password_hash_str.to_string()).unwrap();
-        let hasher = Hasher::new(omicron_passwords::external_password_argon(), rand::thread_rng());
-        assert!(hasher.verify_password(
-            &Password::new("testpostpleaseignore").unwrap(),
-            &user_password_hash.clone().into(),
-        ).unwrap());
-        user_password_hash
+        let password = Password::new("testpostpleaseignore").unwrap();
+        let mut hasher = Hasher::default();
+        hasher.create_password(&password).unwrap().to_string().try_into().unwrap()
     };
 
     const BOOTSTRAP_INTERFACE_ID: u64 = 1;
