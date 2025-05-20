@@ -37,9 +37,6 @@ pub(crate) struct Params {
 
 declare_saga_actions! {
     user_data_export_delete;
-    PERM_CHECK -> "permission_check" {
-        + sdd_delete_user_data_export_perm_check
-    }
     DELETE_USER_DATA_EXPORT_RECORD -> "deleted_record" {
         + sdd_delete_user_data_export_record
     }
@@ -61,10 +58,6 @@ impl NexusSaga for SagaUserDataExportDelete {
         params: &Self::Params,
         mut builder: steno::DagBuilder,
     ) -> Result<steno::Dag, super::SagaInitError> {
-        // Before deleting the volume, check first if the context has the
-        // permission to delete the snapshot export.
-        builder.append(perm_check_action());
-
         let subsaga_params = volume_delete::Params {
             serialized_authn: params.serialized_authn.clone(),
             volume_id: params.volume_id,
@@ -105,29 +98,6 @@ impl NexusSaga for SagaUserDataExportDelete {
 }
 
 // snapshot export delete saga: action implementations
-
-async fn sdd_delete_user_data_export_perm_check(
-    sagactx: NexusActionContext,
-) -> Result<(), ActionError> {
-    let log = sagactx.user_data().log();
-    let osagactx = sagactx.user_data();
-    let params = sagactx.saga_params::<Params>()?;
-    let opctx = crate::context::op_context_for_saga_action(
-        &sagactx,
-        &params.serialized_authn,
-    );
-
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, osagactx.datastore())
-            .snapshot_id(params.snapshot_id)
-            .lookup_for(authz::Action::Delete)
-            .await
-            .expect("Failed to look up snapshot");
-
-    info!(log, "able to delete snapshot {} export, proceeding", authz_snapshot.id());
-
-    Ok(())
-}
 
 async fn sdd_delete_user_data_export_record(
     sagactx: NexusActionContext,
