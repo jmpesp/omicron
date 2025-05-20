@@ -32,6 +32,7 @@ pub fn api() -> CruciblePantryApiDescription {
         api.register(import_from_url)?;
         api.register(snapshot)?;
         api.register(bulk_write)?;
+        api.register(bulk_read)?;
         api.register(scrub)?;
         api.register(detach)?;
 
@@ -318,6 +319,41 @@ async fn bulk_write(
     pantry.bulk_write(path.id.clone(), body.offset, data)?;
 
     Ok(HttpResponseUpdatedNoContent())
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct BulkReadRequest {
+    pub offset: u64,
+    pub size: usize,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct BulkReadResponse {
+    pub base64_encoded_data: String,
+}
+
+/// Bulk read data from a volume at a specified offset
+#[endpoint {
+    method = POST,
+    path = "/crucible/pantry/0/volume/{id}/bulk-read",
+}]
+async fn bulk_read(
+    rc: RequestContext<Arc<Pantry>>,
+    path: TypedPath<VolumePath>,
+    body: TypedBody<BulkReadRequest>,
+) -> Result<HttpResponseOk<BulkReadResponse>, HttpError> {
+    let path = path.into_inner();
+    let body = body.into_inner();
+    let pantry = rc.context();
+
+    let data = pantry.bulk_read(path.id.clone(), body.offset, body.size).await?;
+
+    Ok(HttpResponseOk(BulkReadResponse {
+        base64_encoded_data: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            data,
+        ),
+    }))
 }
 
 #[derive(Serialize, JsonSchema)]

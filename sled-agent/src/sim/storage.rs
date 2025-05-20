@@ -2128,6 +2128,69 @@ impl Pantry {
         Ok(())
     }
 
+    pub async fn bulk_read(
+        &self,
+        volume_id: String,
+        offset: u64,
+        size: usize,
+    ) -> Result<Vec<u8>, HttpError> {
+        let vcr = self.entry(volume_id)?;
+
+        // Currently, Nexus will only make volumes where the first subvolume is
+        // a Region. This will change in the future!
+        let (region_block_size, region_size) = match vcr {
+            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
+                match sub_volumes[0] {
+                    VolumeConstructionRequest::Region {
+                        block_size,
+                        blocks_per_extent,
+                        extent_count,
+                        ..
+                    } => (
+                        block_size,
+                        block_size
+                            * blocks_per_extent
+                            * u64::from(extent_count),
+                    ),
+
+                    _ => {
+                        panic!("unexpected Volume layout");
+                    }
+                }
+            }
+
+            _ => {
+                panic!("unexpected Volume layout");
+            }
+        };
+
+        if (offset % region_block_size) != 0 {
+            return Err(HttpError::for_bad_request(
+                None,
+                "offset not multiple of block size!".to_string(),
+            ));
+        }
+
+        if (size as u64 % region_block_size) != 0 {
+            return Err(HttpError::for_bad_request(
+                None,
+                "size not multiple of block size!".to_string(),
+            ));
+        }
+
+        if (offset + size as u64) > region_size {
+            return Err(HttpError::for_bad_request(
+                None,
+                "offset + size off end of region!".to_string(),
+            ));
+        }
+
+        let mut data = Vec::with_capacity(size);
+        data.resize(size, 0u8);
+
+        Ok(data)
+    }
+
     pub fn scrub(&self, volume_id: String) -> Result<String, HttpError> {
         self.entry(volume_id)?;
 
