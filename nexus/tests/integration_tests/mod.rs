@@ -44,6 +44,7 @@ mod silo_users;
 mod silos;
 mod sleds;
 mod snapshots;
+mod snapshot_export;
 mod ssh_keys;
 mod subnet_allocation;
 mod support_bundles;
