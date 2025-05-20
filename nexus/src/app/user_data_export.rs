@@ -24,11 +24,11 @@ use omicron_common::api::external::Error;
 use omicron_common::api::external::ListResultVec;
 use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::NameOrId;
-use super::sagas::snapshot_export_create;
-use super::sagas::snapshot_export_delete;
+use super::sagas::user_data_export_create;
+use super::sagas::user_data_export_delete;
 
 impl super::Nexus {
-    pub(crate) async fn snapshot_export(
+    pub(crate) async fn user_data_export(
         self: &Arc<Self>,
         opctx: &OpContext,
         snapshot_lookup: &lookup::Snapshot<'_>,
@@ -36,27 +36,27 @@ impl super::Nexus {
     ) -> LookupResult<params::ExportBlocksBulkReadResponse> {
         let (.., authz_snapshot, _) = snapshot_lookup.fetch_for(authz::Action::Read).await?;
 
-        let snapshot_export = match self.db_datastore.snapshot_export_lookup(
+        let user_data_export = match self.db_datastore.user_data_export_lookup(
             opctx,
             &authz_snapshot,
         )
         .await? {
-            Some(snapshot_export) => snapshot_export,
+            Some(user_data_export) => user_data_export,
 
             None => {
-                let saga_params = snapshot_export_create::Params {
+                let saga_params = user_data_export_create::Params {
                     serialized_authn: authn::saga::Serialized::for_opctx(opctx),
                     snapshot_id: authz_snapshot.id(),
                 };
 
                 self
                     .sagas
-                    .saga_execute::<snapshot_export_create::SagaSnapshotExportCreate>(
+                    .saga_execute::<user_data_export_create::SagaUserDataExportCreate>(
                         saga_params,
                     )
                     .await?;
 
-                let Some(snapshot_export) = self.db_datastore.snapshot_export_lookup(
+                let Some(user_data_export) = self.db_datastore.user_data_export_lookup(
                     opctx,
                     &authz_snapshot,
                 )
@@ -64,11 +64,11 @@ impl super::Nexus {
                     return Err(Error::Gone);
                 };
 
-                snapshot_export
+                user_data_export
             }
         };
 
-        let pantry_address = snapshot_export.pantry_address();
+        let pantry_address = user_data_export.pantry_address();
 
         // Check if it's gone from DNS, and fail early if so
         if self.is_internal_service_gone(
@@ -99,7 +99,7 @@ impl super::Nexus {
         };
 
         let response = client
-            .bulk_read(&snapshot_export.volume_id().to_string(), &request)
+            .bulk_read(&user_data_export.volume_id().to_string(), &request)
             .await
             .map_err(|e| match e {
                 crucible_pantry_client::Error::ErrorResponse(rv) => {
@@ -125,14 +125,14 @@ impl super::Nexus {
     }
 
     // XXX not required, wrap up in snapshot delete saga
-    pub(crate) async fn snapshot_export_delete(
+    pub(crate) async fn user_data_export_delete(
         self: &Arc<Self>,
         opctx: &OpContext,
         snapshot_lookup: &lookup::Snapshot<'_>,
     ) -> DeleteResult {
         let (.., authz_snapshot, _) = snapshot_lookup.fetch_for(authz::Action::Delete).await?;
 
-        let Some(snapshot_export) = self.db_datastore.snapshot_export_lookup(
+        let Some(user_data_export) = self.db_datastore.user_data_export_lookup(
                 opctx,
                 &authz_snapshot,
             )
@@ -141,15 +141,15 @@ impl super::Nexus {
             return Err(Error::Gone);
         };
 
-        let saga_params = snapshot_export_delete::Params {
+        let saga_params = user_data_export_delete::Params {
             serialized_authn: authn::saga::Serialized::for_opctx(opctx),
             snapshot_id: authz_snapshot.id(),
-            snapshot_export_id: snapshot_export.id(),
-            volume_id: snapshot_export.volume_id(),
+            user_data_export_id: user_data_export.id(),
+            volume_id: user_data_export.volume_id(),
         };
 
         self.sagas
-            .saga_execute::<snapshot_export_delete::SagaSnapshotExportDelete>(
+            .saga_execute::<user_data_export_delete::SagaUserDataExportDelete>(
                 saga_params,
             )
             .await?;

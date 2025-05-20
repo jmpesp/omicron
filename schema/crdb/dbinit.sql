@@ -5663,8 +5663,10 @@ ON omicron.public.webhook_delivery_attempt (
 /*
  * This table contains a record when a snapshot is being exported.
  */
-CREATE TABLE IF NOT EXISTS omicron.public.snapshot_export (
+CREATE TABLE IF NOT EXISTS omicron.public.user_data_export (
     id UUID NOT NULL,
+/* XXX resource_id */
+/* XXX resource_type */
     snapshot_id UUID NOT NULL,
     pantry_ip INET,
     pantry_port INT4 CHECK (pantry_port BETWEEN 0 AND 65535),
@@ -5673,13 +5675,14 @@ CREATE TABLE IF NOT EXISTS omicron.public.snapshot_export (
     PRIMARY KEY (id)
 );
 
-CREATE INDEX IF NOT EXISTS lookup_export_by_snapshot
-ON omicron.public.snapshot_export (
+/* XXX resource_id */
+CREATE INDEX IF NOT EXISTS lookup_export_by_export
+ON omicron.public.user_data_export (
     snapshot_id
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS one_record_per_snapshot
-ON omicron.public.snapshot_export (
+CREATE UNIQUE INDEX IF NOT EXISTS one_record_per_export
+ON omicron.public.user_data_export (
     snapshot_id
 );
 

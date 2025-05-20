@@ -74,7 +74,7 @@ async fn create_project_and_pool(client: &ClientTestContext) -> Uuid {
 }
 
 #[nexus_test]
-async fn test_snapshot_export_basic(cptestctx: &ControlPlaneTestContext) {
+async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
     let nexus = &cptestctx.server.server_context().nexus;
     let datastore = nexus.datastore();

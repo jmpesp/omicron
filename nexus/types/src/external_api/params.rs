@@ -2158,9 +2158,9 @@ pub struct SnapshotCreate {
     pub disk: NameOrId,
 }
 
-/// Create-time parameters for a `SnapshotExport`
+/// Create-time parameters for a `UserDataExport`
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-pub struct SnapshotExportCreate {
+pub struct UserDataExportCreate {
     /// The snapshot to be exported
     pub snapshot: NameOrId,
 }

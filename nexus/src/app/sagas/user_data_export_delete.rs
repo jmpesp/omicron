@@ -16,7 +16,7 @@ use nexus_db_queries::authn;
 use nexus_db_queries::db;
 use omicron_common::api::external::DiskState;
 use omicron_uuid_kinds::VolumeUuid;
-use omicron_uuid_kinds::SnapshotExportUuid;
+use omicron_uuid_kinds::UserDataExportUuid;
 use serde::Deserialize;
 use serde::Serialize;
 use steno::ActionError;
@@ -29,32 +29,32 @@ use uuid::Uuid;
 pub(crate) struct Params {
     pub serialized_authn: authn::saga::Serialized,
     pub snapshot_id: Uuid,
-    pub snapshot_export_id: SnapshotExportUuid,
+    pub user_data_export_id: UserDataExportUuid,
     pub volume_id: VolumeUuid,
 }
 
 // snapshot export delete saga: actions
 
 declare_saga_actions! {
-    snapshot_export_delete;
+    user_data_export_delete;
     PERM_CHECK -> "permission_check" {
-        + sdd_delete_snapshot_export_perm_check
+        + sdd_delete_user_data_export_perm_check
     }
     DELETE_SNAPSHOT_EXPORT_RECORD -> "deleted_record" {
-        + sdd_delete_snapshot_export_record
+        + sdd_delete_user_data_export_record
     }
 }
 
 // snapshot export delete saga: definition
 
 #[derive(Debug)]
-pub(crate) struct SagaSnapshotExportDelete;
-impl NexusSaga for SagaSnapshotExportDelete {
+pub(crate) struct SagaUserDataExportDelete;
+impl NexusSaga for SagaUserDataExportDelete {
     const NAME: &'static str = "snapshot-export-delete";
     type Params = Params;
 
     fn register_actions(registry: &mut ActionRegistry) {
-        snapshot_export_delete_register_actions(registry);
+        user_data_export_delete_register_actions(registry);
     }
 
     fn make_saga_dag(
@@ -98,7 +98,7 @@ impl NexusSaga for SagaSnapshotExportDelete {
 
         // Delete the snapshot export record last. There's no way to re-trigger
         // the delete once it is gone.
-        builder.append(delete_snapshot_export_record_action());
+        builder.append(delete_user_data_export_record_action());
 
         Ok(builder.build()?)
     }
@@ -106,7 +106,7 @@ impl NexusSaga for SagaSnapshotExportDelete {
 
 // snapshot export delete saga: action implementations
 
-async fn sdd_delete_snapshot_export_perm_check(
+async fn sdd_delete_user_data_export_perm_check(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let log = sagactx.user_data().log();
@@ -129,7 +129,7 @@ async fn sdd_delete_snapshot_export_perm_check(
     Ok(())
 }
 
-async fn sdd_delete_snapshot_export_record(
+async fn sdd_delete_user_data_export_record(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let osagactx = sagactx.user_data();
@@ -148,7 +148,7 @@ async fn sdd_delete_snapshot_export_record(
 
     osagactx
         .datastore()
-        .snapshot_export_delete(&opctx, &authz_snapshot, params.snapshot_export_id)
+        .user_data_export_delete(&opctx, &authz_snapshot, params.user_data_export_id)
         .await
         .map_err(ActionError::action_failed)?;
 
