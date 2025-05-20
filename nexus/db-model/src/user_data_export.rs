@@ -17,7 +17,7 @@ use crate::SqlU16;
 #[derive(Queryable, Insertable, Selectable, Clone, Debug)]
 #[diesel(table_name = user_data_export)]
 pub struct UserDataExport {
-    id: DbTypedUuid<UserDataKind>,
+    id: DbTypedUuid<UserDataExportKind>,
     snapshot_id: Uuid,
     pantry_ip: ipv6::Ipv6Addr,
     pantry_port: SqlU16,
@@ -26,7 +26,7 @@ pub struct UserDataExport {
 
 impl UserDataExport {
     pub fn new(
-        id: UserDataUuid,
+        id: UserDataExportUuid,
         snapshot_id: Uuid,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
@@ -40,7 +40,7 @@ impl UserDataExport {
         }
     }
 
-    pub fn id(&self) -> UserDataUuid {
+    pub fn id(&self) -> UserDataExportUuid {
         self.id.into()
     }
 

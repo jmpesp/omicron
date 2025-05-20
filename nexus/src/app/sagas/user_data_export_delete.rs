@@ -40,7 +40,7 @@ declare_saga_actions! {
     PERM_CHECK -> "permission_check" {
         + sdd_delete_user_data_export_perm_check
     }
-    DELETE_SNAPSHOT_EXPORT_RECORD -> "deleted_record" {
+    DELETE_USER_DATA_EXPORT_RECORD -> "deleted_record" {
         + sdd_delete_user_data_export_record
     }
 }
