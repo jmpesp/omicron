@@ -4,29 +4,29 @@
 
 use crate::typed_uuid::DbTypedUuid;
 use crate::ipv6;
-use nexus_db_schema::schema::snapshot_export;
+use nexus_db_schema::schema::user_data_export;
 use omicron_uuid_kinds::VolumeKind;
 use omicron_uuid_kinds::VolumeUuid;
-use omicron_uuid_kinds::SnapshotExportKind;
-use omicron_uuid_kinds::SnapshotExportUuid;
+use omicron_uuid_kinds::UserDataExportKind;
+use omicron_uuid_kinds::UserDataExportUuid;
 use std::net::SocketAddrV6;
 use uuid::Uuid;
 use crate::SqlU16;
 
 /// XXX docstring
 #[derive(Queryable, Insertable, Selectable, Clone, Debug)]
-#[diesel(table_name = snapshot_export)]
-pub struct SnapshotExport {
-    id: DbTypedUuid<SnapshotExportKind>,
+#[diesel(table_name = user_data_export)]
+pub struct UserDataExport {
+    id: DbTypedUuid<UserDataKind>,
     snapshot_id: Uuid,
     pantry_ip: ipv6::Ipv6Addr,
     pantry_port: SqlU16,
     volume_id: DbTypedUuid<VolumeKind>,
 }
 
-impl SnapshotExport {
+impl UserDataExport {
     pub fn new(
-        id: SnapshotExportUuid,
+        id: UserDataUuid,
         snapshot_id: Uuid,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
@@ -40,7 +40,7 @@ impl SnapshotExport {
         }
     }
 
-    pub fn id(&self) -> SnapshotExportUuid {
+    pub fn id(&self) -> UserDataUuid {
         self.id.into()
     }
 

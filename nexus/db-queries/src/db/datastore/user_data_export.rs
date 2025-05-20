@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! [`DataStore`] methods on [`SnapshotExport`]s.
+//! [`DataStore`] methods on [`UserDataExport`]s.
 
 use super::DataStore;
 use crate::authz;
@@ -13,7 +13,7 @@ use nexus_db_errors::public_error_from_diesel;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::OptionalError;
 use crate::db::model::to_db_typed_uuid;
-use crate::db::model::SnapshotExport;
+use crate::db::model::UserDataExport;
 use crate::db::model::Snapshot;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use chrono::Utc;
@@ -25,30 +25,30 @@ use omicron_common::api::external::Error;
 use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::DeleteResult;
 use omicron_uuid_kinds::VolumeUuid;
-use omicron_uuid_kinds::SnapshotExportUuid;
+use omicron_uuid_kinds::UserDataExportUuid;
 use uuid::Uuid;
 use std::net::SocketAddrV6;
 use nexus_auth::authz::ApiResource;
 
 impl DataStore {
-    async fn snapshot_export_create_in_txn(
+    async fn user_data_export_create_in_txn(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<Error>,
         authz_snapshot: &authz::Snapshot,
-        id: SnapshotExportUuid,
+        id: UserDataExportUuid,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
-    ) -> Result<SnapshotExport, diesel::result::Error> {
-        let snapshot_export = SnapshotExport::new(id, authz_snapshot.id(), pantry_address, volume_id);
+    ) -> Result<UserDataExport, diesel::result::Error> {
+        let user_data_export = UserDataExport::new(id, authz_snapshot.id(), pantry_address, volume_id);
 
-        use nexus_db_schema::schema::snapshot_export::dsl;
+        use nexus_db_schema::schema::user_data_export::dsl;
         use nexus_db_schema::schema::snapshot::dsl as snapshot_dsl;
 
         // Has an export with this id been created already? If so,
         // return that.
-        let existing_export: Option<SnapshotExport> = dsl::snapshot_export
+        let existing_export: Option<UserDataExport> = dsl::user_data_export
             .filter(dsl::id.eq(to_db_typed_uuid(id)))
-            .select(SnapshotExport::as_select())
+            .select(UserDataExport::as_select())
             .first_async(conn)
             .await
             .optional()?;
@@ -75,9 +75,9 @@ impl DataStore {
         }
 
         // Does an export object for this snapshot exist?
-        let existing_export: Option<SnapshotExport> = dsl::snapshot_export
+        let existing_export: Option<UserDataExport> = dsl::user_data_export
             .filter(dsl::snapshot_id.eq(authz_snapshot.id()))
-            .select(SnapshotExport::as_select())
+            .select(UserDataExport::as_select())
             .first_async(conn)
             .await
             .optional()?;
@@ -89,8 +89,8 @@ impl DataStore {
         }
 
         // Otherwise, insert the new export object
-        let rows_inserted = diesel::insert_into(dsl::snapshot_export)
-            .values(snapshot_export.clone())
+        let rows_inserted = diesel::insert_into(dsl::user_data_export)
+            .values(user_data_export.clone())
             .execute_async(conn)
             .await?;
 
@@ -100,28 +100,28 @@ impl DataStore {
             ))));
         }
 
-        Ok(snapshot_export)
+        Ok(user_data_export)
     }
 
-    pub async fn snapshot_export_create(
+    pub async fn user_data_export_create(
         &self,
         opctx: &OpContext,
         authz_snapshot: &authz::Snapshot,
-        id: SnapshotExportUuid,
+        id: UserDataExportUuid,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
-    ) -> CreateResult<SnapshotExport> {
+    ) -> CreateResult<UserDataExport> {
         opctx.authorize(authz::Action::Read, authz_snapshot).await?;
 
         let err = OptionalError::new();
         let conn = self.pool_connection_authorized(opctx).await?;
 
         self
-            .transaction_retry_wrapper("snapshot_export_create")
+            .transaction_retry_wrapper("user_data_export_create")
             .transaction(&conn, |conn| {
                 let err = err.clone();
                 async move {
-                    Self::snapshot_export_create_in_txn(
+                    Self::user_data_export_create_in_txn(
                         &conn,
                         err,
                         authz_snapshot,
@@ -142,19 +142,19 @@ impl DataStore {
             })
     }
 
-    pub async fn snapshot_export_delete(
+    pub async fn user_data_export_delete(
         &self,
         opctx: &OpContext,
         authz_snapshot: &authz::Snapshot,
-        id: SnapshotExportUuid,
+        id: UserDataExportUuid,
     ) -> DeleteResult {
         opctx.authorize(authz::Action::Delete, authz_snapshot).await?;
 
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        use nexus_db_schema::schema::snapshot_export::dsl;
+        use nexus_db_schema::schema::user_data_export::dsl;
 
-        diesel::delete(dsl::snapshot_export)
+        diesel::delete(dsl::user_data_export)
             .filter(dsl::id.eq(to_db_typed_uuid(id)))
             .execute_async(&*conn)
             .await
@@ -162,18 +162,18 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
-    pub async fn snapshot_export_lookup(
+    pub async fn user_data_export_lookup(
         &self,
         opctx: &OpContext,
         authz_snapshot: &authz::Snapshot,
-    ) -> LookupResult<Option<SnapshotExport>> {
+    ) -> LookupResult<Option<UserDataExport>> {
         opctx.authorize(authz::Action::Read, authz_snapshot).await?;
 
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        use nexus_db_schema::schema::snapshot_export::dsl;
+        use nexus_db_schema::schema::user_data_export::dsl;
 
-        dsl::snapshot_export
+        dsl::user_data_export
             .filter(dsl::snapshot_id.eq(authz_snapshot.id()))
             .first_async(&*conn)
             .await

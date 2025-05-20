@@ -96,7 +96,6 @@ mod silo_user;
 mod sled;
 mod sled_instance;
 mod snapshot;
-mod snapshot_export;
 mod ssh_key;
 mod support_bundle;
 mod switch;
@@ -106,6 +105,7 @@ mod target_release;
 #[cfg(test)]
 pub(crate) mod test_utils;
 mod update;
+mod user_data_export;
 mod utilization;
 mod v2p_mapping;
 mod virtual_provisioning_collection;

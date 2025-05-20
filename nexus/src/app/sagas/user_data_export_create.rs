@@ -25,7 +25,7 @@ use omicron_common::{
     api::external, progenitor_operation_retry::ProgenitorOperationRetry,
 };
 use omicron_uuid_kinds::{GenericUuid, PropolisUuid, SledUuid, VolumeUuid};
-use omicron_uuid_kinds::SnapshotExportUuid;
+use omicron_uuid_kinds::UserDataExportUuid;
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use serde::Deserialize;
 use serde::Serialize;
@@ -53,7 +53,7 @@ pub(crate) struct Params {
 
 // snapshot export create saga: actions
 declare_saga_actions! {
-    snapshot_export_create;
+    user_data_export_create;
     CREATE_EXPORT_VOLUME -> "export_volume" {
         + ssec_create_export_volume
         - ssec_create_export_volume_undo
@@ -74,13 +74,13 @@ declare_saga_actions! {
 // snapshot export create saga: definition
 
 #[derive(Debug)]
-pub(crate) struct SagaSnapshotExportCreate;
-impl NexusSaga for SagaSnapshotExportCreate {
+pub(crate) struct SagaUserDataExportCreate;
+impl NexusSaga for SagaUserDataExportCreate {
     const NAME: &'static str = "snapshot-export-create";
     type Params = Params;
 
     fn register_actions(registry: &mut ActionRegistry) {
-        snapshot_export_create_register_actions(registry);
+        user_data_export_create_register_actions(registry);
     }
 
     fn make_saga_dag(
@@ -95,8 +95,8 @@ impl NexusSaga for SagaSnapshotExportCreate {
         ));
 
         builder.append(Node::action(
-            "snapshot_export_id",
-            "GenerateSnapshotExportId",
+            "user_data_export_id",
+            "GenerateUserDataExportId",
             ACTION_GENERATE_ID.as_ref(),
         ));
 
@@ -276,7 +276,7 @@ async fn ssec_create_export_record(
 
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
     let pantry_address = sagactx.lookup::<SocketAddrV6>("pantry_address")?;
-    let snapshot_export_id = sagactx.lookup::<SnapshotExportUuid>("snapshot_export_id")?;
+    let user_data_export_id = sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
 
     let opctx = crate::context::op_context_for_saga_action(
         &sagactx,
@@ -290,19 +290,19 @@ async fn ssec_create_export_record(
             .await
             .expect("Failed to look up snapshot");
 
-    let snapshot_export = osagactx
+    let user_data_export = osagactx
         .datastore()
-        .snapshot_export_create(
+        .user_data_export_create(
             &opctx,
             &authz_snapshot,
-            snapshot_export_id,
+            user_data_export_id,
             pantry_address,
             volume_id,
         )
         .await
         .map_err(ActionError::action_failed)?;
 
-    info!(log, "snapshot export {} created ok", snapshot_export.id());
+    info!(log, "snapshot export {} created ok", user_data_export.id());
 
     Ok(())
 }
@@ -319,7 +319,7 @@ async fn ssec_create_export_record_undo(
         &params.serialized_authn,
     );
 
-    let snapshot_export_id = sagactx.lookup::<SnapshotExportUuid>("snapshot_export_id")?;
+    let user_data_export_id = sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
 
     let (.., authz_snapshot) =
         LookupPath::new(&opctx, osagactx.datastore())
@@ -328,9 +328,9 @@ async fn ssec_create_export_record_undo(
             .await
             .expect("Failed to look up snapshot");
 
-    info!(log, "calling delete export {snapshot_export_id}");
+    info!(log, "calling delete export {user_data_export_id}");
 
-    osagactx.datastore().snapshot_export_delete(&opctx, &authz_snapshot, snapshot_export_id).await?;
+    osagactx.datastore().user_data_export_delete(&opctx, &authz_snapshot, user_data_export_id).await?;
 
     Ok(())
 }
