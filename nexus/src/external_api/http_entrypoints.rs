@@ -4933,7 +4933,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
             let snapshot_lookup =
                 nexus.snapshot_lookup(&opctx, snapshot_selector)?;
 
-            let response = nexus.user_data_export(
+            let response = nexus.user_data_export_for_snapshot(
                 &opctx,
                 &snapshot_lookup,
                 export_params.into_inner(),

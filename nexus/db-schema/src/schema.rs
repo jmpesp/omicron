@@ -2446,7 +2446,8 @@ joinable!(webhook_delivery_attempt -> webhook_delivery (delivery_id));
 table! {
     user_data_export (id) {
         id -> Uuid,
-        snapshot_id -> Uuid,
+        resource_type -> crate::enums::UserDataExportResourceTypeEnum,
+        resource_id -> Uuid,
         pantry_ip -> Inet,
         pantry_port -> Int4,
         volume_id -> Uuid,

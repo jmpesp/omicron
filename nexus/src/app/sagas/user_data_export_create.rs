@@ -47,8 +47,8 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Params {
     pub serialized_authn: authn::saga::Serialized,
-    //pub project_id: Uuid,
     pub snapshot_id: Uuid,
+    // pub image_id: Uuid,
 }
 
 // snapshot export create saga: actions
@@ -292,10 +292,10 @@ async fn ssec_create_export_record(
 
     let user_data_export = osagactx
         .datastore()
-        .user_data_export_create(
+        .user_data_export_create_for_snapshot(
             &opctx,
-            &authz_snapshot,
             user_data_export_id,
+            &authz_snapshot,
             pantry_address,
             volume_id,
         )
@@ -321,16 +321,9 @@ async fn ssec_create_export_record_undo(
 
     let user_data_export_id = sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
 
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, osagactx.datastore())
-            .snapshot_id(params.snapshot_id)
-            .lookup_for(authz::Action::Read)
-            .await
-            .expect("Failed to look up snapshot");
-
     info!(log, "calling delete export {user_data_export_id}");
 
-    osagactx.datastore().user_data_export_delete(&opctx, &authz_snapshot, user_data_export_id).await?;
+    osagactx.datastore().user_data_export_delete(&opctx, user_data_export_id).await?;
 
     Ok(())
 }

@@ -28,22 +28,24 @@ use super::sagas::user_data_export_create;
 use super::sagas::user_data_export_delete;
 
 impl super::Nexus {
-    pub(crate) async fn user_data_export(
+    pub(crate) async fn user_data_export_for_snapshot(
         self: &Arc<Self>,
         opctx: &OpContext,
         snapshot_lookup: &lookup::Snapshot<'_>,
         param: params::ExportBlocksBulkReadRequest,
     ) -> LookupResult<params::ExportBlocksBulkReadResponse> {
-        let (.., authz_snapshot, _) = snapshot_lookup.fetch_for(authz::Action::Read).await?;
+        let (.., authz_snapshot, _) = snapshot_lookup
+            .fetch_for(authz::Action::Read).await?;
 
-        let user_data_export = match self.db_datastore.user_data_export_lookup(
-            opctx,
-            &authz_snapshot,
-        )
-        .await? {
+        let user_data_export = match self
+            .db_datastore
+            .user_data_export_lookup_for_snapshot(opctx, &authz_snapshot)
+            .await? {
             Some(user_data_export) => user_data_export,
 
             None => {
+                /*
+                // XXX done by background task now
                 let saga_params = user_data_export_create::Params {
                     serialized_authn: authn::saga::Serialized::for_opctx(opctx),
                     snapshot_id: authz_snapshot.id(),
@@ -65,6 +67,8 @@ impl super::Nexus {
                 };
 
                 user_data_export
+                */
+                return Err(Error::Gone);
             }
         };
 
@@ -76,8 +80,11 @@ impl super::Nexus {
             pantry_address,
         ).await? {
             warn!(self.log, "pantry {pantry_address} is gone from DNS!");
+            // XXX nuke user data export record here?
             return Err(Error::Gone);
         }
+
+        // XXX below needs to be in the spawned task
 
         info!(
             self.log,
@@ -124,6 +131,7 @@ impl super::Nexus {
         return Ok(params::ExportBlocksBulkReadResponse { base64_encoded_data });
     }
 
+    /*
     // XXX not required, wrap up in snapshot delete saga
     pub(crate) async fn user_data_export_delete(
         self: &Arc<Self>,
@@ -156,4 +164,5 @@ impl super::Nexus {
 
         Ok(())
     }
+    */
 }

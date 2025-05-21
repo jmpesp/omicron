@@ -26,9 +26,10 @@ use uuid::Uuid;
 // snapshot export delete saga: input parameters
 
 #[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Params {
+pub struct Params {
     pub serialized_authn: authn::saga::Serialized,
     pub snapshot_id: Uuid,
+    //pub image_id: Uuid,
     pub user_data_export_id: UserDataExportUuid,
     pub volume_id: VolumeUuid,
 }
@@ -40,6 +41,7 @@ declare_saga_actions! {
     DELETE_USER_DATA_EXPORT_RECORD -> "deleted_record" {
         + sdd_delete_user_data_export_record
     }
+    // XXX detach from pantry
 }
 
 // snapshot export delete saga: definition
@@ -109,16 +111,9 @@ async fn sdd_delete_user_data_export_record(
         &params.serialized_authn,
     );
 
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, osagactx.datastore())
-            .snapshot_id(params.snapshot_id)
-            .lookup_for(authz::Action::Delete)
-            .await
-            .expect("Failed to look up snapshot");
-
     osagactx
         .datastore()
-        .user_data_export_delete(&opctx, &authz_snapshot, params.user_data_export_id)
+        .user_data_export_delete(&opctx, params.user_data_export_id)
         .await
         .map_err(ActionError::action_failed)?;
 

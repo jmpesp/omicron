@@ -5749,13 +5749,17 @@ ON omicron.public.webhook_delivery_attempt (
     rx_id
 );
 
+CREATE TYPE IF NOT EXISTS omicron.public.user_data_export_resource_type AS ENUM (
+  'snapshot',
+  'image'
+);
 /*
  * This table contains a record when a snapshot is being exported.
  */
 CREATE TABLE IF NOT EXISTS omicron.public.user_data_export (
     id UUID NOT NULL,
-/* XXX resource_id */
-/* XXX resource_type */
+    resource_id UUID NOT NULL,
+    resource_type omicron.public.user_data_export_resource_type NOT NULL,
     snapshot_id UUID NOT NULL,
     pantry_ip INET,
     pantry_port INT4 CHECK (pantry_port BETWEEN 0 AND 65535),
