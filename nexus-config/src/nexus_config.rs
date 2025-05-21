@@ -439,6 +439,8 @@ pub struct BackgroundTaskConfig {
     pub alert_dispatcher: AlertDispatcherConfig,
     /// configuration for webhook deliverator task
     pub webhook_deliverator: WebhookDeliveratorConfig,
+    /// configuration for user data export coordinator task
+    pub user_data_export_coordinator: UserDataExportCoordinatorConfig,
 }
 
 #[serde_as]
@@ -803,6 +805,14 @@ pub struct WebhookDeliveratorConfig {
     pub second_retry_backoff_secs: u64,
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct UserDataExportCoordinatorConfig {
+    /// period (in seconds) for periodic activations of this background task
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub period_secs: Duration,
+}
+
 /// Configuration for a nexus server
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PackageConfig {
@@ -1084,6 +1094,7 @@ mod test {
             webhook_deliverator.lease_timeout_secs = 44
             webhook_deliverator.first_retry_backoff_secs = 45
             webhook_deliverator.second_retry_backoff_secs = 46
+            user_data_export_coordinator.period_secs = 60
             [default_region_allocation_strategy]
             type = "random"
             seed = 0
@@ -1301,6 +1312,10 @@ mod test {
                             first_retry_backoff_secs: 45,
                             second_retry_backoff_secs: 46,
                         },
+                        user_data_export_coordinator:
+                            UserDataExportCoordinatorConfig {
+                                period_secs: Duration::from_secs(60),
+                            },
                     },
                     default_region_allocation_strategy:
                         crate::nexus_config::RegionAllocationStrategy::Random {
@@ -1389,6 +1404,7 @@ mod test {
             read_only_region_replacement_start.period_secs = 30
             alert_dispatcher.period_secs = 42
             webhook_deliverator.period_secs = 43
+            user_data_export_coordinator.period_secs = 60
             [default_region_allocation_strategy]
             type = "random"
             "##,

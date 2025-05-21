@@ -123,6 +123,7 @@ use super::tasks::support_bundle_collector;
 use super::tasks::sync_service_zone_nat::ServiceZoneNatTracker;
 use super::tasks::sync_switch_configuration::SwitchPortSettingsManager;
 use super::tasks::tuf_artifact_replication;
+use super::tasks::user_data_export_coordinator::*;
 use super::tasks::v2p_mappings::V2PManager;
 use super::tasks::vpc_routes;
 use super::tasks::webhook_deliverator;
@@ -226,6 +227,7 @@ impl BackgroundTasksInitializer {
             task_read_only_region_replacement_start: Activator::new(),
             task_alert_dispatcher: Activator::new(),
             task_webhook_deliverator: Activator::new(),
+            task_user_data_export_coordinator: Activator::new(),
 
             task_internal_dns_propagation: Activator::new(),
             task_external_dns_propagation: Activator::new(),
@@ -300,6 +302,7 @@ impl BackgroundTasksInitializer {
             task_read_only_region_replacement_start,
             task_alert_dispatcher,
             task_webhook_deliverator,
+            task_user_data_export_coordinator,
             // Add new background tasks here.  Be sure to use this binding in a
             // call to `Driver::register()` below.  That's what actually wires
             // up the Activator to the corresponding background task.
@@ -835,7 +838,7 @@ impl BackgroundTasksInitializer {
             period: config.region_snapshot_replacement_finish.period_secs,
             task_impl: Box::new(RegionSnapshotReplacementFinishDetector::new(
                 datastore.clone(),
-                sagas,
+                sagas.clone(),
             )),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
@@ -915,7 +918,7 @@ impl BackgroundTasksInitializer {
                 period: period_secs,
                 task_impl: Box::new(
                     webhook_deliverator::WebhookDeliverator::new(
-                        datastore,
+                        datastore.clone(),
                         cfg,
                         nexus_id,
                         args.webhook_delivery_client,
@@ -925,6 +928,19 @@ impl BackgroundTasksInitializer {
                 watchers: vec![],
                 activator: task_webhook_deliverator,
             }
+        });
+
+        driver.register(TaskDefinition {
+            name: "user_data_export_coordinator",
+            description: "make the user resources available for export",
+            period: config.user_data_export_coordinator.period_secs,
+            task_impl: Box::new(UserDataExportCoordinator::new(
+                datastore,
+                sagas,
+            )),
+            opctx: opctx.child(BTreeMap::new()),
+            watchers: vec![],
+            activator: task_user_data_export_coordinator,
         });
 
         driver
