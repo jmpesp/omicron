@@ -32,6 +32,11 @@ use omicron_uuid_kinds::UserDataExportUuid;
 use uuid::Uuid;
 use std::net::SocketAddrV6;
 use nexus_auth::authz::ApiResource;
+#[derive(Default)]
+pub struct UserDataExportChangeset {
+    create_required: Vec<UserDataExportResource>,
+    delete_required: Vec<UserDataExportUuid>,
+}
 
 impl DataStore {
     async fn user_data_export_create_in_txn(
@@ -259,7 +264,51 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
+    // XXX for image
+
     // XXX resources needing export object create
+
+    pub async fn user_data_export_changeset(
+        &self,
+        opctx: &OpContext,
+    ) -> LookupResult<UserDataExportChangeset> {
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        use nexus_db_schema::schema::user_data_export::dsl;
+        use nexus_db_schema::schema::snapshot::dsl as snapshot_dsl;
+        use nexus_db_schema::schema::image::dsl as image_dsl;
+
+        let mut changeset = UserDataExportChangeset::default();
+
+        // Check for snapshots or images that do not yet have user data export
+        // objects.
+
+        let snapshots: Vec<Snapshot> = snapshot_dsl::snapshot
+            .left_join(
+                dsl::user_data_export
+                    .on(dsl::resource_id.eq(snapshot_dsl::id))
+            )
+            .filter(dsl::resource_type.eq(UserDataExportResourceType::Snapshot))
+            .select((
+                Snapshot::as_select(),
+                Option::<UserDataExportRecord>::as_select(),
+            ))
+            .first_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
+            .into_iter()
+            .filter(|(_, maybe_record)| maybe_record.is_none())
+            .map(|(s, _)| s)
+            .collect();
+
+        for snapshot in snapshots {
+            changeset.create_required.push(UserDataExportResource::Snapshot {
+                id: snapshot.id()
+            });
+        }
+
+        Ok(changeset)
+    }
 
     // XXX resources needing export object delete
 }
