@@ -280,8 +280,8 @@ impl DataStore {
 
         let mut changeset = UserDataExportChangeset::default();
 
-        // Check for snapshots or images that do not yet have user data export
-        // objects.
+        // Check for undeleted snapshots or images that do not yet have user
+        // data export objects.
 
         let snapshots: Vec<Snapshot> = snapshot_dsl::snapshot
             .left_join(
@@ -289,11 +289,12 @@ impl DataStore {
                     .on(dsl::resource_id.eq(snapshot_dsl::id))
             )
             .filter(dsl::resource_type.eq(UserDataExportResourceType::Snapshot))
+            .filter(snapshot_dsl::time_deleted.is_null())
             .select((
                 Snapshot::as_select(),
                 Option::<UserDataExportRecord>::as_select(),
             ))
-            .first_async(&*conn)
+            .load_async::<(Snapshot, Option<UserDataExportRecord>)>(&*conn)
             .await
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
             .into_iter()
@@ -307,6 +308,66 @@ impl DataStore {
             });
         }
 
+        let images: Vec<Image> = image_dsl::image
+            .left_join(
+                dsl::user_data_export
+                    .on(dsl::resource_id.eq(image_dsl::id))
+            )
+            .filter(dsl::resource_type.eq(UserDataExportResourceType::Image))
+            .filter(image_dsl::time_deleted.is_null())
+            .select((
+                Image::as_select(),
+                Option::<UserDataExportRecord>::as_select(),
+            ))
+            .load_async::<(Image, Option<UserDataExportRecord>)>(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
+            .into_iter()
+            .filter(|(_, maybe_record)| maybe_record.is_none())
+            .map(|(i, _)| i)
+            .collect();
+
+        for image in images {
+            changeset.create_required.push(UserDataExportResource::Image {
+                id: image.id()
+            });
+        }
+
+        // Check for deleted snapshots or images that have user data export
+        // objects.
+
+        let records: Vec<UserDataExportRecord> = snapshot_dsl::snapshot
+            .inner_join(
+                dsl::user_data_export
+                    .on(dsl::resource_id.eq(snapshot_dsl::id))
+            )
+            .filter(dsl::resource_type.eq(UserDataExportResourceType::Snapshot))
+            .filter(snapshot_dsl::time_deleted.is_not_null())
+            .select(UserDataExportRecord::as_select())
+            .load_async::<UserDataExportRecord>(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        for record in records {
+            changeset.delete_required.push(record.id());
+        }
+
+        let records: Vec<UserDataExportRecord> = image_dsl::image
+            .inner_join(
+                dsl::user_data_export
+                    .on(dsl::resource_id.eq(image_dsl::id))
+            )
+            .filter(dsl::resource_type.eq(UserDataExportResourceType::Image))
+            .filter(image_dsl::time_deleted.is_not_null())
+            .select(UserDataExportRecord::as_select())
+            .load_async::<UserDataExportRecord>(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        for record in records {
+            changeset.delete_required.push(record.id());
+        }
+
         Ok(changeset)
     }
 
@@ -316,4 +377,5 @@ impl DataStore {
 // XXX tests
 
 // XXX resource id collision
+// XXX changeset stuff - adding, removing, etc
 
