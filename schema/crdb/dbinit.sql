@@ -5664,31 +5664,26 @@ CREATE TYPE IF NOT EXISTS omicron.public.user_data_export_resource_type AS ENUM 
   'snapshot',
   'image'
 );
+
 /*
  * This table contains a record when a snapshot is being exported.
  */
 CREATE TABLE IF NOT EXISTS omicron.public.user_data_export (
-    id UUID NOT NULL,
+    id UUID PRIMARY KEY,
     resource_id UUID NOT NULL,
     resource_type omicron.public.user_data_export_resource_type NOT NULL,
-    snapshot_id UUID NOT NULL,
     pantry_ip INET,
     pantry_port INT4 CHECK (pantry_port BETWEEN 0 AND 65535),
-    volume_id UUID NOT NULL,
-
-    PRIMARY KEY (id)
+    volume_id UUID NOT NULL
 );
 
-/* XXX resource_id */
-CREATE INDEX IF NOT EXISTS lookup_export_by_export
-ON omicron.public.user_data_export (
-    snapshot_id
-);
+/*
+CREATE INDEX IF NOT EXISTS lookup_export_by_id
+ON omicron.public.user_data_export (id);
+*/
 
 CREATE UNIQUE INDEX IF NOT EXISTS one_record_per_export
-ON omicron.public.user_data_export (
-    snapshot_id
-);
+ON omicron.public.user_data_export (resource_id);
 
 /*
  * Keep this at the end of file so that the database does not contain a version

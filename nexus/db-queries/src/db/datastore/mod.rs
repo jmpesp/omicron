@@ -135,6 +135,7 @@ pub use sled::SledTransition;
 pub use sled::TransitionError;
 pub use support_bundle::SupportBundleExpungementReport;
 pub use switch_port::SwitchPortSettingsCombinedResult;
+pub use user_data_export::*;
 pub use virtual_provisioning_collection::StorageType;
 pub use vmm::VmmStateUpdateResult;
 pub use volume::*;
