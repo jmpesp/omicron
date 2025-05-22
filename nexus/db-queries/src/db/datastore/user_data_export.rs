@@ -194,11 +194,13 @@ impl DataStore {
             })
     }
 
-    pub async fn user_data_export_create_for_image(
+    // XXX silo image
+
+    pub async fn user_data_export_create_for_project_image(
         &self,
         opctx: &OpContext,
         id: UserDataExportUuid,
-        authz_image: &authz::Image,
+        authz_image: &authz::ProjectImage,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
     ) -> CreateResult<UserDataExportRecord> {
@@ -348,6 +350,49 @@ impl DataStore {
             });
         }
 
+        // Delete any user data export record where the higher level object
+        // (snapshot, image) was soft or hard deleted.
+
+        diesel::update(dsl::user_data_export)
+            .filter(dsl::resource_type.eq(
+                UserDataExportResourceType::Snapshot
+            ))
+            .filter(diesel::dsl::not(dsl::resource_id.eq_any(
+                snapshot_dsl::snapshot
+                    .filter(snapshot_dsl::time_deleted.is_null())
+                    .select(snapshot_dsl::id)
+            )))
+            .set(dsl::resource_deleted.eq(true))
+            .execute_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        diesel::update(dsl::user_data_export)
+            .filter(dsl::resource_type.eq(
+                UserDataExportResourceType::Image
+            ))
+            .filter(diesel::dsl::not(dsl::resource_id.eq_any(
+                image_dsl::image
+                    .filter(image_dsl::time_deleted.is_null())
+                    .select(image_dsl::id)
+            )))
+            .set(dsl::resource_deleted.eq(true))
+            .execute_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        let records: Vec<UserDataExportRecord> = dsl::user_data_export
+            .filter(dsl::resource_deleted.eq(true))
+            .select(UserDataExportRecord::as_select())
+            .load_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        for record in records {
+            changeset.delete_required.push(record);
+        }
+
+        /*
         // Check for deleted snapshots or images that have user data export
         // objects.
 
@@ -366,6 +411,7 @@ impl DataStore {
         for record in records {
             changeset.delete_required.push(record);
         }
+        */
 
         // We need to use the Paginator here because there is no index for when
         // time_deleted is not null. (this is wrong, still doesn't work)
@@ -433,4 +479,5 @@ impl DataStore {
 
 // XXX resource id collision
 // XXX changeset stuff - adding, removing, etc
+// XXX changeset compute for 2000 rows of random stuff
 

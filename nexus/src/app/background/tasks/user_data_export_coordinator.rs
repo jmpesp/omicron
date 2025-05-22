@@ -188,6 +188,9 @@ mod test {
     use nexus_db_lookup::LookupPath;
     use crate::app::authz;
     use nexus_types::identity::Resource;
+    use omicron_uuid_kinds::UserDataExportUuid;
+    use std::net::SocketAddrV6;
+    use std::net::Ipv6Addr;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
@@ -215,7 +218,7 @@ mod test {
     }
 
     #[nexus_test(server = crate::Server)]
-    async fn test_user_data_export_coordinator_task_create(
+    async fn test_user_data_export_coordinator_task_noop(
         cptestctx: &ControlPlaneTestContext,
     ) {
         let nexus = &cptestctx.server.server_context().nexus;
@@ -231,13 +234,29 @@ mod test {
             starter.clone(),
         );
 
-        /*
-        // Noop test
         let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
+
         assert_eq!(result, UserDataExportCoordinatorStatus::default());
         assert_eq!(starter.count_reset(), 0);
-        */
+    }
+
+    #[nexus_test(server = crate::Server)]
+    async fn test_user_data_export_coordinator_task_create(
+        cptestctx: &ControlPlaneTestContext,
+    ) {
+        let nexus = &cptestctx.server.server_context().nexus;
+        let datastore = nexus.datastore();
+        let opctx = OpContext::for_tests(
+            cptestctx.logctx.log.clone(),
+            datastore.clone(),
+        );
+
+        let starter = Arc::new(NoopStartSaga::new());
+        let mut task = UserDataExportCoordinator::new(
+            datastore.clone(),
+            starter.clone(),
+        );
 
         let authz_project = setup_test_project(cptestctx, &opctx).await;
 
@@ -334,6 +353,197 @@ mod test {
 
         assert_eq!(result.errors.len(), 0);
 
+        assert_eq!(starter.count_reset(), 2);
+    }
+
+    #[nexus_test(server = crate::Server)]
+    async fn test_user_data_export_coordinator_task_delete(
+        cptestctx: &ControlPlaneTestContext,
+    ) {
+        let nexus = &cptestctx.server.server_context().nexus;
+        let datastore = nexus.datastore();
+        let opctx = OpContext::for_tests(
+            cptestctx.logctx.log.clone(),
+            datastore.clone(),
+        );
+
+        let starter = Arc::new(NoopStartSaga::new());
+        let mut task = UserDataExportCoordinator::new(
+            datastore.clone(),
+            starter.clone(),
+        );
+
+        let authz_project = setup_test_project(cptestctx, &opctx).await;
+
+        // Add a snapshot and image
+
+        let snapshot = datastore.project_ensure_snapshot(
+            &opctx,
+            &authz_project,
+            Snapshot {
+                identity: SnapshotIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from("snapshot".to_string())
+                        .unwrap()
+                        .into(),
+                    description: "snapshot".into(),
+
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
+
+                project_id: authz_project.id(),
+                disk_id: Uuid::new_v4(),
+                volume_id: VolumeUuid::new_v4().into(),
+                destination_volume_id: VolumeUuid::new_v4().into(),
+
+                gen: Generation::new(),
+                state: SnapshotState::Creating,
+                block_size: BlockSize::AdvancedFormat,
+
+                size: external::ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES)
+                    .unwrap()
+                    .into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let image = datastore.project_image_create(
+            &opctx,
+            &authz_project,
+            ProjectImage {
+                identity: ProjectImageIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from("image".to_string())
+                        .unwrap()
+                        .into(),
+                    description: "description".into(),
+
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
+
+                silo_id: Uuid::new_v4(),
+                project_id: authz_project.id(),
+                volume_id: VolumeUuid::new_v4().into(),
+
+                url: None,
+                os: String::from("debian"),
+                version: String::from("12"),
+                digest: None,
+                block_size: BlockSize::Iso, // lol lmao
+
+                size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
+                    .unwrap()
+                    .into(),
+            }
+        )
+        .await
+        .unwrap();
+
+        // Create user data export rows for the snapshot and image
+
+        let (.., authz_snapshot, db_snapshot) =
+            LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot.id())
+                .fetch_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_snapshot(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_snapshot,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
+            .project_image_id(image.id())
+            .fetch_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+        datastore.user_data_export_create_for_project_image(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_image,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        // Activate the task - it should do nothing, as there are user data
+        // export objects already.
+
+        let result: UserDataExportCoordinatorStatus =
+            serde_json::from_value(task.activate(&opctx).await).unwrap();
+
+        assert_eq!(result, UserDataExportCoordinatorStatus::default());
+        assert_eq!(starter.count_reset(), 0);
+
+        // Delete the snapshot
+
+        datastore.project_delete_snapshot(
+            &opctx,
+            &authz_snapshot,
+            &db_snapshot,
+            vec![SnapshotState::Creating, SnapshotState::Ready],
+        )
+        .await
+        .unwrap();
+
+        // Activate the task - it should only try to delete the user data export
+        // object associated with the snapshot
+
+        let result: UserDataExportCoordinatorStatus =
+            serde_json::from_value(task.activate(&opctx).await).unwrap();
+
+        eprintln!("{result:?}");
+
+        assert!(result.errors.is_empty());
+        assert_eq!(result.create_invoked_ok.len(), 0);
+        assert_eq!(result.delete_invoked_ok.len(), 1);
+
+        let s = format!("resource_id: {}", snapshot.id());
+        assert!(result.delete_invoked_ok.iter().any(|i| i.contains(&s)));
+
+        let s = format!("resource_id: {}", image.id());
+        assert!(result.delete_invoked_ok.iter().all(|i| !i.contains(&s)));
+
+        assert_eq!(result.errors.len(), 0);
+        assert_eq!(starter.count_reset(), 1);
+
+        // Delete the image, now it should try to delete both.
+
+        datastore.project_image_delete(
+            &opctx,
+            &authz_image,
+            db_image,
+        )
+        .await
+        .unwrap();
+
+        let result: UserDataExportCoordinatorStatus =
+            serde_json::from_value(task.activate(&opctx).await).unwrap();
+
+        assert!(result.errors.is_empty());
+        assert_eq!(result.create_invoked_ok.len(), 0);
+        assert_eq!(result.delete_invoked_ok.len(), 2);
+
+        let s = format!("resource_id: {}", snapshot.id());
+        assert!(result.delete_invoked_ok.iter().any(|i| i.contains(&s)));
+
+        let s = format!("resource_id: {}", image.id());
+        assert!(result.delete_invoked_ok.iter().any(|i| i.contains(&s)));
+
+        assert_eq!(result.errors.len(), 0);
         assert_eq!(starter.count_reset(), 2);
     }
 }

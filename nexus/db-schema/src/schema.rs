@@ -2448,6 +2448,7 @@ table! {
         id -> Uuid,
         resource_type -> crate::enums::UserDataExportResourceTypeEnum,
         resource_id -> Uuid,
+        resource_deleted -> Bool,
         pantry_ip -> Inet,
         pantry_port -> Int4,
         volume_id -> Uuid,
