@@ -34,6 +34,7 @@ pub struct UserDataExportRecord {
     id: DbTypedUuid<UserDataExportKind>,
     resource_type: UserDataExportResourceType,
     resource_id: Uuid,
+    resource_deleted: bool,
     pantry_ip: ipv6::Ipv6Addr,
     pantry_port: SqlU16,
     volume_id: DbTypedUuid<VolumeKind>,
@@ -60,6 +61,7 @@ impl UserDataExportRecord {
             id: id.into(),
             resource_type,
             resource_id,
+            resource_deleted: false,
             pantry_ip: ipv6::Ipv6Addr::from(*pantry_address.ip()),
             pantry_port: SqlU16::from(pantry_address.port()),
             volume_id: volume_id.into(),
@@ -79,6 +81,12 @@ impl UserDataExportRecord {
                 UserDataExportResource::Image { id: self.resource_id },
         }
     }
+
+    /*
+    pub fn resource_deleted(&self) -> bool {
+        self.resource_deleted
+    }
+    */
 
     pub fn pantry_address(&self) -> SocketAddrV6 {
         SocketAddrV6::new(self.pantry_ip.into(), *self.pantry_port, 0, 0)

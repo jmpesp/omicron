@@ -5672,17 +5672,24 @@ CREATE TABLE IF NOT EXISTS omicron.public.user_data_export (
     id UUID PRIMARY KEY,
     resource_id UUID NOT NULL,
     resource_type omicron.public.user_data_export_resource_type NOT NULL,
-    pantry_ip INET,
-    pantry_port INT4 CHECK (pantry_port BETWEEN 0 AND 65535),
-    volume_id UUID NOT NULL
+    pantry_ip INET NOT NULL,
+    pantry_port INT4 CHECK (pantry_port BETWEEN 0 AND 65535) NOT NULL,
+    volume_id UUID NOT NULL,
+    resource_deleted BOOL NOT NULL
 );
 
 /*
 CREATE INDEX IF NOT EXISTS lookup_export_by_id
 ON omicron.public.user_data_export (id);
+
+CREATE INDEX IF NOT EXISTS lookup_export_by_resource_id
+ON omicron.public.user_data_export (resource_id);
 */
 
-CREATE UNIQUE INDEX IF NOT EXISTS one_record_per_export
+CREATE INDEX IF NOT EXISTS lookup_export_by_resource_type
+ON omicron.public.user_data_export (resource_type);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_export_record_per_resource
 ON omicron.public.user_data_export (resource_id);
 
 /*
