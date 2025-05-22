@@ -5,6 +5,9 @@
 //! [`DataStore`] methods on [`UserDataExportRecord`]s.
 
 use super::DataStore;
+use crate::db::pagination::Paginator;
+use crate::db::datastore::SQL_BATCH_SIZE;
+use crate::db::pagination::paginated;
 use crate::authz;
 use crate::context::OpContext;
 use crate::db;
@@ -32,10 +35,11 @@ use omicron_uuid_kinds::UserDataExportUuid;
 use uuid::Uuid;
 use std::net::SocketAddrV6;
 use nexus_auth::authz::ApiResource;
-#[derive(Default)]
+
+#[derive(Debug, Default, Clone)]
 pub struct UserDataExportChangeset {
-    create_required: Vec<UserDataExportResource>,
-    delete_required: Vec<UserDataExportUuid>,
+    pub create_required: Vec<UserDataExportResource>,
+    pub delete_required: Vec<UserDataExportRecord>,
 }
 
 impl DataStore {
@@ -272,6 +276,8 @@ impl DataStore {
         &self,
         opctx: &OpContext,
     ) -> LookupResult<UserDataExportChangeset> {
+        opctx.check_complex_operations_allowed()?;
+
         let conn = self.pool_connection_authorized(opctx).await?;
 
         use nexus_db_schema::schema::user_data_export::dsl;
@@ -288,19 +294,13 @@ impl DataStore {
                 dsl::user_data_export
                     .on(dsl::resource_id.eq(snapshot_dsl::id))
             )
-            .filter(dsl::resource_type.eq(UserDataExportResourceType::Snapshot))
             .filter(snapshot_dsl::time_deleted.is_null())
-            .select((
-                Snapshot::as_select(),
-                Option::<UserDataExportRecord>::as_select(),
-            ))
-            .load_async::<(Snapshot, Option<UserDataExportRecord>)>(&*conn)
+            // `is_null` will match on cases where there isn't an export row
+            .filter(dsl::id.is_null())
+            .select(Snapshot::as_select())
+            .load_async(&*conn)
             .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
-            .into_iter()
-            .filter(|(_, maybe_record)| maybe_record.is_none())
-            .map(|(s, _)| s)
-            .collect();
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
         for snapshot in snapshots {
             changeset.create_required.push(UserDataExportResource::Snapshot {
@@ -308,26 +308,41 @@ impl DataStore {
             });
         }
 
-        let images: Vec<Image> = image_dsl::image
+        let project_images: Vec<Image> = image_dsl::image
             .left_join(
                 dsl::user_data_export
                     .on(dsl::resource_id.eq(image_dsl::id))
             )
-            .filter(dsl::resource_type.eq(UserDataExportResourceType::Image))
             .filter(image_dsl::time_deleted.is_null())
-            .select((
-                Image::as_select(),
-                Option::<UserDataExportRecord>::as_select(),
-            ))
-            .load_async::<(Image, Option<UserDataExportRecord>)>(&*conn)
+            .filter(image_dsl::project_id.is_not_null())
+            // `is_null` will match on cases where there isn't an export row
+            .filter(dsl::id.is_null())
+            .select(Image::as_select())
+            .load_async(&*conn)
             .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
-            .into_iter()
-            .filter(|(_, maybe_record)| maybe_record.is_none())
-            .map(|(i, _)| i)
-            .collect();
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
-        for image in images {
+        for image in project_images {
+            changeset.create_required.push(UserDataExportResource::Image {
+                id: image.id()
+            });
+        }
+
+        let silo_images: Vec<Image> = image_dsl::image
+            .left_join(
+                dsl::user_data_export
+                    .on(dsl::resource_id.eq(image_dsl::id))
+            )
+            .filter(image_dsl::time_deleted.is_null())
+            .filter(image_dsl::project_id.is_null())
+            // `is_null` will match on cases where there isn't an export row
+            .filter(dsl::id.is_null())
+            .select(Image::as_select())
+            .load_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        for image in silo_images {
             changeset.create_required.push(UserDataExportResource::Image {
                 id: image.id()
             });
@@ -349,9 +364,48 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
         for record in records {
-            changeset.delete_required.push(record.id());
+            changeset.delete_required.push(record);
         }
 
+        // We need to use the Paginator here because there is no index for when
+        // time_deleted is not null. (this is wrong, still doesn't work)
+
+        /*
+        let deleted_snapshots: Vec<Uuid> = {
+            let mut records = Vec::new();
+
+            let mut paginator = Paginator::new(SQL_BATCH_SIZE);
+            while let Some(p) = paginator.next() {
+                let batch = paginated(snapshot_dsl::snapshot, snapshot_dsl::id, &p.current_pagparams())
+                    .filter(snapshot_dsl::time_deleted.is_not_null())
+                    .select(snapshot_dsl::id)
+                    .load_async::<Uuid>(&*conn)
+                    .await
+                    .map_err(|e| {
+                        public_error_from_diesel(e, ErrorHandler::Server)
+                    })?;
+
+                paginator = p.found_batch(&batch, &|r| *r);
+                records.extend(batch);
+            }
+
+            records
+        };
+
+        let records: Vec<UserDataExportRecord> =
+            dsl::user_data_export
+                .filter(dsl::resource_id.eq_any(deleted_snapshots))
+                .select(UserDataExportRecord::as_select())
+                .load_async::<UserDataExportRecord>(&*conn)
+                .await
+                .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        for record in records {
+            changeset.delete_required.push(record);
+        }
+        */
+
+        /*
         let records: Vec<UserDataExportRecord> = image_dsl::image
             .inner_join(
                 dsl::user_data_export
@@ -365,8 +419,9 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
         for record in records {
-            changeset.delete_required.push(record.id());
+            changeset.delete_required.push(record);
         }
+        */
 
         Ok(changeset)
     }

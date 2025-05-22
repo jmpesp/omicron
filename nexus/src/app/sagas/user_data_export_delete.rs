@@ -28,8 +28,6 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Params {
     pub serialized_authn: authn::saga::Serialized,
-    pub snapshot_id: Uuid,
-    //pub image_id: Uuid,
     pub user_data_export_id: UserDataExportUuid,
     pub volume_id: VolumeUuid,
 }

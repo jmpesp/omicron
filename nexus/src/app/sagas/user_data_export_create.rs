@@ -17,6 +17,7 @@ use crate::app::{authn, authz, db};
 use crate::external_api::params;
 use anyhow::anyhow;
 use nexus_db_model::Generation;
+use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::db::identity::{Asset, Resource};
 use nexus_db_lookup::LookupPath;
 use omicron_common::api::external::Error;
@@ -47,8 +48,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Params {
     pub serialized_authn: authn::saga::Serialized,
-    pub snapshot_id: Uuid,
-    // pub image_id: Uuid,
+    pub resource: UserDataExportResource,
 }
 
 // snapshot export create saga: actions
@@ -122,28 +122,38 @@ async fn ssec_create_export_volume(
         &params.serialized_authn,
     );
 
-    debug!(log, "grabbing snapshot {}", params.snapshot_id);
-
-    let (.., db_snapshot) =
-        LookupPath::new(&opctx, osagactx.datastore())
-            .snapshot_id(params.snapshot_id)
-            .fetch()
-            .await
-            .map_err(ActionError::action_failed)?;
-
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
 
-    debug!(
-        log,
-        "copying snapshot {} volume {} to {volume_id}",
-        db_snapshot.id(),
-        db_snapshot.volume_id(),
-    );
+    let source_volume_id = match params.resource {
+        UserDataExportResource::Snapshot { id } => {
+            debug!(log, "grabbing snapshot {id}");
+
+            let (.., db_snapshot) =
+                LookupPath::new(&opctx, osagactx.datastore())
+                    .snapshot_id(id)
+                    .fetch()
+                    .await
+                    .map_err(ActionError::action_failed)?;
+
+            debug!(
+                log,
+                "copying snapshot {} volume {} to {volume_id}",
+                db_snapshot.id(),
+                db_snapshot.volume_id(),
+            );
+
+            db_snapshot.volume_id()
+        }
+
+        UserDataExportResource::Image { id } => {
+            todo!();
+        }
+    };
 
     osagactx
         .datastore()
         .volume_checkout_randomize_ids(
-            db::datastore::SourceVolume(db_snapshot.volume_id()),
+            db::datastore::SourceVolume(source_volume_id),
             db::datastore::DestVolume(volume_id),
             db::datastore::VolumeCheckoutReason::ReadOnlyCopy,
         )
@@ -283,26 +293,34 @@ async fn ssec_create_export_record(
         &params.serialized_authn,
     );
 
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, osagactx.datastore())
-            .snapshot_id(params.snapshot_id)
-            .lookup_for(authz::Action::Read)
-            .await
-            .expect("Failed to look up snapshot");
+    let user_data_export = match params.resource {
+        UserDataExportResource::Snapshot { id } => {
+            let (.., authz_snapshot) =
+                LookupPath::new(&opctx, osagactx.datastore())
+                    .snapshot_id(id)
+                    .lookup_for(authz::Action::Read)
+                    .await
+                    .map_err(ActionError::action_failed)?;
 
-    let user_data_export = osagactx
-        .datastore()
-        .user_data_export_create_for_snapshot(
-            &opctx,
-            user_data_export_id,
-            &authz_snapshot,
-            pantry_address,
-            volume_id,
-        )
-        .await
-        .map_err(ActionError::action_failed)?;
+            osagactx
+                .datastore()
+                .user_data_export_create_for_snapshot(
+                    &opctx,
+                    user_data_export_id,
+                    &authz_snapshot,
+                    pantry_address,
+                    volume_id,
+                )
+                .await
+                .map_err(ActionError::action_failed)?
+        }
 
-    info!(log, "snapshot export {} created ok", user_data_export.id());
+        UserDataExportResource::Image { id } => {
+            todo!();
+        }
+    };
+
+    info!(log, "export {} created ok", user_data_export.id());
 
     Ok(())
 }

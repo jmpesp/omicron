@@ -13,10 +13,10 @@ use crate::app::sagas::user_data_export_create::*;
 use crate::app::sagas::user_data_export_delete::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use nexus_db_model::RegionSnapshotReplacementStep;
+use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
-use nexus_db_queries::db::datastore::region_snapshot_replacement::*;
+use nexus_db_queries::db::datastore::UserDataExportChangeset;
 use nexus_types::identity::Asset;
 use nexus_types::internal_api::background::UserDataExportCoordinatorStatus;
 use omicron_common::api::external::Error;
@@ -33,584 +33,99 @@ impl UserDataExportCoordinator {
         UserDataExportCoordinator { datastore, sagas }
     }
 
-    /*
-    async fn send_start_request(
+    async fn process_user_data_export_changeset(
         &self,
         opctx: &OpContext,
-        request: RegionSnapshotReplacementStep,
-    ) -> Result<(), Error> {
-        let params = sagas::region_snapshot_replacement_step::Params {
-            serialized_authn: authn::saga::Serialized::for_opctx(opctx),
-            request,
-        };
+        changeset: &UserDataExportChangeset,
+        status: &mut UserDataExportCoordinatorStatus,
+    ) {
+        let log = &opctx.log;
 
-        let saga_dag = SagaRegionSnapshotReplacementStep::prepare(&params)?;
-        // We only care that the saga was started, and don't wish to wait for it
-        // to complete, so use `StartSaga::saga_start`, rather than `saga_run`.
-        self.sagas.saga_start(saga_dag).await?;
-        Ok(())
-    }
-    */
+        // XXX
 
-    /*
-    async fn send_garbage_collect_request(
-        &self,
-        opctx: &OpContext,
-        request: RegionSnapshotReplacementStep,
-    ) -> Result<(), Error> {
-        let Some(old_snapshot_volume_id) = request.old_snapshot_volume_id()
-        else {
-            // This state is illegal!
-            let s = format!(
-                "request {} old snapshot volume id is None!",
-                request.id,
-            );
-
-            return Err(Error::internal_error(&s));
-        };
-
-        let params =
-            sagas::region_snapshot_replacement_step_garbage_collect::Params {
+        for item in &changeset.create_required {
+            let params = sagas::user_data_export_create::Params {
                 serialized_authn: authn::saga::Serialized::for_opctx(opctx),
-                old_snapshot_volume_id,
-                request,
+                resource: item.clone(),
             };
 
-        let saga_dag =
-            SagaRegionSnapshotReplacementStepGarbageCollect::prepare(&params)?;
-
-        // We only care that the saga was started, and don't wish to wait for it
-        // to complete, so throwing out the future returned by `saga_start` is
-        // fine. Dropping it will *not* cancel the saga itself.
-        self.sagas.saga_start(saga_dag).await?;
-        Ok(())
-    }
-
-    async fn clean_up_region_snapshot_replacement_step_volumes(
-        &self,
-        opctx: &OpContext,
-        status: &mut RegionSnapshotReplacementStepStatus,
-    ) {
-        let log = &opctx.log;
-
-        let requests = match self
-            .datastore
-            .region_snapshot_replacement_steps_requiring_garbage_collection(
-                opctx,
-            )
-            .await
-        {
-            Ok(requests) => requests,
-
-            Err(e) => {
-                let s = format!("querying for steps to collect failed! {e}");
-                error!(&log, "{s}");
-                status.errors.push(s);
-                return;
-            }
-        };
-
-        for request in requests {
-            let request_id = request.id;
-
-            let result =
-                self.send_garbage_collect_request(opctx, request.clone()).await;
-
-            match result {
-                Ok(()) => {
-                    let s = format!(
-                        "region snapshot replacement step garbage collect \
-                        request ok for {request_id}"
-                    );
-
-                    info!(
-                        &log,
-                        "{s}";
-                        "volume_id" => %request.volume_id(),
-                        "old_snapshot_volume_id" => ?request.old_snapshot_volume_id(),
-                    );
-                    status.step_garbage_collect_invoked_ok.push(s);
-                }
+            let saga_dag = match SagaUserDataExportCreate::prepare(&params) {
+                Ok(dag) => dag,
 
                 Err(e) => {
                     let s = format!(
-                        "sending region snapshot replacement step garbage \
-                        collect request failed: {e}",
-                    );
-                    error!(
-                        &log,
-                        "{s}";
-                        "volume_id" => %request.volume_id(),
-                        "old_snapshot_volume_id" => ?request.old_snapshot_volume_id(),
-                    );
-                    status.errors.push(s);
-                }
-            }
-        }
-    }
-
-    // Any request in state Running means that the target replacement has
-    // occurred already, meaning the region snapshot being replaced is not
-    // present as a target in the snapshot's volume construction request
-    // anymore. Any future usage of that snapshot (as a source for a disk or
-    // otherwise) will get a volume construction request that references the
-    // replacement read-only region.
-    //
-    // "step" records are created here for each volume found that still
-    // references the replaced region snapshot, most likely having been created
-    // by copying the snapshot's volume construction request before the target
-    // replacement occurred. These volumes also need to have target replacement
-    // performed, and this is captured in this "step" record.
-    async fn create_step_records_for_affected_volumes(
-        &self,
-        opctx: &OpContext,
-        status: &mut RegionSnapshotReplacementStepStatus,
-    ) {
-        let log = &opctx.log;
-
-        // Find all region snapshot replacement requests in state "Running"
-        let requests = match self
-            .datastore
-            .get_running_region_snapshot_replacements(opctx)
-            .await
-        {
-            Ok(requests) => requests,
-
-            Err(e) => {
-                let s = format!(
-                    "get_running_region_snapshot_replacements failed: {e}",
-                );
-
-                error!(&log, "{s}");
-                status.errors.push(s);
-                return;
-            }
-        };
-
-        for request in requests {
-            let replacement = request.replacement_type();
-
-            // Find all volumes that reference the replaced read-only target
-            let target_addr =
-                match self.datastore.read_only_target_addr(&request).await {
-                    Ok(Some(address)) => address,
-
-                    Ok(None) => {
-                        // If the associated region snapshot or read-only region was
-                        // deleted, then there are no more volumes that reference
-                        // it. This is not an error! Continue processing the other
-                        // requests.
-                        let s = format!(
-                            "read-only target for {} not found",
-                            request.id,
-                        );
-                        info!(&log, "{s}"; replacement);
-
-                        continue;
-                    }
-
-                    Err(e) => {
-                        let s = format!(
-                            "error querying for read-only target address: {e}",
-                        );
-                        error!(
-                            &log,
-                            "{s}";
-                            "request_id" => %request.id,
-                            replacement,
-                        );
-                        status.errors.push(s);
-                        continue;
-                    }
-                };
-
-            let volumes = match self
-                .datastore
-                .find_volumes_referencing_socket_addr(
-                    &opctx,
-                    target_addr.into(),
-                )
-                .await
-            {
-                Ok(volumes) => volumes,
-
-                Err(e) => {
-                    let s = format!("error finding referenced volumes: {e}");
-                    error!(
-                        log,
-                        "{s}";
-                        "request id" => ?request.id,
-                        replacement
-                    );
-                    status.errors.push(s);
-
-                    continue;
-                }
-            };
-
-            for volume in volumes {
-                // Any volume referencing the old socket addr needs to be
-                // replaced. Create a "step" record for this.
-                //
-                // Note: this function returns a conflict error if there already
-                // exists a step record referencing this volume ID because a
-                // volume repair record is also created using that volume ID,
-                // and only one of those can exist for a given volume at a time.
-                //
-                // Also note: this function returns a conflict error if another
-                // step record references this volume id in the "old snapshot
-                // volume id" column - this is ok! Region snapshot replacement
-                // step records are created for some volume id, and a null old
-                // snapshot volume id:
-                //
-                //   volume_id: references target_addr
-                //   old_snapshot_volume_id: null
-                //
-                // The region snapshot replacement step saga will create a
-                // volume to stash the reference to target_addr, and then call
-                // `volume_replace_snapshot`. This will swap target_addr
-                // reference into the old snapshot volume for later deletion:
-                //
-                //   volume_id: does _not_ reference target_addr anymore
-                //   old_snapshot_volume_id: now references target_addr
-                //
-                // If `find_volumes_referencing_socket_addr` is executed before
-                // that volume is deleted, it will return the old snapshot
-                // volume id above, and then this for loop tries to make a
-                // region snapshot replacement step record for it!
-                //
-                // Allowing a region snapshot replacement step record to be
-                // created in this case would mean that (depending on when the
-                // functions execute), an indefinite amount of work would be
-                // created, continually "moving" the target_addr from temporary
-                // volume to temporary volume.
-                //
-                // If the volume was soft deleted, then skip making a step for
-                // it.
-
-                if volume.time_deleted.is_some() {
-                    info!(
-                        log,
-                        "volume was soft-deleted, skipping creating a step for \
-                        it";
-                        "request id" => ?request.id,
-                        "volume id" => ?volume.id(),
-                        &replacement,
-                    );
-
-                    continue;
-                }
-
-                match self
-                    .datastore
-                    .create_region_snapshot_replacement_step(
-                        opctx,
-                        request.id,
-                        volume.id(),
-                    )
-                    .await
-                {
-                    Ok(insertion_result) => match insertion_result {
-                        InsertStepResult::Inserted { step_id } => {
-                            let s = format!("created {step_id}");
-                            info!(
-                                log,
-                                "{s}";
-                                "request id" => ?request.id,
-                                "volume id" => ?volume.id(),
-                                &replacement
-                            );
-                            status.step_records_created_ok.push(s);
-                        }
-
-                        InsertStepResult::AlreadyHandled { .. } => {
-                            info!(
-                                log,
-                                "step already exists for volume id";
-                                "request id" => ?request.id,
-                                "volume id" => ?volume.id(),
-                                &replacement
-                            );
-                        }
-                    },
-
-                    Err(e) => {
-                        match e {
-                            Error::Conflict { message }
-                                if message.external_message()
-                                    == "volume repair lock" =>
-                            {
-                                // This is not a fatal error! If there are
-                                // competing region replacement and region
-                                // snapshot replacements, then they are both
-                                // attempting to lock volumes.
-                            }
-
-                            _ => {
-                                let s =
-                                    format!("error creating step request: {e}");
-
-                                error!(
-                                    log,
-                                    "{s}";
-                                    "request id" => ?request.id,
-                                    "volume id" => ?volume.id(),
-                                    &replacement
-                                );
-
-                                status.errors.push(s);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    async fn invoke_step_saga_for_affected_volumes(
-        &self,
-        opctx: &OpContext,
-        status: &mut RegionSnapshotReplacementStepStatus,
-    ) {
-        let log = &opctx.log;
-
-        // Once all region snapshot replacement step records have been created,
-        // trigger sagas as appropriate.
-
-        let step_requests = match self
-            .datastore
-            .get_requested_region_snapshot_replacement_steps(opctx)
-            .await
-        {
-            Ok(step_requests) => step_requests,
-
-            Err(e) => {
-                let s = format!(
-                    "query for requested region snapshot replacement step \
-                    requests failed: {e}"
-                );
-                error!(&log, "{s}");
-                status.errors.push(s);
-
-                return;
-            }
-        };
-
-        for request in step_requests {
-            let request_step_id = request.id;
-
-            // Check if the volume was deleted _after_ the replacement step was
-            // created. Avoid launching the region snapshot replacement step
-            // saga if it was deleted: the saga will do the right thing if it is
-            // deleted, but this avoids the overhead of starting it.
-
-            let volume_deleted = match self
-                .datastore
-                .volume_deleted(request.volume_id())
-                .await
-            {
-                Ok(volume_deleted) => volume_deleted,
-
-                Err(e) => {
-                    let s = format!(
-                        "error checking if volume id {} was \
-                        deleted: {e}",
-                        request.volume_id,
+                        "error preparing user data export create dag for \
+                        {item:?}: {e}"
                     );
                     error!(&log, "{s}");
-
                     status.errors.push(s);
+
                     continue;
                 }
             };
 
-            // Also check if the read-only target is still present in the
-            // volume: if the read-only parent was removed (eg. after a
-            // completed scrub), then this step request could now be invalid.
-            //
-            // Also note: if that read-only parent removal removed the last
-            // reference to the read-only target, then it will be deleted.
-
-            let associated_replacement_request = match self
-                .datastore
-                .get_region_snapshot_replacement_request_by_id(
-                    opctx,
-                    request.request_id,
-                )
-                .await
-            {
-                Ok(request) => request,
-
-                Err(e) => {
-                    // Nexus deleted the request before all the steps were
-                    // done?!
+            match self.sagas.saga_start(saga_dag).await {
+                Ok(id) => {
                     let s = format!(
-                        "error looking up region snapshot replacement {}: \
-                            {e}",
-                        request.request_id,
+                        "requested user data export create saga for {item:?}"
                     );
-                    error!(log, "{s}");
-                    status.errors.push(s);
-
-                    // Continue on to other steps
-                    continue;
+                    info!(&log, "{s}"; "saga_id" => %id);
+                    status.create_invoked_ok.push(s);
                 }
-            };
-
-            let maybe_target_address = match self
-                .datastore
-                .read_only_target_addr(&associated_replacement_request)
-                .await
-            {
-                Ok(maybe_target_address) => maybe_target_address,
 
                 Err(e) => {
                     let s = format!(
-                        "error looking up read-only target address: {e}"
+                        "error requesting user data export create for \
+                        {item:?}: {e}"
                     );
-                    error!(log, "{s}"; "request_id" => %request.request_id);
+                    error!(&log, "{s}");
                     status.errors.push(s);
-
-                    continue;
                 }
-            };
-
-            let target_still_referenced =
-                if let Some(target_address) = &maybe_target_address {
-                    match self
-                        .datastore
-                        .volume_references_read_only_target(
-                            request.volume_id(),
-                            *target_address,
-                        )
-                        .await
-                    {
-                        Ok(maybe_referenced) => maybe_referenced.unwrap_or({
-                            // This means that the volume was deleted!
-                            false
-                        }),
-
-                        Err(e) => {
-                            let s = format!(
-                                "error determining if volume reference exists:\
-                                {e}"
-                            );
-                            error!(
-                                log,
-                                "{s}";
-                                "request_id" => %request.request_id,
-                            );
-                            status.errors.push(s);
-
-                            continue;
-                        }
-                    }
-                } else {
-                    // Note: if in this branch, then the below
-                    // `step_invalidated` check will already trip for
-                    // maybe_target_address.is_none().
-
-                    false
-                };
-
-            let step_invalidated = volume_deleted
-                || maybe_target_address.is_none()
-                || !target_still_referenced;
-
-            if step_invalidated {
-                // The replacement step was somehow invalidated, so proceed with
-                // clean up, which if this is in state Requested there won't be
-                // any additional associated state, so transition the record to
-                // Completed.
-
-                info!(
-                    &log,
-                    "request {} step {} {}",
-                    request.request_id,
-                    request_step_id,
-                    if volume_deleted {
-                        format!(
-                            "volume {} was soft or hard deleted!",
-                            request.volume_id,
-                        )
-                    } else if maybe_target_address.is_none() {
-                        String::from("associated read-only target was deleted")
-                    } else if !target_still_referenced {
-                        format!(
-                            "volume {} no longer references target",
-                            request.volume_id,
-                        )
-                    } else {
-                        String::from("UNKNOWN")
-                    }
-                );
-
-                let result = self
-                    .datastore
-                    .set_region_snapshot_replacement_step_volume_deleted_from_requested(
-                        opctx, request,
-                    )
-                    .await;
-
-                match result {
-                    Ok(()) => {
-                        let s = format!(
-                            "request step {request_step_id} transitioned from \
-                            requested to volume_deleted"
-                        );
-
-                        info!(&log, "{s}");
-                        status.step_set_volume_deleted_ok.push(s);
-                    }
-
-                    Err(e) => {
-                        let s = format!(
-                            "error transitioning {request_step_id} from \
-                            requested to complete: {e}"
-                        );
-
-                        error!(&log, "{s}");
-                        status.errors.push(s);
-                    }
-                }
-
-                continue;
             }
+        }
 
-            match self.send_start_request(opctx, request.clone()).await {
-                Ok(()) => {
+        for item in &changeset.delete_required {
+            let params = sagas::user_data_export_delete::Params {
+                serialized_authn: authn::saga::Serialized::for_opctx(opctx),
+                user_data_export_id: item.id(),
+                volume_id: item.volume_id(),
+            };
+
+            let saga_dag = match SagaUserDataExportDelete::prepare(&params) {
+                Ok(dag) => dag,
+
+                Err(e) => {
                     let s = format!(
-                        "region snapshot replacement step saga invoked ok for \
-                        {request_step_id}"
+                        "error preparing user data export delete dag for \
+                        {item:?}: {e}"
                     );
+                    error!(&log, "{s}");
+                    status.errors.push(s);
 
-                    info!(
-                        &log,
-                        "{s}";
-                        "request.request_id" => %request.request_id,
-                        "request.volume_id" => %request.volume_id(),
+                    continue;
+                }
+            };
+
+            match self.sagas.saga_start(saga_dag).await {
+                Ok(id) => {
+                    let s = format!(
+                        "requested user data export delete saga for {item:?}"
                     );
-                    status.step_invoked_ok.push(s);
+                    info!(&log, "{s}"; "saga_id" => %id);
+                    status.delete_invoked_ok.push(s);
                 }
 
                 Err(e) => {
                     let s = format!(
-                        "invoking region snapshot replacement step saga for \
-                        {request_step_id} failed: {e}"
+                        "error requesting user data export delete for \
+                        {item:?}: {e}"
                     );
-
-                    error!(
-                        &log,
-                        "{s}";
-                        "request.request_id" => %request.request_id,
-                        "request.volume_id" => %request.volume_id(),
-                    );
+                    error!(&log, "{s}");
                     status.errors.push(s);
                 }
-            };
+            }
         }
     }
-    */
 }
 
 impl BackgroundTask for UserDataExportCoordinator {
@@ -619,24 +134,28 @@ impl BackgroundTask for UserDataExportCoordinator {
         opctx: &'a OpContext,
     ) -> BoxFuture<'a, serde_json::Value> {
         async move {
+            let log = &opctx.log;
             let mut status = UserDataExportCoordinatorStatus::default();
 
-            /*
-            // Importantly, clean old steps up before finding affected volumes!
-            // Otherwise, will continue to find the snapshot in volumes to
-            // delete, and will continue to see conflicts in next function.
-            self.clean_up_region_snapshot_replacement_step_volumes(
-                opctx,
-                &mut status,
-            )
-            .await;
+            let changeset = match self.datastore.user_data_export_changeset(&opctx).await {
+                Ok(changeset) => changeset,
 
-            self.create_step_records_for_affected_volumes(opctx, &mut status)
-                .await;
+                Err(e) => {
+                    let s = format!(
+                        "error getting user data export changeset: {e}"
+                    );
+                    error!(&log, "{s}");
+                    status.errors.push(s);
 
-            self.invoke_step_saga_for_affected_volumes(opctx, &mut status)
-                .await;
-            */
+                    return json!(status);
+                }
+            };
+
+            error!(&log, "changeset is {changeset:?}");
+
+            self.process_user_data_export_changeset(
+                &opctx, &changeset, &mut status,
+            ).await;
 
             json!(status)
         }
@@ -644,83 +163,59 @@ impl BackgroundTask for UserDataExportCoordinator {
     }
 }
 
-/*
-// XXX
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::app::background::init::test::NoopStartSaga;
-    use nexus_db_model::RegionSnapshot;
-    use nexus_db_model::RegionSnapshotReplacement;
-    use nexus_db_model::RegionSnapshotReplacementStep;
-    use nexus_db_model::RegionSnapshotReplacementStepState;
+    use nexus_db_model::Snapshot;
+    use nexus_db_model::SnapshotState;
+    use nexus_db_model::SnapshotIdentity;
+    use nexus_db_model::Generation;
+    use nexus_db_model::BlockSize;
+    use nexus_db_model::ProjectImage;
+    use nexus_db_model::ProjectImageIdentity;
     use nexus_test_utils_macros::nexus_test;
     use omicron_uuid_kinds::DatasetUuid;
     use omicron_uuid_kinds::GenericUuid;
     use omicron_uuid_kinds::VolumeUuid;
-    use sled_agent_client::CrucibleOpts;
-    use sled_agent_client::VolumeConstructionRequest;
-    use std::net::SocketAddrV6;
     use uuid::Uuid;
+    use nexus_test_utils::resource_helpers::create_default_ip_pool;
+    use nexus_test_utils::resource_helpers::create_project;
+    use nexus_test_utils::resource_helpers::object_create;
+    use omicron_common::api::external;
+    use crate::app::MIN_DISK_SIZE_BYTES;
+    use chrono::Utc;
+    use nexus_db_lookup::LookupPath;
+    use crate::app::authz;
+    use nexus_types::identity::Resource;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
 
-    async fn add_fake_volume_for_snapshot_addr(
-        datastore: &DataStore,
-        snapshot_addr: SocketAddrV6,
-    ) -> VolumeUuid {
-        let new_volume_id = VolumeUuid::new_v4();
+    const PROJECT_NAME: &str = "bobs-barrel-of-bits";
 
-        // need to add region snapshot objects to satisfy volume create
-        // transaction's search for resources
+    async fn setup_test_project(
+        cptestctx: &ControlPlaneTestContext,
+        opctx: &OpContext,
+    ) -> authz::Project {
+        create_default_ip_pool(&cptestctx.external_client).await;
 
-        datastore
-            .region_snapshot_create(RegionSnapshot::new(
-                DatasetUuid::new_v4(),
-                Uuid::new_v4(),
-                Uuid::new_v4(),
-                snapshot_addr.to_string(),
-            ))
+        let project =
+            create_project(&cptestctx.external_client, PROJECT_NAME).await;
+
+        let datastore = cptestctx.server.server_context().nexus.datastore();
+
+        let (_, authz_project) = LookupPath::new(opctx, datastore)
+            .project_id(project.identity.id)
+            .lookup_for(authz::Action::CreateChild)
             .await
-            .unwrap();
+            .expect("project must exist");
 
-        let volume_construction_request = VolumeConstructionRequest::Volume {
-            id: *new_volume_id.as_untyped_uuid(),
-            block_size: 0,
-            sub_volumes: vec![],
-            read_only_parent: Some(Box::new(
-                VolumeConstructionRequest::Region {
-                    block_size: 0,
-                    blocks_per_extent: 0,
-                    extent_count: 0,
-                    gen: 0,
-                    opts: CrucibleOpts {
-                        id: Uuid::new_v4(),
-                        target: vec![snapshot_addr.into()],
-                        lossy: false,
-                        flush_timeout: None,
-                        key: None,
-                        cert_pem: None,
-                        key_pem: None,
-                        root_cert_pem: None,
-                        control: None,
-                        read_only: true,
-                    },
-                },
-            )),
-        };
-
-        datastore
-            .volume_create(new_volume_id, volume_construction_request)
-            .await
-            .unwrap();
-
-        new_volume_id
+        authz_project
     }
 
     #[nexus_test(server = crate::Server)]
-    async fn test_region_snapshot_replacement_step_task(
+    async fn test_user_data_export_coordinator_task_create(
         cptestctx: &ControlPlaneTestContext,
     ) {
         let nexus = &cptestctx.server.server_context().nexus;
@@ -731,295 +226,114 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task = RegionSnapshotReplacementFindAffected::new(
+        let mut task = UserDataExportCoordinator::new(
             datastore.clone(),
             starter.clone(),
         );
 
+        /*
         // Noop test
-        let result: RegionSnapshotReplacementStepStatus =
+        let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
-        assert_eq!(result, RegionSnapshotReplacementStepStatus::default());
+        assert_eq!(result, UserDataExportCoordinatorStatus::default());
         assert_eq!(starter.count_reset(), 0);
+        */
 
-        // Add a region snapshot replacement request for a fake region snapshot.
+        let authz_project = setup_test_project(cptestctx, &opctx).await;
 
-        let dataset_id = DatasetUuid::new_v4();
-        let region_id = Uuid::new_v4();
-        let snapshot_id = Uuid::new_v4();
-        let snapshot_addr: SocketAddrV6 =
-            "[fd00:1122:3344::101]:9876".parse().unwrap();
+        // Add a snapshot and image
 
-        let fake_region_snapshot = RegionSnapshot::new(
-            dataset_id,
-            region_id,
-            snapshot_id,
-            snapshot_addr.to_string(),
-        );
+        let snapshot = datastore.project_ensure_snapshot(
+            &opctx,
+            &authz_project,
+            Snapshot {
+                identity: SnapshotIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from("snapshot".to_string())
+                        .unwrap()
+                        .into(),
+                    description: "snapshot".into(),
 
-        datastore.region_snapshot_create(fake_region_snapshot).await.unwrap();
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
 
-        let request = RegionSnapshotReplacement::new_from_region_snapshot(
-            dataset_id,
-            region_id,
-            snapshot_id,
-        );
+                project_id: authz_project.id(),
+                disk_id: Uuid::new_v4(),
+                volume_id: VolumeUuid::new_v4().into(),
+                destination_volume_id: VolumeUuid::new_v4().into(),
 
-        let request_id = request.id;
+                gen: Generation::new(),
+                state: SnapshotState::Creating,
+                block_size: BlockSize::AdvancedFormat,
 
-        let volume_id = VolumeUuid::new_v4();
-
-        datastore
-            .insert_region_snapshot_replacement_request_with_volume_id(
-                &opctx, request, volume_id,
-            )
-            .await
-            .unwrap();
-
-        // Transition that to Allocating -> ReplacementDone -> DeletingOldVolume
-        // -> Running
-
-        let operating_saga_id = Uuid::new_v4();
-
-        datastore
-            .set_region_snapshot_replacement_allocating(
-                &opctx,
-                request_id,
-                operating_saga_id,
-            )
-            .await
-            .unwrap();
-
-        let new_region_id = Uuid::new_v4();
-        let new_region_volume_id = VolumeUuid::new_v4();
-        let old_snapshot_volume_id = VolumeUuid::new_v4();
-
-        datastore
-            .set_region_snapshot_replacement_replacement_done(
-                &opctx,
-                request_id,
-                operating_saga_id,
-                new_region_id,
-                NewRegionVolumeId(new_region_volume_id),
-                OldSnapshotVolumeId(old_snapshot_volume_id),
-            )
-            .await
-            .unwrap();
-
-        datastore
-            .set_region_snapshot_replacement_deleting_old_volume(
-                &opctx,
-                request_id,
-                operating_saga_id,
-            )
-            .await
-            .unwrap();
-
-        datastore
-            .set_region_snapshot_replacement_running(
-                &opctx,
-                request_id,
-                operating_saga_id,
-            )
-            .await
-            .unwrap();
-
-        // Add some fake volumes that reference the region snapshot being
-        // replaced
-
-        let new_volume_1_id =
-            add_fake_volume_for_snapshot_addr(&datastore, snapshot_addr).await;
-        let new_volume_2_id =
-            add_fake_volume_for_snapshot_addr(&datastore, snapshot_addr).await;
-
-        // Add some fake volumes that do not
-
-        let other_volume_1_id = add_fake_volume_for_snapshot_addr(
-            &datastore,
-            "[fd00:1122:3344::101]:1000".parse().unwrap(),
+                size: external::ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES)
+                    .unwrap()
+                    .into(),
+            },
         )
-        .await;
+        .await
+        .unwrap();
 
-        let other_volume_2_id = add_fake_volume_for_snapshot_addr(
-            &datastore,
-            "[fd12:5544:3344::912]:3901".parse().unwrap(),
-        )
-        .await;
+        let image = datastore.project_image_create(
+            &opctx,
+            &authz_project,
+            ProjectImage {
+                identity: ProjectImageIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from("image".to_string())
+                        .unwrap()
+                        .into(),
+                    description: "description".into(),
 
-        // Activate the task - it should pick the running request up and try to
-        // run the region snapshot replacement step saga for the volumes
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
 
-        let result: RegionSnapshotReplacementStepStatus =
-            serde_json::from_value(task.activate(&opctx).await).unwrap();
+                silo_id: Uuid::new_v4(),
+                project_id: authz_project.id(),
+                volume_id: VolumeUuid::new_v4().into(),
 
-        let requested_region_snapshot_replacement_steps = datastore
-            .get_requested_region_snapshot_replacement_steps(&opctx)
-            .await
-            .unwrap();
+                url: None,
+                os: String::from("debian"),
+                version: String::from("12"),
+                digest: None,
+                block_size: BlockSize::Iso, // lol lmao
 
-        assert_eq!(requested_region_snapshot_replacement_steps.len(), 2);
-
-        for step in &requested_region_snapshot_replacement_steps {
-            let s: String = format!("created {}", step.id);
-            assert!(result.step_records_created_ok.contains(&s));
-
-            let s: String = format!(
-                "region snapshot replacement step saga invoked ok for {}",
-                step.id
-            );
-            assert!(result.step_invoked_ok.contains(&s));
-
-            if step.volume_id() == new_volume_1_id
-                || step.volume_id() == new_volume_2_id
-            {
-                // ok!
-            } else if step.volume_id() == other_volume_1_id
-                || step.volume_id() == other_volume_2_id
-            {
-                // error!
-                assert!(false);
-            } else {
-                // error!
-                assert!(false);
+                size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
+                    .unwrap()
+                    .into(),
             }
-        }
+        )
+        .await
+        .unwrap();
 
-        // No garbage collection would be invoked yet, as the step records are
-        // not in state Complete
-        assert!(result.step_garbage_collect_invoked_ok.is_empty());
+        // Activate the task - it should try to create user data export objects
+        // for the snapshot and image
 
-        assert_eq!(result.errors.len(), 0);
-
-        assert_eq!(starter.count_reset(), 2);
-    }
-
-    #[nexus_test(server = crate::Server)]
-    async fn test_region_snapshot_replacement_step_task_gc(
-        cptestctx: &ControlPlaneTestContext,
-    ) {
-        let nexus = &cptestctx.server.server_context().nexus;
-        let datastore = nexus.datastore();
-        let opctx = OpContext::for_tests(
-            cptestctx.logctx.log.clone(),
-            datastore.clone(),
-        );
-
-        let starter = Arc::new(NoopStartSaga::new());
-        let mut task = RegionSnapshotReplacementFindAffected::new(
-            datastore.clone(),
-            starter.clone(),
-        );
-
-        // Noop test
-        let result: RegionSnapshotReplacementStepStatus =
-            serde_json::from_value(task.activate(&opctx).await).unwrap();
-        assert_eq!(result, RegionSnapshotReplacementStepStatus::default());
-        assert_eq!(starter.count_reset(), 0);
-
-        // Now, add some Complete records and make sure the garbage collection
-        // saga is invoked.
-
-        let volume_id = VolumeUuid::new_v4();
-
-        datastore
-            .volume_create(
-                volume_id,
-                VolumeConstructionRequest::Volume {
-                    id: Uuid::new_v4(),
-                    block_size: 512,
-                    sub_volumes: vec![], // nothing needed here
-                    read_only_parent: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        let result = datastore
-            .insert_region_snapshot_replacement_step(&opctx, {
-                let mut record = RegionSnapshotReplacementStep::new(
-                    Uuid::new_v4(),
-                    volume_id,
-                );
-
-                record.replacement_state =
-                    RegionSnapshotReplacementStepState::Complete;
-                record.old_snapshot_volume_id =
-                    Some(VolumeUuid::new_v4().into());
-
-                record
-            })
-            .await
-            .unwrap();
-
-        assert!(matches!(result, InsertStepResult::Inserted { .. }));
-
-        let volume_id = VolumeUuid::new_v4();
-
-        datastore
-            .volume_create(
-                volume_id,
-                VolumeConstructionRequest::Volume {
-                    id: Uuid::new_v4(),
-                    block_size: 512,
-                    sub_volumes: vec![], // nothing needed here
-                    read_only_parent: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        let result = datastore
-            .insert_region_snapshot_replacement_step(&opctx, {
-                let mut record = RegionSnapshotReplacementStep::new(
-                    Uuid::new_v4(),
-                    volume_id,
-                );
-
-                record.replacement_state =
-                    RegionSnapshotReplacementStepState::Complete;
-                record.old_snapshot_volume_id =
-                    Some(VolumeUuid::new_v4().into());
-
-                record
-            })
-            .await
-            .unwrap();
-
-        assert!(matches!(result, InsertStepResult::Inserted { .. }));
-
-        // Activate the task - it should pick the complete steps up and try to
-        // run the region snapshot replacement step garbage collect saga
-
-        let result: RegionSnapshotReplacementStepStatus =
+        let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
 
-        let region_snapshot_replacement_steps_requiring_gc = datastore
-            .region_snapshot_replacement_steps_requiring_garbage_collection(
-                &opctx,
-            )
-            .await
-            .unwrap();
+        eprintln!("{result:?}");
 
-        assert_eq!(region_snapshot_replacement_steps_requiring_gc.len(), 2);
+        assert_eq!(result.create_invoked_ok.len(), 2);
 
-        eprintln!("{:?}", result);
+        let s = format!(
+            "{:?}",
+            UserDataExportResource::Snapshot { id: snapshot.id() },
+        );
+        assert!(result.create_invoked_ok.iter().any(|i| i.contains(&s)));
 
-        for step in &region_snapshot_replacement_steps_requiring_gc {
-            let s: String = format!(
-                "region snapshot replacement step garbage collect request ok \
-                for {}",
-                step.id
-            );
-            assert!(result.step_garbage_collect_invoked_ok.contains(&s));
-        }
-
-        assert!(result.step_records_created_ok.is_empty());
-
-        assert!(result.step_invoked_ok.is_empty());
+        let s = format!(
+            "{:?}",
+            UserDataExportResource::Image { id: image.id() },
+        );
+        assert!(result.create_invoked_ok.iter().any(|i| i.contains(&s)));
 
         assert_eq!(result.errors.len(), 0);
 
         assert_eq!(starter.count_reset(), 2);
     }
 }
-*/
