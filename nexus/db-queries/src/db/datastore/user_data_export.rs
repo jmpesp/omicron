@@ -268,9 +268,23 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
-    // XXX for image
+    pub async fn user_data_export_lookup_for_image(
+        &self,
+        opctx: &OpContext,
+        authz_image: &authz::Image,
+    ) -> LookupResult<Option<UserDataExportRecord>> {
+        let conn = self.pool_connection_authorized(opctx).await?;
 
-    // XXX resources needing export object create
+        use nexus_db_schema::schema::user_data_export::dsl;
+
+        dsl::user_data_export
+            .filter(dsl::resource_type.eq(UserDataExportResourceType::Image))
+            .filter(dsl::resource_id.eq(authz_image.id()))
+            .first_async(&*conn)
+            .await
+            .optional()
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
 
     pub async fn user_data_export_changeset(
         &self,
