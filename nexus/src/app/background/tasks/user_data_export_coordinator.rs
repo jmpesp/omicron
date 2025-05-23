@@ -41,8 +41,6 @@ impl UserDataExportCoordinator {
     ) {
         let log = &opctx.log;
 
-        // XXX
-
         for item in &changeset.create_required {
             let params = sagas::user_data_export_create::Params {
                 serialized_authn: authn::saga::Serialized::for_opctx(opctx),
