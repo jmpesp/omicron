@@ -97,7 +97,7 @@ impl UserDataExportRecord {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum UserDataExportResource {
     Snapshot { id: Uuid },
 

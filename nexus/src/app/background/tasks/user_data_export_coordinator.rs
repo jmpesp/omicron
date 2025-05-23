@@ -319,7 +319,7 @@ mod test {
                 os: String::from("debian"),
                 version: String::from("12"),
                 digest: None,
-                block_size: BlockSize::Iso, // lol lmao
+                block_size: BlockSize::Iso,
 
                 size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
                     .unwrap()
@@ -434,7 +434,7 @@ mod test {
                 os: String::from("debian"),
                 version: String::from("12"),
                 digest: None,
-                block_size: BlockSize::Iso, // lol lmao
+                block_size: BlockSize::Iso,
 
                 size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
                     .unwrap()
@@ -464,12 +464,12 @@ mod test {
         .unwrap();
 
         let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
-            .project_image_id(image.id())
+            .image_id(image.id())
             .fetch_for(authz::Action::Read)
             .await
             .unwrap();
 
-        datastore.user_data_export_create_for_project_image(
+        datastore.user_data_export_create_for_image(
             &opctx,
             UserDataExportUuid::new_v4(),
             &authz_image,
@@ -521,6 +521,12 @@ mod test {
         assert_eq!(starter.count_reset(), 1);
 
         // Delete the image, now it should try to delete both.
+
+        let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
+            .project_image_id(image.id())
+            .fetch_for(authz::Action::Read)
+            .await
+            .unwrap();
 
         datastore.project_image_delete(
             &opctx,

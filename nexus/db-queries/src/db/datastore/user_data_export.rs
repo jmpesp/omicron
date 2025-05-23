@@ -194,13 +194,11 @@ impl DataStore {
             })
     }
 
-    // XXX silo image
-
-    pub async fn user_data_export_create_for_project_image(
+    pub async fn user_data_export_create_for_image(
         &self,
         opctx: &OpContext,
         id: UserDataExportUuid,
-        authz_image: &authz::ProjectImage,
+        authz_image: &authz::Image,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
     ) -> CreateResult<UserDataExportRecord> {
@@ -392,92 +390,518 @@ impl DataStore {
             changeset.delete_required.push(record);
         }
 
-        /*
-        // Check for deleted snapshots or images that have user data export
-        // objects.
-
-        let records: Vec<UserDataExportRecord> = snapshot_dsl::snapshot
-            .inner_join(
-                dsl::user_data_export
-                    .on(dsl::resource_id.eq(snapshot_dsl::id))
-            )
-            .filter(dsl::resource_type.eq(UserDataExportResourceType::Snapshot))
-            .filter(snapshot_dsl::time_deleted.is_not_null())
-            .select(UserDataExportRecord::as_select())
-            .load_async::<UserDataExportRecord>(&*conn)
-            .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
-
-        for record in records {
-            changeset.delete_required.push(record);
-        }
-        */
-
-        // We need to use the Paginator here because there is no index for when
-        // time_deleted is not null. (this is wrong, still doesn't work)
-
-        /*
-        let deleted_snapshots: Vec<Uuid> = {
-            let mut records = Vec::new();
-
-            let mut paginator = Paginator::new(SQL_BATCH_SIZE);
-            while let Some(p) = paginator.next() {
-                let batch = paginated(snapshot_dsl::snapshot, snapshot_dsl::id, &p.current_pagparams())
-                    .filter(snapshot_dsl::time_deleted.is_not_null())
-                    .select(snapshot_dsl::id)
-                    .load_async::<Uuid>(&*conn)
-                    .await
-                    .map_err(|e| {
-                        public_error_from_diesel(e, ErrorHandler::Server)
-                    })?;
-
-                paginator = p.found_batch(&batch, &|r| *r);
-                records.extend(batch);
-            }
-
-            records
-        };
-
-        let records: Vec<UserDataExportRecord> =
-            dsl::user_data_export
-                .filter(dsl::resource_id.eq_any(deleted_snapshots))
-                .select(UserDataExportRecord::as_select())
-                .load_async::<UserDataExportRecord>(&*conn)
-                .await
-                .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
-
-        for record in records {
-            changeset.delete_required.push(record);
-        }
-        */
-
-        /*
-        let records: Vec<UserDataExportRecord> = image_dsl::image
-            .inner_join(
-                dsl::user_data_export
-                    .on(dsl::resource_id.eq(image_dsl::id))
-            )
-            .filter(dsl::resource_type.eq(UserDataExportResourceType::Image))
-            .filter(image_dsl::time_deleted.is_not_null())
-            .select(UserDataExportRecord::as_select())
-            .load_async::<UserDataExportRecord>(&*conn)
-            .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
-
-        for record in records {
-            changeset.delete_required.push(record);
-        }
-        */
-
         Ok(changeset)
     }
-
-    // XXX resources needing export object delete
 }
 
-// XXX tests
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-// XXX resource id collision
-// XXX changeset stuff - adding, removing, etc
-// XXX changeset compute for 2000 rows of random stuff
+    use std::collections::BTreeSet;
+    use crate::db::datastore::REGION_REDUNDANCY_THRESHOLD;
+    use crate::db::datastore::test::TestDatasets;
+    use crate::db::pub_test_utils::TestDatabase;
+    use crate::db::pub_test_utils::helpers::create_project;
+    use crate::db::pub_test_utils::helpers::create_project_snapshot;
+    use crate::db::pub_test_utils::helpers::create_project_image;
+    use nexus_config::RegionAllocationStrategy;
+    use nexus_db_model::SqlU16;
+    use nexus_types::external_api::params::DiskSource;
+    use omicron_common::api::external::ByteCount;
+    use omicron_test_utils::dev;
+    use omicron_uuid_kinds::VolumeUuid;
+    use sled_agent_client::CrucibleOpts;
+    use nexus_db_lookup::LookupPath;
+    use std::net::Ipv6Addr;
 
+    const PROJECT_NAME: &str = "bobs-barrel-of-bits";
+    const LARGE_NUMBER_OF_ROWS: usize = 3000;
+
+    #[tokio::test]
+    async fn test_resource_id_collision() {
+        let logctx =
+            dev::test_setup_log("test_resource_id_collision");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let snapshot = create_project_snapshot(
+            &opctx,
+            &datastore,
+            &authz_project,
+            Uuid::new_v4(),
+            "snap",
+        ).await;
+
+        let (.., authz_snapshot) =
+            LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_snapshot(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_snapshot,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        datastore.user_data_export_create_for_snapshot(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_snapshot,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap_err();
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that an empty changeset is returned when there are no records.
+    #[tokio::test]
+    async fn test_changeset_nothing_noop() {
+        let logctx =
+            dev::test_setup_log("test_changeset_nothing_noop");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert!(changeset.delete_required.is_empty());
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that an empty changeset is returned when snapshot and image
+    /// records have an associated user data export object already.
+    #[tokio::test]
+    async fn test_changeset_noop() {
+        let logctx =
+            dev::test_setup_log("test_changeset_noop");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let snapshot = create_project_snapshot(
+            &opctx,
+            &datastore,
+            &authz_project,
+            Uuid::new_v4(),
+            "snap",
+        ).await;
+
+        let (.., authz_snapshot) =
+            LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_snapshot(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_snapshot,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let image = create_project_image(
+            &opctx,
+            &datastore,
+            &authz_project,
+            "image",
+        )
+        .await;
+
+        let (.., authz_image) =
+            LookupPath::new(&opctx, datastore)
+                .image_id(image.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_image(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_image,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert!(changeset.delete_required.is_empty());
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that creation is required if a snapshot does not have an
+    /// associated user data export record.
+    #[tokio::test]
+    async fn test_changeset_create_snapshot() {
+        let logctx =
+            dev::test_setup_log("test_changeset_create_snapshot");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+        let snapshot = create_project_snapshot(
+            &opctx,
+            &datastore,
+            &authz_project,
+            Uuid::new_v4(),
+            "snap",
+        ).await;
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert_eq!(changeset.create_required.len(), 1);
+        assert_eq!(changeset.create_required[0], UserDataExportResource::Snapshot { id: snapshot.id() });
+        assert!(changeset.delete_required.is_empty());
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that creation is required if an image does not have an associated
+    /// user data export record.
+    #[tokio::test]
+    async fn test_changeset_create_image() {
+        let logctx =
+            dev::test_setup_log("test_changeset_create_image");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let image = create_project_image(
+            &opctx,
+            &datastore,
+            &authz_project,
+            "image",
+        ).await;
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert_eq!(changeset.create_required.len(), 1);
+        assert_eq!(changeset.create_required[0], UserDataExportResource::Image { id: image.id() });
+        assert!(changeset.delete_required.is_empty());
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that deletion of the associated user data export object is
+    /// required when the snapshot is deleted.
+    #[tokio::test]
+    async fn test_changeset_delete_snapshot() {
+        let logctx =
+            dev::test_setup_log("test_changeset_delete_snapshot");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let snapshot = create_project_snapshot(
+            &opctx,
+            &datastore,
+            &authz_project,
+            Uuid::new_v4(),
+            "snap",
+        ).await;
+
+        let (.., authz_snapshot) =
+            LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_snapshot(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_snapshot,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        datastore.project_delete_snapshot(
+            &opctx,
+            &authz_snapshot,
+            &snapshot,
+            vec![db::model::SnapshotState::Creating],
+        )
+        .await
+        .unwrap();
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert_eq!(changeset.delete_required.len(), 1);
+        assert_eq!(changeset.delete_required[0].resource(), UserDataExportResource::Snapshot { id: snapshot.id() });
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert that deletion of the associated user data export object is
+    /// required when the image is deleted.
+    #[tokio::test]
+    async fn test_changeset_delete_image() {
+        let logctx =
+            dev::test_setup_log("test_changeset_delete_image");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let image = create_project_image(
+            &opctx,
+            &datastore,
+            &authz_project,
+            "image",
+        ).await;
+
+        let (.., authz_image) =
+            LookupPath::new(&opctx, datastore)
+                .image_id(image.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.user_data_export_create_for_image(
+            &opctx,
+            UserDataExportUuid::new_v4(),
+            &authz_image,
+            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+            VolumeUuid::new_v4(),
+        )
+        .await
+        .unwrap();
+
+        let (.., authz_image, db_image) =
+            LookupPath::new(&opctx, datastore)
+                .project_image_id(image.id())
+                .fetch_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+        datastore.project_image_delete(
+            &opctx,
+            &authz_image,
+            db_image,
+        )
+        .await
+        .unwrap();
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert_eq!(changeset.delete_required.len(), 1);
+        assert_eq!(changeset.delete_required[0].resource(), UserDataExportResource::Image { id: image.id() });
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert the DB queries can deal with a large number of rows when finding
+    /// records to create.
+    #[tokio::test]
+    async fn test_changeset_create_large() {
+        let logctx =
+            dev::test_setup_log("test_changeset_create_large");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let mut created_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
+
+        for i in 0..LARGE_NUMBER_OF_ROWS {
+            let snapshot_string = format!("snap{i}");
+
+            let snapshot = create_project_snapshot(
+                &opctx,
+                &datastore,
+                &authz_project,
+                Uuid::new_v4(),
+                &snapshot_string,
+            ).await;
+
+            created_snapshot_ids.insert(snapshot.id());
+        }
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert_eq!(changeset.create_required.len(), LARGE_NUMBER_OF_ROWS);
+        assert!(changeset.delete_required.is_empty());
+
+        let mut changeset_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
+
+        for snapshot in &changeset.create_required {
+            let UserDataExportResource::Snapshot { id } = snapshot else {
+                panic!("wrong changeset resource");
+            };
+
+            changeset_snapshot_ids.insert(*id);
+        }
+
+        assert_eq!(created_snapshot_ids, changeset_snapshot_ids);
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert the DB queries can deal with a large number of rows when there's
+    /// nothing to do
+    #[tokio::test]
+    async fn test_changeset_noop_large() {
+        let logctx =
+            dev::test_setup_log("test_changeset_noop_large");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        for i in 0..LARGE_NUMBER_OF_ROWS {
+            let snapshot_string = format!("snap{i}");
+
+            let snapshot = create_project_snapshot(
+                &opctx,
+                &datastore,
+                &authz_project,
+                Uuid::new_v4(),
+                &snapshot_string,
+            ).await;
+
+            let (.., authz_snapshot) =
+                LookupPath::new(&opctx, datastore)
+                    .snapshot_id(snapshot.id())
+                    .lookup_for(authz::Action::Read)
+                    .await
+                    .unwrap();
+
+            datastore.user_data_export_create_for_snapshot(
+                &opctx,
+                UserDataExportUuid::new_v4(),
+                &authz_snapshot,
+                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+                VolumeUuid::new_v4(),
+            )
+            .await
+            .unwrap();
+        }
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert!(changeset.delete_required.is_empty());
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+
+    /// Assert the DB queries can deal with a large number of rows when finding
+    /// records to delete
+    #[tokio::test]
+    async fn test_changeset_delete_large() {
+        let logctx =
+            dev::test_setup_log("test_changeset_delete_large");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, project) = create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let mut created_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
+
+        for i in 0..LARGE_NUMBER_OF_ROWS {
+            let snapshot_string = format!("snap{i}");
+
+            let snapshot = create_project_snapshot(
+                &opctx,
+                &datastore,
+                &authz_project,
+                Uuid::new_v4(),
+                &snapshot_string,
+            ).await;
+
+            let (.., authz_snapshot) =
+                LookupPath::new(&opctx, datastore)
+                    .snapshot_id(snapshot.id())
+                    .lookup_for(authz::Action::Read)
+                    .await
+                    .unwrap();
+
+            datastore.user_data_export_create_for_snapshot(
+                &opctx,
+                UserDataExportUuid::new_v4(),
+                &authz_snapshot,
+                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+                VolumeUuid::new_v4(),
+            )
+            .await
+            .unwrap();
+
+            datastore.project_delete_snapshot(
+                &opctx,
+                &authz_snapshot,
+                &snapshot,
+                vec![db::model::SnapshotState::Creating],
+            )
+            .await
+            .unwrap();
+
+            created_snapshot_ids.insert(snapshot.id());
+        }
+
+        let changeset = datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert_eq!(changeset.delete_required.len(), LARGE_NUMBER_OF_ROWS);
+
+        let mut changeset_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
+
+        for record in &changeset.delete_required {
+            let UserDataExportResource::Snapshot { id } = record.resource() else {
+                panic!("wrong changeset resource");
+            };
+
+            changeset_snapshot_ids.insert(id);
+        }
+
+        assert_eq!(created_snapshot_ids, changeset_snapshot_ids);
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
+}
