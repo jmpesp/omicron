@@ -43,7 +43,7 @@ use steno::ActionError;
 use steno::Node;
 use uuid::Uuid;
 
-// snapshot export create saga: input parameters
+// user data export create saga: input parameters
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Params {
@@ -51,32 +51,32 @@ pub(crate) struct Params {
     pub resource: UserDataExportResource,
 }
 
-// snapshot export create saga: actions
+// user data export create saga: actions
 declare_saga_actions! {
     user_data_export_create;
     CREATE_EXPORT_VOLUME -> "export_volume" {
-        + ssec_create_export_volume
-        - ssec_create_export_volume_undo
+        + sudec_create_export_volume
+        - sudec_create_export_volume_undo
     }
     GET_PANTRY_ADDRESS -> "pantry_address" {
-        + ssec_get_pantry_address
+        + sudec_get_pantry_address
     }
     CALL_PANTRY_ATTACH_FOR_EXPORT -> "call_pantry_attach_for_export" {
-        + ssec_call_pantry_attach_for_export
-        - ssec_call_pantry_attach_for_export_undo
+        + sudec_call_pantry_attach_for_export
+        - sudec_call_pantry_attach_for_export_undo
     }
     CREATE_EXPORT_RECORD -> "created_record" {
-        + ssec_create_export_record
-        - ssec_create_export_record_undo
+        + sudec_create_export_record
+        - sudec_create_export_record_undo
     }
 }
 
-// snapshot export create saga: definition
+// user data export create saga: definition
 
 #[derive(Debug)]
 pub(crate) struct SagaUserDataExportCreate;
 impl NexusSaga for SagaUserDataExportCreate {
-    const NAME: &'static str = "snapshot-export-create";
+    const NAME: &'static str = "user-data-export-create";
     type Params = Params;
 
     fn register_actions(registry: &mut ActionRegistry) {
@@ -109,9 +109,9 @@ impl NexusSaga for SagaUserDataExportCreate {
     }
 }
 
-// snapshot export saga: action implementations
+// user data export saga: action implementations
 
-async fn ssec_create_export_volume(
+async fn sudec_create_export_volume(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let log = sagactx.user_data().log();
@@ -179,7 +179,7 @@ async fn ssec_create_export_volume(
     Ok(())
 }
 
-async fn ssec_create_export_volume_undo(
+async fn sudec_create_export_volume_undo(
     sagactx: NexusActionContext,
 ) -> Result<(), anyhow::Error> {
     let log = sagactx.user_data().log();
@@ -201,7 +201,7 @@ async fn ssec_create_export_volume_undo(
     Ok(())
 }
 
-async fn ssec_get_pantry_address(
+async fn sudec_get_pantry_address(
     sagactx: NexusActionContext,
 ) -> Result<SocketAddrV6, ActionError> {
     let log = sagactx.user_data().log();
@@ -215,7 +215,7 @@ async fn ssec_get_pantry_address(
     Ok(pantry_address)
 }
 
-async fn ssec_call_pantry_attach_for_export(
+async fn sudec_call_pantry_attach_for_export(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let log = sagactx.user_data().log();
@@ -264,7 +264,7 @@ async fn ssec_call_pantry_attach_for_export(
     .await
 }
 
-async fn ssec_call_pantry_attach_for_export_undo(
+async fn sudec_call_pantry_attach_for_export_undo(
     sagactx: NexusActionContext,
 ) -> Result<(), anyhow::Error> {
     let log = sagactx.user_data().log();
@@ -293,7 +293,7 @@ async fn ssec_call_pantry_attach_for_export_undo(
     }
 }
 
-async fn ssec_create_export_record(
+async fn sudec_create_export_record(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let log = sagactx.user_data().log();
@@ -358,7 +358,7 @@ async fn ssec_create_export_record(
     Ok(())
 }
 
-async fn ssec_create_export_record_undo(
+async fn sudec_create_export_record_undo(
     sagactx: NexusActionContext,
 ) -> Result<(), anyhow::Error> {
     let log = sagactx.user_data().log();
