@@ -250,6 +250,23 @@ impl DataStore {
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
+    pub async fn user_data_export_lookup_by_id(
+        &self,
+        opctx: &OpContext,
+        id: UserDataExportUuid,
+    ) -> LookupResult<UserDataExportRecord> {
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        use nexus_db_schema::schema::user_data_export::dsl;
+
+        dsl::user_data_export
+            .filter(dsl::id.eq(to_db_typed_uuid(id)))
+            .select(UserDataExportRecord::as_select())
+            .first_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
     pub async fn user_data_export_lookup_for_snapshot(
         &self,
         opctx: &OpContext,

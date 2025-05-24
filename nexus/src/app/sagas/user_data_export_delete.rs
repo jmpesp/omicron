@@ -4,6 +4,8 @@
 
 //! XXX TODO
 
+use slog_error_chain::InlineErrorChain;
+use super::common_storage::call_pantry_detach;
 use crate::app::authz;
 use super::ActionRegistry;
 use super::NexusActionContext;
@@ -22,8 +24,10 @@ use serde::Serialize;
 use steno::ActionError;
 use steno::Node;
 use uuid::Uuid;
+use omicron_uuid_kinds::GenericUuid;
+use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
 
-// snapshot export delete saga: input parameters
+// user data export delete saga: input parameters
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Params {
@@ -32,22 +36,24 @@ pub struct Params {
     pub volume_id: VolumeUuid,
 }
 
-// snapshot export delete saga: actions
+// user data export delete saga: actions
 
 declare_saga_actions! {
     user_data_export_delete;
-    DELETE_USER_DATA_EXPORT_RECORD -> "deleted_record" {
-        + sdd_delete_user_data_export_record
+    CALL_PANTRY_DETACH_FOR_EXPORT -> "call_pantry_detach_for_export" {
+        + suded_call_pantry_detach_for_export
     }
-    // XXX detach from pantry
+    DELETE_USER_DATA_EXPORT_RECORD -> "deleted_record" {
+        + suded_delete_user_data_export_record
+    }
 }
 
-// snapshot export delete saga: definition
+// user data export delete saga: definition
 
 #[derive(Debug)]
 pub(crate) struct SagaUserDataExportDelete;
 impl NexusSaga for SagaUserDataExportDelete {
-    const NAME: &'static str = "snapshot-export-delete";
+    const NAME: &'static str = "user-data-export-delete";
     type Params = Params;
 
     fn register_actions(registry: &mut ActionRegistry) {
@@ -58,6 +64,8 @@ impl NexusSaga for SagaUserDataExportDelete {
         params: &Self::Params,
         mut builder: steno::DagBuilder,
     ) -> Result<steno::Dag, super::SagaInitError> {
+        builder.append(call_pantry_detach_for_export_action());
+
         let subsaga_params = volume_delete::Params {
             serialized_authn: params.serialized_authn.clone(),
             volume_id: params.volume_id,
@@ -89,7 +97,7 @@ impl NexusSaga for SagaUserDataExportDelete {
             "params_for_volume_delete_subsaga",
         ));
 
-        // Delete the snapshot export record last. There's no way to re-trigger
+        // Delete the user data export record last. There's no way to re-trigger
         // the delete once it is gone.
         builder.append(delete_user_data_export_record_action());
 
@@ -97,9 +105,49 @@ impl NexusSaga for SagaUserDataExportDelete {
     }
 }
 
-// snapshot export delete saga: action implementations
+// user data export delete saga: action implementations
 
-async fn sdd_delete_user_data_export_record(
+async fn suded_call_pantry_detach_for_export(
+    sagactx: NexusActionContext,
+) -> Result<(), ActionError> {
+    let log = sagactx.user_data().log();
+    let params = sagactx.saga_params::<Params>()?;
+    let osagactx = sagactx.user_data();
+    let opctx = crate::context::op_context_for_saga_action(
+        &sagactx,
+        &params.serialized_authn,
+    );
+
+    let record = osagactx
+        .datastore()
+        .user_data_export_lookup_by_id(&opctx, params.user_data_export_id)
+        .await
+        .map_err(ActionError::action_failed)?;
+
+    let volume_id = record.volume_id();
+    let pantry_address = record.pantry_address();
+
+    info!(log, "detaching {volume_id} from pantry at {pantry_address}");
+
+    match call_pantry_detach(
+        sagactx.user_data().nexus(),
+        &log,
+        volume_id.into_untyped_uuid(),
+        pantry_address,
+    )
+    .await
+    {
+        // We can treat the pantry being permanently gone as success.
+        Ok(()) | Err(ProgenitorOperationRetryError::Gone) => Ok(()),
+
+        Err(err) => Err(ActionError::action_failed(format!(
+            "failed to detach {volume_id} from pantry at {pantry_address}: {}",
+            InlineErrorChain::new(&err)
+        )))
+    }
+}
+
+async fn suded_delete_user_data_export_record(
     sagactx: NexusActionContext,
 ) -> Result<(), ActionError> {
     let osagactx = sagactx.user_data();
