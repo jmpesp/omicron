@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Tests basic snapshot export support in the API
+//! Tests basic user data export support in the API
 
 use crate::integration_tests::instances::instance_simulate;
 use chrono::Utc;
@@ -111,7 +111,7 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     .parsed_body()
     .unwrap();
 
-    // Should be unable to start a snapshot export for a non-existent snapshot
+    // Should be unable to start an export for a non-existent snapshot
     let start_url = format!("/v1/snapshots/{}/bulk-read-start", Uuid::new_v4());
     NexusRequest::new(
         RequestBuilder::new(client, Method::POST, &start_url)

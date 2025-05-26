@@ -4913,7 +4913,7 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
-    async fn snapshot_bulk_read_export(
+    async fn snapshot_read(
         rqctx: RequestContext<Self::Context>,
         path_params: Path<params::SnapshotPath>,
         query_params: Query<params::OptionalProjectSelector>,
