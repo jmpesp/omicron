@@ -2216,13 +2216,13 @@ pub trait NexusExternalApi {
         query_params: Query<params::OptionalProjectSelector>,
     ) -> Result<HttpResponseDeleted, HttpError>;
 
-    /// Export blocks from a snapshot
+    /// Read blocks from a snapshot
     #[endpoint {
         method = GET,
-        path = "/v1/snapshots/{snapshot}/bulk-read",
+        path = "/v1/snapshots/{snapshot}/read",
         tags = ["snapshots"],
     }]
-    async fn snapshot_bulk_read_export(
+    async fn snapshot_read(
         rqctx: RequestContext<Self::Context>,
         path_params: Path<params::SnapshotPath>,
         query_params: Query<params::OptionalProjectSelector>,
