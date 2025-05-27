@@ -4,6 +4,8 @@
 
 //! Tests basic user data export support in the API
 
+use crate::integration_tests::images::get_image_create;
+use crate::integration_tests::images::get_project_images_url;
 use crate::integration_tests::instances::instance_simulate;
 use chrono::Utc;
 use dropshot::test_util::ClientTestContext;
@@ -55,7 +57,7 @@ type DiskTestBuilder<'a> = nexus_test_utils::resource_helpers::DiskTestBuilder<
     omicron_nexus::Server,
 >;
 
-const PROJECT_NAME: &str = "springfield-squidport-disks";
+const PROJECT_NAME: &str = "bobs-barrel-of-bits";
 
 // Max chunk size that the Pantry supports
 const CHUNK_SIZE: usize = 512 * 1024;
@@ -689,4 +691,300 @@ async fn test_user_data_export_after_delete(
     .execute()
     .await
     .expect("failed snapshot ranged read after delete");
+}
+
+#[nexus_test]
+async fn test_user_data_export_basic_image_ranged(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    DiskTest::new(&cptestctx).await;
+    let project_id = create_project_and_pool(client).await;
+    let disks_url = get_disks_url();
+
+    // Create an image
+    let image_create_params = get_image_create(
+        params::ImageSource::YouCanBootAnythingAsLongAsItsAlpine,
+    );
+    let images_url = get_project_images_url(PROJECT_NAME);
+
+    let image = NexusRequest::objects_post(
+        client,
+        &images_url,
+        &image_create_params,
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute_and_parse_unwrap::<views::Image>()
+    .await;
+
+    let image_id = image.identity.id;
+    let image_url = format!("/v1/images/{image_id}");
+    let read_url = format!("{image_url}/read");
+
+    let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
+        .project_image_id(image_id)
+        .fetch_for(authz::Action::Read)
+        .await
+        .unwrap();
+
+    // Wait for user data export object to be created
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
+            let authz_image = authz_image.clone();
+
+            async move {
+                let object = datastore
+                    .user_data_export_lookup_for_project_image(
+                        &opctx,
+                        &authz_image,
+                    )
+                    .await
+                    .unwrap();
+
+                match object {
+                    Some(_) => Ok(()),
+                    None => Err(CondCheckError::<()>::NotYet),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    // Grab all blocks by chunks
+    let image_size: usize = db_image.size.to_bytes() as usize;
+
+    for start in (0..image_size).step_by(CHUNK_SIZE) {
+        let end = std::cmp::min(start + CHUNK_SIZE, image_size) - 1;
+        let range = format!("bytes={}-{}", start, end);
+
+        let data: bytes::Bytes = NexusRequest::new(
+            RequestBuilder::new(client, Method::GET, &read_url)
+                .expect_status(Some(StatusCode::PARTIAL_CONTENT))
+                .header(http::header::RANGE, &range)
+                .expect_range_requestable("application/octet-stream")
+                .expect_response_header(
+                    http::header::CONTENT_RANGE,
+                    &format!("bytes {start}-{end}/{image_size}"),
+                ),
+        )
+        .authn_as(AuthnMode::PrivilegedUser)
+        .execute()
+        .await
+        .expect("failed image ranged read")
+        .body;
+
+        assert_eq!(data.len(), CHUNK_SIZE);
+
+        // The simulated pantry will return all 0, plus some breadcrumbs for
+        // validation. First the offset, then the chunk size.
+        assert_eq!(
+            u64::from_le_bytes(data[0..8].try_into().unwrap()),
+            start as u64
+        );
+        assert_eq!(
+            usize::from_le_bytes(data[8..16].try_into().unwrap()),
+            CHUNK_SIZE
+        );
+        assert_eq!(data[16..], vec![0u8; CHUNK_SIZE - 16]);
+    }
+
+    // Delete image
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::DELETE, &image_url)
+            .expect_status(Some(StatusCode::NO_CONTENT)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .unwrap();
+
+    // Wait for user data export object to be deleted
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
+            let authz_image = authz_image.clone();
+
+            async move {
+                let object = datastore
+                    .user_data_export_lookup_for_project_image(
+                        &opctx,
+                        &authz_image,
+                    )
+                    .await
+                    .unwrap();
+
+                match object {
+                    Some(_) => Err(CondCheckError::<()>::NotYet),
+                    None => Ok(()),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object deleted");
+}
+
+#[nexus_test]
+async fn test_user_data_export_basic_image_ranged_with_promote(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    DiskTest::new(&cptestctx).await;
+    let project_id = create_project_and_pool(client).await;
+    let disks_url = get_disks_url();
+
+    // Create a project image
+    let image_create_params = get_image_create(
+        params::ImageSource::YouCanBootAnythingAsLongAsItsAlpine,
+    );
+    let images_url = get_project_images_url(PROJECT_NAME);
+
+    let image = NexusRequest::objects_post(
+        client,
+        &images_url,
+        &image_create_params,
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute_and_parse_unwrap::<views::Image>()
+    .await;
+
+    let image_id = image.identity.id;
+    let image_url = format!("/v1/images/{image_id}");
+    let read_url = format!("{image_url}/read");
+
+    let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
+        .project_image_id(image_id)
+        .fetch_for(authz::Action::Read)
+        .await
+        .unwrap();
+
+    // Wait for user data export object to be created
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
+            let authz_image = authz_image.clone();
+
+            async move {
+                let object = datastore
+                    .user_data_export_lookup_for_project_image(
+                        &opctx,
+                        &authz_image,
+                    )
+                    .await
+                    .unwrap();
+
+                match object {
+                    Some(_) => Ok(()),
+                    None => Err(CondCheckError::<()>::NotYet),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    // Grab a blocks by chunks
+    let image_size: usize = db_image.size.to_bytes() as usize;
+
+    let start = 512;
+    let end = 1023;
+
+    let range = format!("bytes={}-{}", start, end);
+
+    let data: bytes::Bytes = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::PARTIAL_CONTENT))
+            .header(http::header::RANGE, &range)
+            .expect_range_requestable("application/octet-stream")
+            .expect_response_header(
+                http::header::CONTENT_RANGE,
+                &format!("bytes {start}-{end}/{image_size}"),
+            ),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed image ranged read")
+    .body;
+
+    assert_eq!(data.len(), 512);
+
+    // The simulated pantry will return all 0, plus some breadcrumbs for
+    // validation. First the offset, then the chunk size.
+    assert_eq!(
+        u64::from_le_bytes(data[0..8].try_into().unwrap()),
+        start as u64
+    );
+    assert_eq!(
+        usize::from_le_bytes(data[8..16].try_into().unwrap()),
+        512
+    );
+    assert_eq!(data[16..], vec![0u8; 512 - 16]);
+
+    // Promote image to silo image
+
+    let promote_url = format!("/v1/images/{}/promote", image_id);
+    NexusRequest::new(
+        RequestBuilder::new(client, http::Method::POST, &promote_url)
+            .expect_status(Some(http::StatusCode::ACCEPTED)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute_and_parse_unwrap::<views::Image>()
+    .await;
+
+    // Do the read again
+
+    let data: bytes::Bytes = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::PARTIAL_CONTENT))
+            .header(http::header::RANGE, &range)
+            .expect_range_requestable("application/octet-stream")
+            .expect_response_header(
+                http::header::CONTENT_RANGE,
+                &format!("bytes {start}-{end}/{image_size}"),
+            ),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed image ranged read")
+    .body;
+
+    assert_eq!(data.len(), 512);
+
+    // The simulated pantry will return all 0, plus some breadcrumbs for
+    // validation. First the offset, then the chunk size.
+    assert_eq!(
+        u64::from_le_bytes(data[0..8].try_into().unwrap()),
+        start as u64
+    );
+    assert_eq!(
+        usize::from_le_bytes(data[8..16].try_into().unwrap()),
+        512
+    );
+    assert_eq!(data[16..], vec![0u8; 512 - 16]);
 }
