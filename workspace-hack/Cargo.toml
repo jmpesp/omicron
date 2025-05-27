@@ -64,6 +64,7 @@ group = { version = "0.13.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.15.3" }
 hickory-proto = { version = "0.24.4", features = ["text-parsing"] }
 hmac = { version = "0.12.1", default-features = false, features = ["reset"] }
+http-body-util = { version = "0.1.3", features = ["channel"] }
 hyper = { version = "1.6.0", features = ["full"] }
 idna = { version = "1.0.3" }
 indexmap = { version = "2.9.0", features = ["serde"] }
@@ -188,6 +189,7 @@ group = { version = "0.13.0", default-features = false, features = ["alloc"] }
 hashbrown = { version = "0.15.3" }
 hickory-proto = { version = "0.24.4", features = ["text-parsing"] }
 hmac = { version = "0.12.1", default-features = false, features = ["reset"] }
+http-body-util = { version = "0.1.3", features = ["channel"] }
 hyper = { version = "1.6.0", features = ["full"] }
 idna = { version = "1.0.3" }
 indexmap = { version = "2.9.0", features = ["serde"] }
