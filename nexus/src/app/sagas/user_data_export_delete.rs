@@ -166,53 +166,116 @@ async fn suded_delete_user_data_export_record(
     Ok(())
 }
 
-/*
-// XXX
 #[cfg(test)]
-pub(crate) mod test {
-    use crate::{
-        app::saga::create_saga_dag, app::sagas::disk_delete::Params,
-        app::sagas::disk_delete::SagaDiskDelete,
+mod test {
+    use super::*;
+
+    use crate::app::saga::create_saga_dag;
+    use crate::app::sagas::test_helpers;
+    use crate::app::sagas::user_data_export_create;
+    use crate::app::sagas::user_data_export_create::SagaUserDataExportCreate;
+    use async_bb8_diesel::AsyncRunQueryDsl;
+    use diesel::{
+        ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
     };
-    use nexus_db_model::Disk;
-    use nexus_db_queries::authn::saga::Serialized;
+    use dropshot::test_util::ClientTestContext;
+    use nexus_db_model::UserDataExportResource;
+    use nexus_db_model::UserDataExportRecord;
+    use omicron_uuid_kinds::UserDataExportUuid;
     use nexus_db_queries::context::OpContext;
+    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
+    use nexus_db_queries::db::DataStore;
+    use nexus_test_utils::resource_helpers::create_default_ip_pool;
+    use nexus_test_utils::resource_helpers::create_disk;
+    use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils::resource_helpers::create_project;
-    use nexus_test_utils::resource_helpers::DiskTest;
+    use nexus_test_utils::resource_helpers::delete_disk;
+    use nexus_test_utils::resource_helpers::object_create;
     use nexus_test_utils_macros::nexus_test;
-    use nexus_types::external_api::params;
+    use nexus_types::external_api::params::InstanceDiskAttachment;
+    use omicron_common::api::external::ByteCount;
+    use omicron_common::api::external::IdentityMetadataCreateParams;
+    use omicron_common::api::external::Instance;
+    use omicron_common::api::external::InstanceCpuCount;
     use omicron_common::api::external::Name;
+    use omicron_common::api::external::NameOrId;
+    use sled_agent_client::CrucibleOpts;
+    use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
+    use std::str::FromStr;
+
+    type DiskTest<'a> =
+        nexus_test_utils::resource_helpers::DiskTest<'a, crate::Server>;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
 
-    const PROJECT_NAME: &str = "springfield-squidport";
+    const PROJECT_NAME: &str = "bobs-barrel-of-bits";
+    const DISK_NAME: &str = "bobs-disk";
+    const INSTANCE_NAME: &str = "bobs-instance";
+    const SNAPSHOT_NAME: &str = "bobs-snapshot";
+
+    async fn create_all_the_stuff(
+        cptestctx: &ControlPlaneTestContext,
+    ) -> (Uuid, UserDataExportRecord) {
+        let client = &cptestctx.external_client;
+        let nexus = &cptestctx.server.server_context().nexus;
+
+        create_default_ip_pool(&client).await;
+        create_project(client, PROJECT_NAME).await;
+        create_disk(client, PROJECT_NAME, DISK_NAME).await;
+
+        let snapshot_id = create_snapshot(
+            client,
+            PROJECT_NAME,
+            DISK_NAME,
+            SNAPSHOT_NAME,
+        )
+        .await
+        .identity
+        .id;
+
+        // Build the create saga DAG with the provided test parameters
+        let opctx = test_opctx(cptestctx);
+
+        let params = user_data_export_create::Params {
+            serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
+            resource: UserDataExportResource::Snapshot {
+                id: snapshot_id,
+            },
+        };
+
+        nexus
+            .sagas
+            .saga_execute::<SagaUserDataExportCreate>(params)
+            .await
+            .unwrap();
+
+        // Make sure the record was created ok
+        let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
+            .snapshot_id(snapshot_id)
+            .lookup_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+        let export_object = nexus
+            .datastore()
+            .user_data_export_lookup_for_snapshot(
+                &opctx,
+                &authz_snapshot,
+            )
+            .await
+            .unwrap();
+
+        let export_object = export_object.unwrap();
+
+        (snapshot_id, export_object)
+    }
 
     pub fn test_opctx(cptestctx: &ControlPlaneTestContext) -> OpContext {
         OpContext::for_tests(
             cptestctx.logctx.log.new(o!()),
             cptestctx.server.server_context().nexus.datastore().clone(),
         )
-    }
-
-    async fn create_disk(cptestctx: &ControlPlaneTestContext) -> Disk {
-        let nexus = &cptestctx.server.server_context().nexus;
-        let opctx = test_opctx(&cptestctx);
-
-        let project_selector = params::ProjectSelector {
-            project: Name::try_from(PROJECT_NAME.to_string()).unwrap().into(),
-        };
-        let project_lookup =
-            nexus.project_lookup(&opctx, project_selector).unwrap();
-
-        nexus
-            .project_create_disk(
-                &opctx,
-                &project_lookup,
-                &crate::app::sagas::disk_create::test::new_disk_create_params(),
-            )
-            .await
-            .expect("Failed to create disk")
     }
 
     #[nexus_test(server = crate::Server)]
@@ -223,49 +286,84 @@ pub(crate) mod test {
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let project_id = create_project(client, PROJECT_NAME).await.identity.id;
-        let disk = create_disk(&cptestctx).await;
+        let (snapshot_id, export_object) = create_all_the_stuff(cptestctx).await;
 
-        // Build the saga DAG with the provided test parameters and run it.
-        let opctx = test_opctx(&cptestctx);
+        // Create the delete saga dag
+        let opctx = test_opctx(cptestctx);
+
         let params = Params {
-            serialized_authn: Serialized::for_opctx(&opctx),
-            project_id,
-            disk_id: disk.id(),
-            volume_id: disk.volume_id(),
+            serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
+            user_data_export_id: export_object.id(),
+            volume_id: export_object.volume_id(),
         };
-        nexus.sagas.saga_execute::<SagaDiskDelete>(params).await.unwrap();
+
+        nexus
+            .sagas
+            .saga_execute::<SagaUserDataExportDelete>(params)
+            .await
+            .unwrap();
+
+        // Make sure the record was deleted ok
+        let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
+            .snapshot_id(snapshot_id)
+            .lookup_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+        let export_object = nexus
+            .datastore()
+            .user_data_export_lookup_for_snapshot(
+                &opctx,
+                &authz_snapshot,
+            )
+            .await
+            .unwrap();
+
+        assert!(export_object.is_none());
     }
 
     #[nexus_test(server = crate::Server)]
     async fn test_actions_succeed_idempotently(
         cptestctx: &ControlPlaneTestContext,
     ) {
-        let test = DiskTest::new(cptestctx).await;
+        DiskTest::new(cptestctx).await;
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let project_id = create_project(client, PROJECT_NAME).await.identity.id;
-        let disk = create_disk(&cptestctx).await;
+        let (snapshot_id, export_object) = create_all_the_stuff(cptestctx).await;
 
-        // Build the saga DAG with the provided test parameters
-        let opctx = test_opctx(&cptestctx);
+        // Create the delete saga dag
+        let opctx = test_opctx(cptestctx);
+
         let params = Params {
-            serialized_authn: Serialized::for_opctx(&opctx),
-            project_id,
-            disk_id: disk.id(),
-            volume_id: disk.volume_id(),
+            serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
+            user_data_export_id: export_object.id(),
+            volume_id: export_object.volume_id(),
         };
-        let dag = create_saga_dag::<SagaDiskDelete>(params).unwrap();
+
+        let dag = create_saga_dag::<SagaUserDataExportDelete>(params).unwrap();
+
         crate::app::sagas::test_helpers::actions_succeed_idempotently(
             nexus, dag,
         )
         .await;
 
-        crate::app::sagas::disk_create::test::verify_clean_slate(
-            &cptestctx, &test,
-        )
-        .await;
+        // Make sure the record was deleted ok
+        let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
+            .snapshot_id(snapshot_id)
+            .lookup_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+        let export_object = nexus
+            .datastore()
+            .user_data_export_lookup_for_snapshot(
+                &opctx,
+                &authz_snapshot,
+            )
+            .await
+            .unwrap();
+
+        assert!(export_object.is_none());
     }
 }
-*/
