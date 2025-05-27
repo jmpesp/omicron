@@ -2188,6 +2188,15 @@ impl Pantry {
         let mut data = Vec::with_capacity(size);
         data.resize(size, 0u8);
 
+        // Write some breadcrumbs into the returning block for validation
+        if size >= 16 {
+            let offset_bytes: [u8; 8] = offset.to_le_bytes();
+            let size_bytes: [u8; 8] = size.to_le_bytes();
+
+            data[0..8].copy_from_slice(&offset_bytes);
+            data[8..16].copy_from_slice(&size_bytes);
+        }
+
         Ok(data)
     }
 

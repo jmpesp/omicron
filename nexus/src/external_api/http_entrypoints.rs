@@ -4915,10 +4915,10 @@ impl NexusExternalApi for NexusExternalApiImpl {
 
     async fn snapshot_read(
         rqctx: RequestContext<Self::Context>,
+        headers: Header<RangeRequest>,
         path_params: Path<params::SnapshotPath>,
         query_params: Query<params::OptionalProjectSelector>,
-        export_params: TypedBody<params::ExportBlocksBulkReadRequest>,
-    ) -> Result<HttpResponseOk<params::ExportBlocksBulkReadResponse>, HttpError> {
+    ) -> Result<Response<Body>, HttpError> {
         let apictx = rqctx.context();
         let handler = async {
             let opctx =
@@ -4926,20 +4926,27 @@ impl NexusExternalApi for NexusExternalApiImpl {
             let nexus = &apictx.context.nexus;
             let path = path_params.into_inner();
             let query = query_params.into_inner();
+
             let snapshot_selector = params::SnapshotSelector {
                 project: query.project,
                 snapshot: path.snapshot,
             };
+
             let snapshot_lookup =
                 nexus.snapshot_lookup(&opctx, snapshot_selector)?;
+
+            let range = headers
+                .into_inner()
+                .range
+                .map(|r| PotentialRange::new(r.as_bytes()));
 
             let response = nexus.user_data_export_for_snapshot(
                 &opctx,
                 &snapshot_lookup,
-                export_params.into_inner(),
+                range,
             ).await?;
 
-            Ok(HttpResponseOk(response))
+            Ok(response)
         };
         apictx
             .context

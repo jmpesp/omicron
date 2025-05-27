@@ -5,6 +5,7 @@
 //! Tests basic user data export support in the API
 
 use crate::integration_tests::instances::instance_simulate;
+use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use chrono::Utc;
 use dropshot::test_util::ClientTestContext;
 use http::method::Method;
@@ -56,8 +57,8 @@ type DiskTestBuilder<'a> = nexus_test_utils::resource_helpers::DiskTestBuilder<
 
 const PROJECT_NAME: &str = "springfield-squidport-disks";
 
-// Use 8 MiB chunk size so tests won't take a long time.
-const CHUNK_SIZE: u32 = 8192 * 1024;
+// Max chunk size that the Pantry supports
+const CHUNK_SIZE: usize = 512*1024;
 
 fn get_disks_url() -> String {
     format!("/v1/disks?project={}", PROJECT_NAME)
@@ -112,9 +113,9 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     .unwrap();
 
     // Should be unable to start an export for a non-existent snapshot
-    let start_url = format!("/v1/snapshots/{}/bulk-read-start", Uuid::new_v4());
+    let read_url = format!("/v1/snapshots/{}/read", Uuid::new_v4());
     NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &start_url)
+        RequestBuilder::new(client, Method::GET, &read_url)
             .expect_status(Some(StatusCode::NOT_FOUND)),
     )
     .authn_as(AuthnMode::PrivilegedUser)
@@ -139,92 +140,81 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     .await;
 
     let snapshot_id = snapshot.identity.id;
-    let start_url = format!("/v1/snapshots/{snapshot_id}/bulk-read-start");
-    let grab_url = format!("/v1/snapshots/{snapshot_id}/bulk-read");
-    let stop_url = format!("/v1/snapshots/{snapshot_id}/bulk-read-stop");
     let snapshot_url = format!("/v1/snapshots/{snapshot_id}");
+    let read_url = format!("{snapshot_url}/read");
 
-    // Before starting the export, attempting a bulk read shouldn't work
-    NexusRequest::new(
-        RequestBuilder::new(client, Method::GET, &grab_url)
-            .body(Some(&params::ExportBlocksBulkReadRequest {
-                offset: 0,
-                size: CHUNK_SIZE,
-            }))
-            .expect_status(Some(StatusCode::GONE)),
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute()
-    .await
-    .unwrap();
-
-    // Start the export process
-    NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &start_url)
-            .expect_status(Some(StatusCode::NO_CONTENT)),
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute()
-    .await
-    .unwrap();
-
-    // Trying to start again will not do anything and still return 204
-    NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &start_url)
-            .expect_status(Some(StatusCode::NO_CONTENT)),
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute()
-    .await
-    .unwrap();
-
-    // Grab blocks
-    for offset in (0..snapshot.size.into()).step_by(CHUNK_SIZE as usize) {
-        let response: params::ExportBlocksBulkReadResponse = NexusRequest::new(
-            RequestBuilder::new(client, Method::GET, &grab_url)
-                .body(Some(&params::ExportBlocksBulkReadRequest {
-                    offset: offset as u64,
-                    size: CHUNK_SIZE,
-                }))
-                .expect_status(Some(StatusCode::OK)),
-        )
-        .authn_as(AuthnMode::PrivilegedUser)
-        .execute()
+    let (.., authz_snapshot) = LookupPath::new(&opctx, datastore)
+        .snapshot_id(snapshot_id)
+        .lookup_for(authz::Action::Read)
         .await
-        .unwrap()
-        .parsed_body()
         .unwrap();
 
-        let data = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &response.base64_encoded_data,
-        ).unwrap();
+    // Wait for user data export object to be created
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
 
-        // The simulated pantry will return all 0
-        assert_eq!(data, vec![0u8; CHUNK_SIZE as usize]);
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Ok(()),
+                    None => Err(CondCheckError::<()>::NotYet),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    // Grab all blocks
+    // XXX this buffers 1 GB in memory!
+    let data: bytes::Bytes = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::OK))
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed snapshot full read")
+    .body;
+
+    let size: usize = snapshot.size.to_bytes() as usize;
+
+    assert_eq!(data.len(), size);
+
+    for start in (0..size).step_by(CHUNK_SIZE) {
+        // Nexus will proxy requests to the Pantry in CHUNK_SIZE chunks. Check
+        // for those there. The simulated pantry will return all 0, plus some
+        // breadcrumbs for validation. First the offset, then the chunk size.
+        assert_eq!(
+            u64::from_le_bytes(data[start..(start + 8)].try_into().unwrap()),
+            start as u64,
+        );
+        assert_eq!(
+            usize::from_le_bytes(data[(start + 8)..(start + 16)].try_into().unwrap()),
+            CHUNK_SIZE,
+        );
+
+        assert_eq!(data[(start + 16)..(start + CHUNK_SIZE)].len(), CHUNK_SIZE - 16);
+
+        assert_eq!(
+            data[(start + 16)..(start + CHUNK_SIZE)],
+            vec![0u8; CHUNK_SIZE - 16]
+        );
     }
-
-    // XXX can still make disk out of snapshot, even if it's exporting
-
-    // Stop the export process
-    NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &stop_url)
-            .expect_status(Some(StatusCode::NO_CONTENT)),
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute()
-    .await
-    .unwrap();
-
-    // Trying to stop again will not do anything and return 410
-    NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &stop_url)
-            .expect_status(Some(StatusCode::GONE)),
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute()
-    .await
-    .unwrap();
 
     // Delete snapshot
     NexusRequest::new(
@@ -236,17 +226,453 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     .await
     .unwrap();
 
-    // Should be unable to start an export after the snapshot is deleted
+    // Wait for user data export object to be deleted
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Err(CondCheckError::<()>::NotYet),
+                    None => Ok(()),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object deleted");
+}
+
+#[nexus_test]
+async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    DiskTest::new(&cptestctx).await;
+    let project_id = create_project_and_pool(client).await;
+    let disks_url = get_disks_url();
+
+    // Create a blank disk
+    let disk_size = ByteCount::from_gibibytes_u32(1);
+    let base_disk_name: Name = "base-disk".parse().unwrap();
+    let base_disk = params::DiskCreate {
+        identity: IdentityMetadataCreateParams {
+            name: base_disk_name.clone(),
+            description: String::from("sells rainsticks"),
+        },
+        disk_source: params::DiskSource::Blank {
+            block_size: params::BlockSize::try_from(512).unwrap(),
+        },
+        size: disk_size,
+    };
+
+    let base_disk: Disk = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, &disks_url)
+            .body(Some(&base_disk))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .unwrap()
+    .parsed_body()
+    .unwrap();
+
+    // Issue snapshot request
+    let snapshots_url = format!("/v1/snapshots?project={}", PROJECT_NAME);
+
+    let snapshot: views::Snapshot = object_create(
+        client,
+        &snapshots_url,
+        &params::SnapshotCreate {
+            identity: IdentityMetadataCreateParams {
+                name: "not-attached".parse().unwrap(),
+                description: "not attached to instance".into(),
+            },
+            disk: base_disk_name.clone().into(),
+        },
+    )
+    .await;
+
+    let snapshot_id = snapshot.identity.id;
+    let snapshot_url = format!("/v1/snapshots/{snapshot_id}");
+    let read_url = format!("{snapshot_url}/read");
+
+    let (.., authz_snapshot, db_snapshot) = LookupPath::new(&opctx, datastore)
+        .snapshot_id(snapshot_id)
+        .fetch_for(authz::Action::Read)
+        .await
+        .unwrap();
+
+    // Wait for user data export object to be created
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Ok(()),
+                    None => Err(CondCheckError::<()>::NotYet),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    // Grab all blocks by chunks
+    let snapshot_size: usize = db_snapshot.size.to_bytes() as usize;
+
+    for start in (0..snapshot_size).step_by(CHUNK_SIZE) {
+        let end = std::cmp::min(start + CHUNK_SIZE, snapshot_size) - 1;
+        let range = format!("bytes={}-{}", start, end);
+
+        let data: bytes::Bytes = NexusRequest::new(
+            RequestBuilder::new(client, Method::GET, &read_url)
+                .expect_status(Some(StatusCode::PARTIAL_CONTENT))
+                .header(http::header::RANGE, &range)
+                .expect_range_requestable("application/octet-stream")
+                .expect_response_header(
+                    http::header::CONTENT_RANGE,
+                    &format!("bytes {start}-{end}/{snapshot_size}"),
+                )
+        )
+        .authn_as(AuthnMode::PrivilegedUser)
+        .execute()
+        .await
+        .expect("failed snapshot ranged read")
+        .body;
+
+        assert_eq!(data.len(), CHUNK_SIZE);
+
+        // The simulated pantry will return all 0, plus some breadcrumbs for
+        // validation. First the offset, then the chunk size.
+        assert_eq!(u64::from_le_bytes(data[0..8].try_into().unwrap()), start as u64);
+        assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), CHUNK_SIZE);
+        assert_eq!(data[16..], vec![0u8; CHUNK_SIZE - 16]);
+    }
+
+    // Delete snapshot
     NexusRequest::new(
-        RequestBuilder::new(client, Method::POST, &start_url)
-            .expect_status(Some(StatusCode::NOT_FOUND)),
+        RequestBuilder::new(client, Method::DELETE, &snapshot_url)
+            .expect_status(Some(StatusCode::NO_CONTENT)),
     )
     .authn_as(AuthnMode::PrivilegedUser)
     .execute()
     .await
     .unwrap();
+
+    // Wait for user data export object to be deleted
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Err(CondCheckError::<()>::NotYet),
+                    None => Ok(()),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object deleted");
 }
 
-// XXX TEST: expunge pantry that it's on?
-// XXX TEST: permissions
+/// Test that user data export does not work until saga runs
+#[nexus_test]
+async fn test_user_data_export_before_creation(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
+    DiskTest::new(&cptestctx).await;
+    let project_id = create_project_and_pool(client).await;
+    let disks_url = get_disks_url();
+
+    // Create a blank disk
+    let disk_size = ByteCount::from_gibibytes_u32(1);
+    let base_disk_name: Name = "base-disk".parse().unwrap();
+    let base_disk = params::DiskCreate {
+        identity: IdentityMetadataCreateParams {
+            name: base_disk_name.clone(),
+            description: String::from("sells rainsticks"),
+        },
+        disk_source: params::DiskSource::Blank {
+            block_size: params::BlockSize::try_from(512).unwrap(),
+        },
+        size: disk_size,
+    };
+
+    let base_disk: Disk = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, &disks_url)
+            .body(Some(&base_disk))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .unwrap()
+    .parsed_body()
+    .unwrap();
+
+    // Issue snapshot request
+    let snapshots_url = format!("/v1/snapshots?project={}", PROJECT_NAME);
+
+    let snapshot: views::Snapshot = object_create(
+        client,
+        &snapshots_url,
+        &params::SnapshotCreate {
+            identity: IdentityMetadataCreateParams {
+                name: "not-attached".parse().unwrap(),
+                description: "not attached to instance".into(),
+            },
+            disk: base_disk_name.clone().into(),
+        },
+    )
+    .await;
+
+    let snapshot_id = snapshot.identity.id;
+    let snapshot_url = format!("/v1/snapshots/{snapshot_id}");
+    let read_url = format!("{snapshot_url}/read");
+
+    let (.., authz_snapshot, db_snapshot) = LookupPath::new(&opctx, datastore)
+        .snapshot_id(snapshot_id)
+        .fetch_for(authz::Action::Read)
+        .await
+        .unwrap();
+
+    // Try to grab a single block
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::BAD_GATEWAY))
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed snapshot ranged read");
+}
+
+/// Test that user data export does not work after resource deletion
+#[nexus_test]
+async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    DiskTest::new(&cptestctx).await;
+    let project_id = create_project_and_pool(client).await;
+    let disks_url = get_disks_url();
+
+    // Create a blank disk
+    let disk_size = ByteCount::from_gibibytes_u32(1);
+    let base_disk_name: Name = "base-disk".parse().unwrap();
+    let base_disk = params::DiskCreate {
+        identity: IdentityMetadataCreateParams {
+            name: base_disk_name.clone(),
+            description: String::from("sells rainsticks"),
+        },
+        disk_source: params::DiskSource::Blank {
+            block_size: params::BlockSize::try_from(512).unwrap(),
+        },
+        size: disk_size,
+    };
+
+    let base_disk: Disk = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, &disks_url)
+            .body(Some(&base_disk))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .unwrap()
+    .parsed_body()
+    .unwrap();
+
+    // Issue snapshot request
+    let snapshots_url = format!("/v1/snapshots?project={}", PROJECT_NAME);
+
+    let snapshot: views::Snapshot = object_create(
+        client,
+        &snapshots_url,
+        &params::SnapshotCreate {
+            identity: IdentityMetadataCreateParams {
+                name: "not-attached".parse().unwrap(),
+                description: "not attached to instance".into(),
+            },
+            disk: base_disk_name.clone().into(),
+        },
+    )
+    .await;
+
+    let snapshot_id = snapshot.identity.id;
+    let snapshot_url = format!("/v1/snapshots/{snapshot_id}");
+    let read_url = format!("{snapshot_url}/read");
+
+    let (.., authz_snapshot, db_snapshot) = LookupPath::new(&opctx, datastore)
+        .snapshot_id(snapshot_id)
+        .fetch_for(authz::Action::Read)
+        .await
+        .unwrap();
+
+    // Wait for user data export object to be created
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Ok(()),
+                    None => Err(CondCheckError::<()>::NotYet),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    // Grab a single block
+    let snapshot_size: usize = db_snapshot.size.to_bytes() as usize;
+
+    let start = 512;
+    let end = 1023;
+    let range = format!("bytes={}-{}", start, end);
+
+    let data: bytes::Bytes = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::PARTIAL_CONTENT))
+            .header(http::header::RANGE, &range)
+            .expect_range_requestable("application/octet-stream")
+            .expect_response_header(
+                http::header::CONTENT_RANGE,
+                &format!("bytes {start}-{end}/{snapshot_size}"),
+            )
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed snapshot ranged read")
+    .body;
+
+    assert_eq!(data.len(), 512);
+
+    // The simulated pantry will return all 0, plus some breadcrumbs for
+    // validation. First the offset, then the chunk size.
+    assert_eq!(u64::from_le_bytes(data[0..8].try_into().unwrap()), start as u64);
+    assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), 512);
+    assert_eq!(data[16..], vec![0u8; 512 - 16]);
+
+    // Delete snapshot
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::DELETE, &snapshot_url)
+            .expect_status(Some(StatusCode::NO_CONTENT)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .unwrap();
+
+    // Wait for user data export object to be deleted
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                opctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let object = datastore.user_data_export_lookup_for_snapshot(
+                    &opctx,
+                    &authz_snapshot,
+                )
+                .await
+                .unwrap();
+
+                match object {
+                    Some(_) => Err(CondCheckError::<()>::NotYet),
+                    None => Ok(()),
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object deleted");
+
+    // Make sure the read no longer works
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, &read_url)
+            .expect_status(Some(StatusCode::NOT_FOUND))
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("failed snapshot ranged read after delete");
+}
