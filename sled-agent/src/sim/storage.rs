@@ -2159,8 +2159,15 @@ impl Pantry {
                 }
             }
 
-            _ => {
+            VolumeConstructionRequest::Region { .. } |
+            VolumeConstructionRequest::Url { .. } => {
                 panic!("unexpected Volume layout");
+            }
+
+            VolumeConstructionRequest::File { block_size, .. } => {
+                // XXX hard coded value from image create saga, see comment
+                // there.
+                (block_size, 100 * 1024 * 1024)
             }
         };
 
