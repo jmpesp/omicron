@@ -713,14 +713,11 @@ async fn test_user_data_export_basic_image_ranged(
     );
     let images_url = get_project_images_url(PROJECT_NAME);
 
-    let image = NexusRequest::objects_post(
-        client,
-        &images_url,
-        &image_create_params,
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute_and_parse_unwrap::<views::Image>()
-    .await;
+    let image =
+        NexusRequest::objects_post(client, &images_url, &image_create_params)
+            .authn_as(AuthnMode::PrivilegedUser)
+            .execute_and_parse_unwrap::<views::Image>()
+            .await;
 
     let image_id = image.identity.id;
     let image_url = format!("/v1/images/{image_id}");
@@ -859,14 +856,11 @@ async fn test_user_data_export_basic_image_ranged_with_promote(
     );
     let images_url = get_project_images_url(PROJECT_NAME);
 
-    let image = NexusRequest::objects_post(
-        client,
-        &images_url,
-        &image_create_params,
-    )
-    .authn_as(AuthnMode::PrivilegedUser)
-    .execute_and_parse_unwrap::<views::Image>()
-    .await;
+    let image =
+        NexusRequest::objects_post(client, &images_url, &image_create_params)
+            .authn_as(AuthnMode::PrivilegedUser)
+            .execute_and_parse_unwrap::<views::Image>()
+            .await;
 
     let image_id = image.identity.id;
     let image_url = format!("/v1/images/{image_id}");
@@ -939,10 +933,7 @@ async fn test_user_data_export_basic_image_ranged_with_promote(
         u64::from_le_bytes(data[0..8].try_into().unwrap()),
         start as u64
     );
-    assert_eq!(
-        usize::from_le_bytes(data[8..16].try_into().unwrap()),
-        512
-    );
+    assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), 512);
     assert_eq!(data[16..], vec![0u8; 512 - 16]);
 
     // Promote image to silo image
@@ -982,9 +973,6 @@ async fn test_user_data_export_basic_image_ranged_with_promote(
         u64::from_le_bytes(data[0..8].try_into().unwrap()),
         start as u64
     );
-    assert_eq!(
-        usize::from_le_bytes(data[8..16].try_into().unwrap()),
-        512
-    );
+    assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), 512);
     assert_eq!(data[16..], vec![0u8; 512 - 16]);
 }
