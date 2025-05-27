@@ -6,8 +6,6 @@
 
 //! XXX TODO
 
-use nexus_db_model::UserDataExportResource;
-use nexus_db_model::UserDataExportRecord;
 use super::sagas::user_data_export_create;
 use super::sagas::user_data_export_delete;
 use bytes::Bytes;
@@ -19,6 +17,8 @@ use http_body_util::channel::Channel;
 use internal_dns_types::names::ServiceName;
 use nexus_db_lookup::LookupPath;
 use nexus_db_lookup::lookup;
+use nexus_db_model::UserDataExportRecord;
+use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::authn;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
@@ -209,9 +209,8 @@ impl super::Nexus {
 
         tokio::spawn({
             let client = self.reqwest_client.clone();
-            let log = self
-                .log
-                .new(o!("task" => "user_data_export_blocks_read_task"));
+            let log =
+                self.log.new(o!("task" => "user_data_export_blocks_read_task"));
             let resource = user_data_export.resource();
             let volume_id = user_data_export.volume_id();
             let maybe_range = maybe_range.clone();
@@ -314,8 +313,7 @@ impl super::Nexus {
 
         let maybe_user_data_export = match &image_being_read {
             ImageBeingRead::Project(authz_image, _) => {
-                self
-                    .db_datastore
+                self.db_datastore
                     .user_data_export_lookup_for_project_image(
                         opctx,
                         authz_image,
@@ -324,8 +322,7 @@ impl super::Nexus {
             }
 
             ImageBeingRead::Silo(authz_image, _) => {
-                self
-                    .db_datastore
+                self.db_datastore
                     .user_data_export_lookup_for_silo_image(opctx, authz_image)
                     .await?
             }

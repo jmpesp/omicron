@@ -2159,8 +2159,8 @@ impl Pantry {
                 }
             }
 
-            VolumeConstructionRequest::Region { .. } |
-            VolumeConstructionRequest::Url { .. } => {
+            VolumeConstructionRequest::Region { .. }
+            | VolumeConstructionRequest::Url { .. } => {
                 panic!("unexpected Volume layout");
             }
 
