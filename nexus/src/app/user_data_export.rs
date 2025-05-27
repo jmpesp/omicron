@@ -156,10 +156,13 @@ impl super::Nexus {
             Some(user_data_export) => user_data_export,
 
             None => {
-                // XXX better error message
-                let s = String::from("no valid user data export for snapshot");
+                let s = format!(
+                    "no user data export object for {}",
+                    authz_snapshot.id()
+                );
                 warn!(self.log, "{s}");
 
+                let s = String::from("snapshot not ready for export");
                 let mut error = HttpError::for_internal_error(s);
                 error.status_code = ErrorStatusCode::BAD_GATEWAY;
                 return Err(error);
@@ -191,9 +194,11 @@ impl super::Nexus {
             .await?
         {
             // XXX nuke user data export record here?
+
             let s = format!("pantry {pantry_address} is gone from DNS!");
             warn!(self.log, "{s}");
 
+            let s = String::from("snapshot not ready for export");
             let mut error = HttpError::for_internal_error(s);
             error.status_code = ErrorStatusCode::BAD_GATEWAY;
             return Err(error);
