@@ -252,39 +252,4 @@ impl super::Nexus {
             .body(dropshot::Body::wrap(body))
             .map_err(|e| HttpError::for_internal_error(e.to_string()))?)
     }
-
-    /*
-    // XXX not required, wrap up in snapshot delete saga
-    pub(crate) async fn user_data_export_delete(
-        self: &Arc<Self>,
-        opctx: &OpContext,
-        snapshot_lookup: &lookup::Snapshot<'_>,
-    ) -> DeleteResult {
-        let (.., authz_snapshot, _) = snapshot_lookup.fetch_for(authz::Action::Delete).await?;
-
-        let Some(user_data_export) = self.db_datastore.user_data_export_lookup(
-                opctx,
-                &authz_snapshot,
-            )
-            .await?
-        else {
-            return Err(Error::Gone);
-        };
-
-        let saga_params = user_data_export_delete::Params {
-            serialized_authn: authn::saga::Serialized::for_opctx(opctx),
-            snapshot_id: authz_snapshot.id(),
-            user_data_export_id: user_data_export.id(),
-            volume_id: user_data_export.volume_id(),
-        };
-
-        self.sagas
-            .saga_execute::<user_data_export_delete::SagaUserDataExportDelete>(
-                saga_params,
-            )
-            .await?;
-
-        Ok(())
-    }
-    */
 }
