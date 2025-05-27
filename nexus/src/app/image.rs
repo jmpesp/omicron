@@ -121,6 +121,9 @@ impl super::Nexus {
             .map_err(|e| Error::internal_error(&format!("{:#}", &e)))
             .internal_context("looking up output from image create saga")?;
 
+        self.background_tasks
+            .activate(&self.background_tasks.task_user_data_export_coordinator);
+
         Ok(created_image)
     }
 
@@ -174,6 +177,9 @@ impl super::Nexus {
         self.sagas
             .saga_execute::<sagas::image_delete::SagaImageDelete>(saga_params)
             .await?;
+
+        self.background_tasks
+            .activate(&self.background_tasks.task_user_data_export_coordinator);
 
         Ok(())
     }
