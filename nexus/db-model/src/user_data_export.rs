@@ -3,18 +3,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::impl_enum_type;
-use crate::typed_uuid::DbTypedUuid;
+use crate::SqlU16;
 use crate::ipv6;
+use crate::typed_uuid::DbTypedUuid;
 use nexus_db_schema::schema::user_data_export;
-use omicron_uuid_kinds::VolumeKind;
-use omicron_uuid_kinds::VolumeUuid;
 use omicron_uuid_kinds::UserDataExportKind;
 use omicron_uuid_kinds::UserDataExportUuid;
+use omicron_uuid_kinds::VolumeKind;
+use omicron_uuid_kinds::VolumeUuid;
+use serde::Deserialize;
+use serde::Serialize;
 use std::net::SocketAddrV6;
 use uuid::Uuid;
-use crate::SqlU16;
-use serde::Serialize;
-use serde::Deserialize;
 
 impl_enum_type!(
     UserDataExportResourceTypeEnum:
@@ -74,11 +74,13 @@ impl UserDataExportRecord {
 
     pub fn resource(&self) -> UserDataExportResource {
         match self.resource_type {
-            UserDataExportResourceType::Snapshot =>
-                UserDataExportResource::Snapshot { id: self.resource_id },
+            UserDataExportResourceType::Snapshot => {
+                UserDataExportResource::Snapshot { id: self.resource_id }
+            }
 
-            UserDataExportResourceType::Image =>
-                UserDataExportResource::Image { id: self.resource_id },
+            UserDataExportResourceType::Image => {
+                UserDataExportResource::Image { id: self.resource_id }
+            }
         }
     }
 
@@ -101,5 +103,5 @@ impl UserDataExportRecord {
 pub enum UserDataExportResource {
     Snapshot { id: Uuid },
 
-    Image { id: Uuid }
+    Image { id: Uuid },
 }

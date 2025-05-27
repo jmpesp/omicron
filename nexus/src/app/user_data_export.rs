@@ -6,38 +6,38 @@
 
 //! XXX TODO
 
-use http_body_util::channel::Channel;
+use super::sagas::user_data_export_create;
+use super::sagas::user_data_export_delete;
+use bytes::Bytes;
 use dropshot::Body;
 use dropshot::ErrorStatusCode;
-use std::sync::Arc;
+use dropshot::HttpError;
+use http::{Response, StatusCode, header};
+use http_body_util::channel::Channel;
 use internal_dns_types::names::ServiceName;
-use nexus_types::identity::Resource;
+use nexus_db_lookup::LookupPath;
+use nexus_db_lookup::lookup;
 use nexus_db_queries::authn;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
-use nexus_db_lookup::LookupPath;
-use nexus_db_lookup::lookup;
 use nexus_types::external_api::params;
 use nexus_types::external_api::params::SnapshotSelector;
-use omicron_common::api::external::http_pagination::PaginatedBy;
+use nexus_types::identity::Resource;
 use omicron_common::api::external::CreateResult;
 use omicron_common::api::external::DeleteResult;
 use omicron_common::api::external::Error;
 use omicron_common::api::external::ListResultVec;
 use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::NameOrId;
-use super::sagas::user_data_export_create;
-use super::sagas::user_data_export_delete;
-use http::{Response, StatusCode, header};
-use uuid::Uuid;
-use bytes::Bytes;
-use slog::Logger;
-use std::net::SocketAddrV6;
-use range_requests::SingleRange;
+use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_uuid_kinds::VolumeUuid;
 use range_requests::PotentialRange;
-use dropshot::HttpError;
+use range_requests::SingleRange;
+use slog::Logger;
+use std::net::SocketAddrV6;
+use std::sync::Arc;
+use uuid::Uuid;
 
 async fn snapshot_blocks_read_task(
     mut sender: http_body_util::channel::Sender<Bytes>,
@@ -100,13 +100,11 @@ async fn snapshot_blocks_read_task(
             pantry_address,
         );
 
-        let request = crucible_pantry_client::types::BulkReadRequest {
-            offset, size
-        };
+        let request =
+            crucible_pantry_client::types::BulkReadRequest { offset, size };
 
-        let response = match client
-            .bulk_read(&volume_id.to_string(), &request)
-            .await {
+        let response =
+            match client.bulk_read(&volume_id.to_string(), &request).await {
                 Ok(response) => response,
 
                 Err(e) => {
@@ -116,7 +114,7 @@ async fn snapshot_blocks_read_task(
             };
 
         let crucible_pantry_client::types::BulkReadResponse {
-            base64_encoded_data
+            base64_encoded_data,
         } = response.into_inner();
 
         let bytes = match base64::Engine::decode(
@@ -147,13 +145,14 @@ impl super::Nexus {
         snapshot_lookup: &lookup::Snapshot<'_>,
         maybe_range: Option<PotentialRange>,
     ) -> Result<Response<Body>, HttpError> {
-        let (.., authz_snapshot, db_snapshot) = snapshot_lookup
-            .fetch_for(authz::Action::Read).await?;
+        let (.., authz_snapshot, db_snapshot) =
+            snapshot_lookup.fetch_for(authz::Action::Read).await?;
 
         let user_data_export = match self
             .db_datastore
             .user_data_export_lookup_for_snapshot(opctx, &authz_snapshot)
-            .await? {
+            .await?
+        {
             Some(user_data_export) => user_data_export,
 
             None => {
@@ -176,7 +175,7 @@ impl super::Nexus {
                 Err(body) => {
                     return Ok(body);
                 }
-            }
+            },
 
             None => None,
         };
@@ -184,10 +183,13 @@ impl super::Nexus {
         let pantry_address = user_data_export.pantry_address();
 
         // Check if it's gone from DNS, and fail early if so
-        if self.is_internal_service_gone(
-            ServiceName::CruciblePantry,
-            pantry_address,
-        ).await? {
+        if self
+            .is_internal_service_gone(
+                ServiceName::CruciblePantry,
+                pantry_address,
+            )
+            .await?
+        {
             // XXX nuke user data export record here?
             let s = format!("pantry {pantry_address} is gone from DNS!");
             warn!(self.log, "{s}");

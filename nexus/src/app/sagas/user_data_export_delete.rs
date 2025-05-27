@@ -4,28 +4,28 @@
 
 //! XXX TODO
 
-use slog_error_chain::InlineErrorChain;
-use super::common_storage::call_pantry_detach;
-use crate::app::authz;
 use super::ActionRegistry;
 use super::NexusActionContext;
 use super::NexusSaga;
-use crate::app::sagas::declare_saga_actions;
-use nexus_db_lookup::LookupPath;
-use crate::app::sagas::volume_delete;
+use super::common_storage::call_pantry_detach;
+use crate::app::authz;
 use crate::app::sagas::SagaInitError;
+use crate::app::sagas::declare_saga_actions;
+use crate::app::sagas::volume_delete;
+use nexus_db_lookup::LookupPath;
 use nexus_db_queries::authn;
 use nexus_db_queries::db;
 use omicron_common::api::external::DiskState;
-use omicron_uuid_kinds::VolumeUuid;
+use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
+use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::UserDataExportUuid;
+use omicron_uuid_kinds::VolumeUuid;
 use serde::Deserialize;
 use serde::Serialize;
+use slog_error_chain::InlineErrorChain;
 use steno::ActionError;
 use steno::Node;
 use uuid::Uuid;
-use omicron_uuid_kinds::GenericUuid;
-use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
 
 // user data export delete saga: input parameters
 
@@ -143,7 +143,7 @@ async fn suded_call_pantry_detach_for_export(
         Err(err) => Err(ActionError::action_failed(format!(
             "failed to detach {volume_id} from pantry at {pantry_address}: {}",
             InlineErrorChain::new(&err)
-        )))
+        ))),
     }
 }
 
@@ -179,16 +179,15 @@ mod test {
         ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
     };
     use dropshot::test_util::ClientTestContext;
-    use nexus_db_model::UserDataExportResource;
     use nexus_db_model::UserDataExportRecord;
-    use omicron_uuid_kinds::UserDataExportUuid;
+    use nexus_db_model::UserDataExportResource;
     use nexus_db_queries::context::OpContext;
-    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
     use nexus_db_queries::db::DataStore;
+    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
-    use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils::resource_helpers::create_project;
+    use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils::resource_helpers::delete_disk;
     use nexus_test_utils::resource_helpers::object_create;
     use nexus_test_utils_macros::nexus_test;
@@ -199,6 +198,7 @@ mod test {
     use omicron_common::api::external::InstanceCpuCount;
     use omicron_common::api::external::Name;
     use omicron_common::api::external::NameOrId;
+    use omicron_uuid_kinds::UserDataExportUuid;
     use sled_agent_client::CrucibleOpts;
     use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
     use std::str::FromStr;
@@ -224,24 +224,18 @@ mod test {
         create_project(client, PROJECT_NAME).await;
         create_disk(client, PROJECT_NAME, DISK_NAME).await;
 
-        let snapshot_id = create_snapshot(
-            client,
-            PROJECT_NAME,
-            DISK_NAME,
-            SNAPSHOT_NAME,
-        )
-        .await
-        .identity
-        .id;
+        let snapshot_id =
+            create_snapshot(client, PROJECT_NAME, DISK_NAME, SNAPSHOT_NAME)
+                .await
+                .identity
+                .id;
 
         // Build the create saga DAG with the provided test parameters
         let opctx = test_opctx(cptestctx);
 
         let params = user_data_export_create::Params {
             serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
-            resource: UserDataExportResource::Snapshot {
-                id: snapshot_id,
-            },
+            resource: UserDataExportResource::Snapshot { id: snapshot_id },
         };
 
         nexus
@@ -259,10 +253,7 @@ mod test {
 
         let export_object = nexus
             .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
+            .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot)
             .await
             .unwrap();
 
@@ -286,7 +277,8 @@ mod test {
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let (snapshot_id, export_object) = create_all_the_stuff(cptestctx).await;
+        let (snapshot_id, export_object) =
+            create_all_the_stuff(cptestctx).await;
 
         // Create the delete saga dag
         let opctx = test_opctx(cptestctx);
@@ -312,10 +304,7 @@ mod test {
 
         let export_object = nexus
             .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
+            .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot)
             .await
             .unwrap();
 
@@ -330,7 +319,8 @@ mod test {
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let (snapshot_id, export_object) = create_all_the_stuff(cptestctx).await;
+        let (snapshot_id, export_object) =
+            create_all_the_stuff(cptestctx).await;
 
         // Create the delete saga dag
         let opctx = test_opctx(cptestctx);
@@ -357,10 +347,7 @@ mod test {
 
         let export_object = nexus
             .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
+            .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot)
             .await
             .unwrap();
 

@@ -5,21 +5,21 @@
 //! Tests basic user data export support in the API
 
 use crate::integration_tests::instances::instance_simulate;
-use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use chrono::Utc;
 use dropshot::test_util::ClientTestContext;
-use http::method::Method;
 use http::StatusCode;
+use http::method::Method;
 use nexus_config::RegionAllocationStrategy;
+use nexus_db_lookup::LookupPath;
 use nexus_db_model::to_db_typed_uuid;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
+use nexus_db_queries::db::datastore::REGION_REDUNDANCY_THRESHOLD;
 use nexus_db_queries::db::datastore::RegionAllocationFor;
 use nexus_db_queries::db::datastore::RegionAllocationParameters;
-use nexus_db_queries::db::datastore::REGION_REDUNDANCY_THRESHOLD;
 use nexus_db_queries::db::identity::Resource;
-use nexus_db_lookup::LookupPath;
+use nexus_test_utils::SLED_AGENT_UUID;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
@@ -27,7 +27,6 @@ use nexus_test_utils::resource_helpers::create_default_ip_pool;
 use nexus_test_utils::resource_helpers::create_disk;
 use nexus_test_utils::resource_helpers::create_project;
 use nexus_test_utils::resource_helpers::object_create;
-use nexus_test_utils::SLED_AGENT_UUID;
 use nexus_test_utils_macros::nexus_test;
 use nexus_types::external_api::params;
 use nexus_types::external_api::views;
@@ -40,6 +39,7 @@ use omicron_common::api::external::Instance;
 use omicron_common::api::external::InstanceCpuCount;
 use omicron_common::api::external::Name;
 use omicron_nexus::app::MIN_DISK_SIZE_BYTES;
+use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
@@ -58,7 +58,7 @@ type DiskTestBuilder<'a> = nexus_test_utils::resource_helpers::DiskTestBuilder<
 const PROJECT_NAME: &str = "springfield-squidport-disks";
 
 // Max chunk size that the Pantry supports
-const CHUNK_SIZE: usize = 512*1024;
+const CHUNK_SIZE: usize = 512 * 1024;
 
 fn get_disks_url() -> String {
     format!("/v1/disks?project={}", PROJECT_NAME)
@@ -153,19 +153,18 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Ok(()),
@@ -183,7 +182,7 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     // XXX this buffers 1 GB in memory!
     let data: bytes::Bytes = NexusRequest::new(
         RequestBuilder::new(client, Method::GET, &read_url)
-            .expect_status(Some(StatusCode::OK))
+            .expect_status(Some(StatusCode::OK)),
     )
     .authn_as(AuthnMode::PrivilegedUser)
     .execute()
@@ -204,11 +203,16 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
             start as u64,
         );
         assert_eq!(
-            usize::from_le_bytes(data[(start + 8)..(start + 16)].try_into().unwrap()),
+            usize::from_le_bytes(
+                data[(start + 8)..(start + 16)].try_into().unwrap()
+            ),
             CHUNK_SIZE,
         );
 
-        assert_eq!(data[(start + 16)..(start + CHUNK_SIZE)].len(), CHUNK_SIZE - 16);
+        assert_eq!(
+            data[(start + 16)..(start + CHUNK_SIZE)].len(),
+            CHUNK_SIZE - 16
+        );
 
         assert_eq!(
             data[(start + 16)..(start + CHUNK_SIZE)],
@@ -230,19 +234,18 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Err(CondCheckError::<()>::NotYet),
@@ -258,7 +261,9 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
 }
 
 #[nexus_test]
-async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext) {
+async fn test_user_data_export_basic_ranged(
+    cptestctx: &ControlPlaneTestContext,
+) {
     let client = &cptestctx.external_client;
     let nexus = &cptestctx.server.server_context().nexus;
     let datastore = nexus.datastore();
@@ -325,19 +330,18 @@ async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext)
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Ok(()),
@@ -366,7 +370,7 @@ async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext)
                 .expect_response_header(
                     http::header::CONTENT_RANGE,
                     &format!("bytes {start}-{end}/{snapshot_size}"),
-                )
+                ),
         )
         .authn_as(AuthnMode::PrivilegedUser)
         .execute()
@@ -378,8 +382,14 @@ async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext)
 
         // The simulated pantry will return all 0, plus some breadcrumbs for
         // validation. First the offset, then the chunk size.
-        assert_eq!(u64::from_le_bytes(data[0..8].try_into().unwrap()), start as u64);
-        assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), CHUNK_SIZE);
+        assert_eq!(
+            u64::from_le_bytes(data[0..8].try_into().unwrap()),
+            start as u64
+        );
+        assert_eq!(
+            usize::from_le_bytes(data[8..16].try_into().unwrap()),
+            CHUNK_SIZE
+        );
         assert_eq!(data[16..], vec![0u8; CHUNK_SIZE - 16]);
     }
 
@@ -397,19 +407,18 @@ async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext)
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Err(CondCheckError::<()>::NotYet),
@@ -426,7 +435,9 @@ async fn test_user_data_export_basic_ranged(cptestctx: &ControlPlaneTestContext)
 
 /// Test that user data export does not work until saga runs
 #[nexus_test]
-async fn test_user_data_export_before_creation(cptestctx: &ControlPlaneTestContext) {
+async fn test_user_data_export_before_creation(
+    cptestctx: &ControlPlaneTestContext,
+) {
     let client = &cptestctx.external_client;
     let nexus = &cptestctx.server.server_context().nexus;
     let datastore = nexus.datastore();
@@ -492,7 +503,7 @@ async fn test_user_data_export_before_creation(cptestctx: &ControlPlaneTestConte
     // Try to grab a single block
     NexusRequest::new(
         RequestBuilder::new(client, Method::GET, &read_url)
-            .expect_status(Some(StatusCode::BAD_GATEWAY))
+            .expect_status(Some(StatusCode::BAD_GATEWAY)),
     )
     .authn_as(AuthnMode::PrivilegedUser)
     .execute()
@@ -502,7 +513,9 @@ async fn test_user_data_export_before_creation(cptestctx: &ControlPlaneTestConte
 
 /// Test that user data export does not work after resource deletion
 #[nexus_test]
-async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext) {
+async fn test_user_data_export_after_delete(
+    cptestctx: &ControlPlaneTestContext,
+) {
     let client = &cptestctx.external_client;
     let nexus = &cptestctx.server.server_context().nexus;
     let datastore = nexus.datastore();
@@ -569,19 +582,18 @@ async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext)
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Ok(()),
@@ -610,7 +622,7 @@ async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext)
             .expect_response_header(
                 http::header::CONTENT_RANGE,
                 &format!("bytes {start}-{end}/{snapshot_size}"),
-            )
+            ),
     )
     .authn_as(AuthnMode::PrivilegedUser)
     .execute()
@@ -622,7 +634,10 @@ async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext)
 
     // The simulated pantry will return all 0, plus some breadcrumbs for
     // validation. First the offset, then the chunk size.
-    assert_eq!(u64::from_le_bytes(data[0..8].try_into().unwrap()), start as u64);
+    assert_eq!(
+        u64::from_le_bytes(data[0..8].try_into().unwrap()),
+        start as u64
+    );
     assert_eq!(usize::from_le_bytes(data[8..16].try_into().unwrap()), 512);
     assert_eq!(data[16..], vec![0u8; 512 - 16]);
 
@@ -640,19 +655,18 @@ async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext)
     wait_for_condition(
         || {
             let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                opctx.log.new(o!()),
-                datastore.clone(),
-            );
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
             let authz_snapshot = authz_snapshot.clone();
 
             async move {
-                let object = datastore.user_data_export_lookup_for_snapshot(
-                    &opctx,
-                    &authz_snapshot,
-                )
-                .await
-                .unwrap();
+                let object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx,
+                        &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
 
                 match object {
                     Some(_) => Err(CondCheckError::<()>::NotYet),
@@ -669,7 +683,7 @@ async fn test_user_data_export_after_delete(cptestctx: &ControlPlaneTestContext)
     // Make sure the read no longer works
     NexusRequest::new(
         RequestBuilder::new(client, Method::GET, &read_url)
-            .expect_status(Some(StatusCode::NOT_FOUND))
+            .expect_status(Some(StatusCode::NOT_FOUND)),
     )
     .authn_as(AuthnMode::PrivilegedUser)
     .execute()

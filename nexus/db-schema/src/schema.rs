@@ -2454,8 +2454,4 @@ table! {
         volume_id -> Uuid,
     }
 }
-allow_tables_to_appear_in_same_query!(
-    user_data_export,
-    snapshot,
-    image
-);
+allow_tables_to_appear_in_same_query!(user_data_export, snapshot, image);

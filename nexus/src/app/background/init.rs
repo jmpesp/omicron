@@ -935,8 +935,7 @@ impl BackgroundTasksInitializer {
             description: "make the user resources available for export",
             period: config.user_data_export_coordinator.period_secs,
             task_impl: Box::new(UserDataExportCoordinator::new(
-                datastore,
-                sagas,
+                datastore, sagas,
             )),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
