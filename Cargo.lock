@@ -8045,6 +8045,7 @@ dependencies = [
  "hashbrown 0.15.3",
  "hickory-proto",
  "hmac",
+ "http-body-util",
  "hyper",
  "hyper-rustls 0.27.3",
  "hyper-util",
