@@ -6,6 +6,8 @@
 
 //! XXX TODO
 
+use nexus_db_model::UserDataExportResource;
+use nexus_db_model::UserDataExportRecord;
 use super::sagas::user_data_export_create;
 use super::sagas::user_data_export_delete;
 use bytes::Bytes;
@@ -39,12 +41,33 @@ use std::net::SocketAddrV6;
 use std::sync::Arc;
 use uuid::Uuid;
 
-async fn snapshot_blocks_read_task(
+enum ImageBeingRead {
+    Project(authz::ProjectImage, nexus_db_model::ProjectImage),
+    Silo(authz::SiloImage, nexus_db_model::SiloImage),
+}
+
+impl ImageBeingRead {
+    pub fn id(&self) -> Uuid {
+        match self {
+            ImageBeingRead::Project(a, _) => a.id(),
+            ImageBeingRead::Silo(a, _) => a.id(),
+        }
+    }
+
+    pub fn image(self) -> nexus_db_model::Image {
+        match self {
+            ImageBeingRead::Project(_, d) => d.into(),
+            ImageBeingRead::Silo(_, d) => d.into(),
+        }
+    }
+}
+
+async fn user_data_export_blocks_read_task(
     mut sender: http_body_util::channel::Sender<Bytes>,
     log: Logger,
     client: reqwest::Client,
-    snapshot_id: Uuid,
-    snapshot_size: u64,
+    resource: UserDataExportResource,
+    total_size: u64,
     pantry_address: SocketAddrV6,
     maybe_range: Option<SingleRange>,
     volume_id: VolumeUuid,
@@ -54,13 +77,13 @@ async fn snapshot_blocks_read_task(
 
     (range_start, range_end) = match maybe_range {
         Some(range) => (range.start(), range.end_inclusive() + 1),
-        None => (0, snapshot_size),
+        None => (0, total_size),
     };
 
     info!(
         log,
-        "read of snapshot {} start {} end {} using pantry {}",
-        snapshot_id,
+        "read of resource {:?} start {} end {} using pantry {}",
+        resource,
         range_start,
         range_end,
         pantry_address,
@@ -93,8 +116,8 @@ async fn snapshot_blocks_read_task(
 
         info!(
             log,
-            "bulk read request: snapshot {} offset {} size {} using pantry {}",
-            snapshot_id,
+            "read request: resource {:?} offset {} size {} using pantry {}",
+            resource,
             offset,
             size,
             pantry_address,
@@ -139,40 +162,14 @@ async fn snapshot_blocks_read_task(
 }
 
 impl super::Nexus {
-    pub(crate) async fn user_data_export_for_snapshot(
-        self: &Arc<Self>,
-        opctx: &OpContext,
-        snapshot_lookup: &lookup::Snapshot<'_>,
+    async fn user_data_export_for_resource(
+        &self,
+        user_data_export: UserDataExportRecord,
+        total_size: u64,
         maybe_range: Option<PotentialRange>,
     ) -> Result<Response<Body>, HttpError> {
-        let (.., authz_snapshot, db_snapshot) =
-            snapshot_lookup.fetch_for(authz::Action::Read).await?;
-
-        let user_data_export = match self
-            .db_datastore
-            .user_data_export_lookup_for_snapshot(opctx, &authz_snapshot)
-            .await?
-        {
-            Some(user_data_export) => user_data_export,
-
-            None => {
-                let s = format!(
-                    "no user data export object for {}",
-                    authz_snapshot.id()
-                );
-                warn!(self.log, "{s}");
-
-                let s = String::from("snapshot not ready for export");
-                let mut error = HttpError::for_internal_error(s);
-                error.status_code = ErrorStatusCode::BAD_GATEWAY;
-                return Err(error);
-            }
-        };
-
-        let snapshot_size = db_snapshot.size.0.to_bytes();
-
         let maybe_range: Option<SingleRange> = match maybe_range {
-            Some(range) => match range.parse(snapshot_size) {
+            Some(range) => match range.parse(total_size) {
                 Ok(range) => Some(range),
 
                 Err(body) => {
@@ -196,9 +193,13 @@ impl super::Nexus {
             // XXX nuke user data export record here?
 
             let s = format!("pantry {pantry_address} is gone from DNS!");
-            warn!(self.log, "{s}");
+            warn!(
+                self.log,
+                "{s}";
+                "user_data_export" => %user_data_export.id(),
+            );
 
-            let s = String::from("snapshot not ready for export");
+            let s = String::from("resource not ready for export");
             let mut error = HttpError::for_internal_error(s);
             error.status_code = ErrorStatusCode::BAD_GATEWAY;
             return Err(error);
@@ -208,18 +209,20 @@ impl super::Nexus {
 
         tokio::spawn({
             let client = self.reqwest_client.clone();
-            let log = self.log.new(o!("task" => "snapshot_blocks_read_task"));
-            let snapshot_id = authz_snapshot.id();
+            let log = self
+                .log
+                .new(o!("task" => "user_data_export_blocks_read_task"));
+            let resource = user_data_export.resource();
             let volume_id = user_data_export.volume_id();
             let maybe_range = maybe_range.clone();
 
             async move {
-                snapshot_blocks_read_task(
+                user_data_export_blocks_read_task(
                     sender,
                     log,
                     client,
-                    snapshot_id,
-                    snapshot_size,
+                    resource,
+                    total_size,
                     pantry_address,
                     maybe_range,
                     volume_id,
@@ -245,11 +248,111 @@ impl super::Nexus {
         } else {
             builder = builder
                 .status(http::StatusCode::OK)
-                .header(http::header::CONTENT_LENGTH, snapshot_size);
+                .header(http::header::CONTENT_LENGTH, total_size);
         }
 
         Ok(builder
             .body(dropshot::Body::wrap(body))
             .map_err(|e| HttpError::for_internal_error(e.to_string()))?)
+    }
+
+    pub(crate) async fn user_data_export_for_snapshot(
+        self: &Arc<Self>,
+        opctx: &OpContext,
+        snapshot_lookup: &lookup::Snapshot<'_>,
+        maybe_range: Option<PotentialRange>,
+    ) -> Result<Response<Body>, HttpError> {
+        let (.., authz_snapshot, db_snapshot) =
+            snapshot_lookup.fetch_for(authz::Action::Read).await?;
+
+        let user_data_export = match self
+            .db_datastore
+            .user_data_export_lookup_for_snapshot(opctx, &authz_snapshot)
+            .await?
+        {
+            Some(user_data_export) => user_data_export,
+
+            None => {
+                let s = format!(
+                    "no user data export object for snapshot {}",
+                    authz_snapshot.id()
+                );
+                warn!(self.log, "{s}");
+
+                let s = String::from("resource not ready for export");
+                let mut error = HttpError::for_internal_error(s);
+                error.status_code = ErrorStatusCode::BAD_GATEWAY;
+                return Err(error);
+            }
+        };
+
+        self.user_data_export_for_resource(
+            user_data_export,
+            db_snapshot.size.0.to_bytes(),
+            maybe_range,
+        )
+        .await
+    }
+
+    pub(crate) async fn user_data_export_for_image(
+        self: &Arc<Self>,
+        opctx: &OpContext,
+        image_lookup: &lookup::ImageLookup<'_>,
+        maybe_range: Option<PotentialRange>,
+    ) -> Result<Response<Body>, HttpError> {
+        let image_being_read = match image_lookup {
+            lookup::ImageLookup::ProjectImage(image) => {
+                let (.., authz_image, db_image) = image.fetch().await?;
+                ImageBeingRead::Project(authz_image, db_image)
+            }
+
+            lookup::ImageLookup::SiloImage(image) => {
+                let (.., authz_image, db_image) = image.fetch().await?;
+                ImageBeingRead::Silo(authz_image, db_image)
+            }
+        };
+
+        let maybe_user_data_export = match &image_being_read {
+            ImageBeingRead::Project(authz_image, _) => {
+                self
+                    .db_datastore
+                    .user_data_export_lookup_for_project_image(
+                        opctx,
+                        authz_image,
+                    )
+                    .await?
+            }
+
+            ImageBeingRead::Silo(authz_image, _) => {
+                self
+                    .db_datastore
+                    .user_data_export_lookup_for_silo_image(opctx, authz_image)
+                    .await?
+            }
+        };
+
+        let user_data_export = match maybe_user_data_export {
+            Some(user_data_export) => user_data_export,
+
+            None => {
+                let s = format!(
+                    "no user data export object for image {}",
+                    image_being_read.id()
+                );
+                warn!(self.log, "{s}");
+
+                let s = String::from("resource not ready for export");
+                let mut error = HttpError::for_internal_error(s);
+                error.status_code = ErrorStatusCode::BAD_GATEWAY;
+                return Err(error);
+            }
+        };
+
+        self.user_data_export_for_resource(
+            user_data_export,
+            image_being_read.image().size.0.to_bytes(),
+            maybe_range,
+        )
+        .await
     }
 }
