@@ -2224,10 +2224,10 @@ pub trait NexusExternalApi {
     }]
     async fn snapshot_read(
         rqctx: RequestContext<Self::Context>,
+        headers: Header<headers::RangeRequest>,
         path_params: Path<params::SnapshotPath>,
         query_params: Query<params::OptionalProjectSelector>,
-        export_params: TypedBody<params::ExportBlocksBulkReadRequest>,
-    ) -> Result<HttpResponseOk<params::ExportBlocksBulkReadResponse>, HttpError>;
+    ) -> Result<Response<Body>, HttpError>;
 
     // VPCs
 
