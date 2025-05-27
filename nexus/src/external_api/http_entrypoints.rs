@@ -4882,11 +4882,9 @@ impl NexusExternalApi for NexusExternalApiImpl {
                 .range
                 .map(|r| PotentialRange::new(r.as_bytes()));
 
-            let response = nexus.user_data_export_for_snapshot(
-                &opctx,
-                &snapshot_lookup,
-                range,
-            ).await?;
+            let response = nexus
+                .user_data_export_for_snapshot(&opctx, &snapshot_lookup, range)
+                .await?;
 
             Ok(response)
         };

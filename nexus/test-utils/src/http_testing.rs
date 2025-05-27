@@ -258,8 +258,7 @@ impl<'a> RequestBuilder<'a> {
             http::header::CONTENT_TYPE,
             http::header::ACCEPT_RANGES,
         ]);
-        self
-            .expect_response_header(http::header::CONTENT_TYPE, content_type)
+        self.expect_response_header(http::header::CONTENT_TYPE, content_type)
             .expect_response_header(http::header::ACCEPT_RANGES, "bytes")
     }
 
@@ -364,7 +363,10 @@ impl<'a> RequestBuilder<'a> {
         // Check that we didn't have any unexpected headers.
         let headers = response.headers();
         if let Some(allowed_headers) = self.allowed_headers {
-            slog::info!(self.testctx.client_log, "allowed headers: {allowed_headers:?}");
+            slog::info!(
+                self.testctx.client_log,
+                "allowed headers: {allowed_headers:?}"
+            );
             slog::info!(self.testctx.client_log, "headers: {headers:?}");
             for header_name in headers.keys() {
                 ensure!(

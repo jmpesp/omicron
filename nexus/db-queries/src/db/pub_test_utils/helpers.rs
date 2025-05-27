@@ -16,9 +16,9 @@ use nexus_db_model::AntiAffinityGroup;
 use nexus_db_model::BlockSize;
 use nexus_db_model::ByteCount;
 use nexus_db_model::Generation;
+use nexus_db_model::Image;
 use nexus_db_model::Instance;
 use nexus_db_model::InstanceRuntimeState;
-use nexus_db_model::Image;
 use nexus_db_model::InstanceState;
 use nexus_db_model::Project;
 use nexus_db_model::ProjectImage;
@@ -411,34 +411,37 @@ pub async fn create_project_snapshot(
     disk_id: Uuid,
     name: &str,
 ) -> Snapshot {
-    datastore.project_ensure_snapshot(
-        &opctx,
-        &authz_project,
-        Snapshot {
-            identity: SnapshotIdentity {
-                id: Uuid::new_v4(),
-                name: external::Name::try_from(name.to_string()).unwrap().into(),
-                description: "snapshot".into(),
+    datastore
+        .project_ensure_snapshot(
+            &opctx,
+            &authz_project,
+            Snapshot {
+                identity: SnapshotIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from(name.to_string())
+                        .unwrap()
+                        .into(),
+                    description: "snapshot".into(),
 
-                time_created: Utc::now(),
-                time_modified: Utc::now(),
-                time_deleted: None,
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
+
+                project_id: authz_project.id(),
+                disk_id,
+                volume_id: VolumeUuid::new_v4().into(),
+                destination_volume_id: VolumeUuid::new_v4().into(),
+
+                gen: Generation::new(),
+                state: SnapshotState::Creating,
+                block_size: BlockSize::AdvancedFormat,
+
+                size: external::ByteCount::from_gibibytes_u32(2).into(),
             },
-
-            project_id: authz_project.id(),
-            disk_id,
-            volume_id: VolumeUuid::new_v4().into(),
-            destination_volume_id: VolumeUuid::new_v4().into(),
-
-            gen: Generation::new(),
-            state: SnapshotState::Creating,
-            block_size: BlockSize::AdvancedFormat,
-
-            size: external::ByteCount::from_gibibytes_u32(2).into(),
-        },
-    )
-    .await
-    .unwrap()
+        )
+        .await
+        .unwrap()
 }
 
 pub async fn create_project_image(
@@ -449,35 +452,36 @@ pub async fn create_project_image(
 ) -> Image {
     let authz_silo = opctx.authn.silo_required().unwrap();
 
-    datastore.project_image_create(
-        &opctx,
-        &authz_project,
-        ProjectImage {
-            identity: ProjectImageIdentity {
-                id: Uuid::new_v4(),
-                name: external::Name::try_from(name.to_string())
-                    .unwrap()
-                    .into(),
-                description: "description".into(),
+    datastore
+        .project_image_create(
+            &opctx,
+            &authz_project,
+            ProjectImage {
+                identity: ProjectImageIdentity {
+                    id: Uuid::new_v4(),
+                    name: external::Name::try_from(name.to_string())
+                        .unwrap()
+                        .into(),
+                    description: "description".into(),
 
-                time_created: Utc::now(),
-                time_modified: Utc::now(),
-                time_deleted: None,
+                    time_created: Utc::now(),
+                    time_modified: Utc::now(),
+                    time_deleted: None,
+                },
+
+                silo_id: authz_silo.id(),
+                project_id: authz_project.id(),
+                volume_id: VolumeUuid::new_v4().into(),
+
+                url: None,
+                os: String::from("debian"),
+                version: String::from("12"),
+                digest: None,
+                block_size: BlockSize::Iso,
+
+                size: external::ByteCount::from_gibibytes_u32(1).into(),
             },
-
-            silo_id: authz_silo.id(),
-            project_id: authz_project.id(),
-            volume_id: VolumeUuid::new_v4().into(),
-
-            url: None,
-            os: String::from("debian"),
-            version: String::from("12"),
-            digest: None,
-            block_size: BlockSize::Iso,
-
-            size: external::ByteCount::from_gibibytes_u32(1).into(),
-        }
-    )
-    .await
-    .unwrap()
+        )
+        .await
+        .unwrap()
 }

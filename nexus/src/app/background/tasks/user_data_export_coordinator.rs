@@ -135,25 +135,29 @@ impl BackgroundTask for UserDataExportCoordinator {
             let log = &opctx.log;
             let mut status = UserDataExportCoordinatorStatus::default();
 
-            let changeset = match self.datastore.user_data_export_changeset(&opctx).await {
-                Ok(changeset) => changeset,
+            let changeset =
+                match self.datastore.user_data_export_changeset(&opctx).await {
+                    Ok(changeset) => changeset,
 
-                Err(e) => {
-                    let s = format!(
-                        "error getting user data export changeset: {e}"
-                    );
-                    error!(&log, "{s}");
-                    status.errors.push(s);
+                    Err(e) => {
+                        let s = format!(
+                            "error getting user data export changeset: {e}"
+                        );
+                        error!(&log, "{s}");
+                        status.errors.push(s);
 
-                    return json!(status);
-                }
-            };
+                        return json!(status);
+                    }
+                };
 
             error!(&log, "changeset is {changeset:?}");
 
             self.process_user_data_export_changeset(
-                &opctx, &changeset, &mut status,
-            ).await;
+                &opctx,
+                &changeset,
+                &mut status,
+            )
+            .await;
 
             json!(status)
         }
@@ -164,31 +168,31 @@ impl BackgroundTask for UserDataExportCoordinator {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::app::MIN_DISK_SIZE_BYTES;
+    use crate::app::authz;
     use crate::app::background::init::test::NoopStartSaga;
-    use nexus_db_model::Snapshot;
-    use nexus_db_model::SnapshotState;
-    use nexus_db_model::SnapshotIdentity;
-    use nexus_db_model::Generation;
+    use chrono::Utc;
+    use nexus_db_lookup::LookupPath;
     use nexus_db_model::BlockSize;
+    use nexus_db_model::Generation;
     use nexus_db_model::ProjectImage;
     use nexus_db_model::ProjectImageIdentity;
-    use nexus_test_utils_macros::nexus_test;
-    use omicron_uuid_kinds::DatasetUuid;
-    use omicron_uuid_kinds::GenericUuid;
-    use omicron_uuid_kinds::VolumeUuid;
-    use uuid::Uuid;
+    use nexus_db_model::Snapshot;
+    use nexus_db_model::SnapshotIdentity;
+    use nexus_db_model::SnapshotState;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::object_create;
-    use omicron_common::api::external;
-    use crate::app::MIN_DISK_SIZE_BYTES;
-    use chrono::Utc;
-    use nexus_db_lookup::LookupPath;
-    use crate::app::authz;
+    use nexus_test_utils_macros::nexus_test;
     use nexus_types::identity::Resource;
+    use omicron_common::api::external;
+    use omicron_uuid_kinds::DatasetUuid;
+    use omicron_uuid_kinds::GenericUuid;
     use omicron_uuid_kinds::UserDataExportUuid;
-    use std::net::SocketAddrV6;
+    use omicron_uuid_kinds::VolumeUuid;
     use std::net::Ipv6Addr;
+    use std::net::SocketAddrV6;
+    use uuid::Uuid;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
@@ -227,10 +231,8 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task = UserDataExportCoordinator::new(
-            datastore.clone(),
-            starter.clone(),
-        );
+        let mut task =
+            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
 
         let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
@@ -251,81 +253,85 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task = UserDataExportCoordinator::new(
-            datastore.clone(),
-            starter.clone(),
-        );
+        let mut task =
+            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
 
         let authz_project = setup_test_project(cptestctx, &opctx).await;
 
         // Add a snapshot and image
 
-        let snapshot = datastore.project_ensure_snapshot(
-            &opctx,
-            &authz_project,
-            Snapshot {
-                identity: SnapshotIdentity {
-                    id: Uuid::new_v4(),
-                    name: external::Name::try_from("snapshot".to_string())
-                        .unwrap()
-                        .into(),
-                    description: "snapshot".into(),
+        let snapshot = datastore
+            .project_ensure_snapshot(
+                &opctx,
+                &authz_project,
+                Snapshot {
+                    identity: SnapshotIdentity {
+                        id: Uuid::new_v4(),
+                        name: external::Name::try_from("snapshot".to_string())
+                            .unwrap()
+                            .into(),
+                        description: "snapshot".into(),
 
-                    time_created: Utc::now(),
-                    time_modified: Utc::now(),
-                    time_deleted: None,
-                },
+                        time_created: Utc::now(),
+                        time_modified: Utc::now(),
+                        time_deleted: None,
+                    },
 
-                project_id: authz_project.id(),
-                disk_id: Uuid::new_v4(),
-                volume_id: VolumeUuid::new_v4().into(),
-                destination_volume_id: VolumeUuid::new_v4().into(),
+                    project_id: authz_project.id(),
+                    disk_id: Uuid::new_v4(),
+                    volume_id: VolumeUuid::new_v4().into(),
+                    destination_volume_id: VolumeUuid::new_v4().into(),
 
-                gen: Generation::new(),
-                state: SnapshotState::Creating,
-                block_size: BlockSize::AdvancedFormat,
+                    gen: Generation::new(),
+                    state: SnapshotState::Creating,
+                    block_size: BlockSize::AdvancedFormat,
 
-                size: external::ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES)
+                    size: external::ByteCount::try_from(
+                        2 * MIN_DISK_SIZE_BYTES,
+                    )
                     .unwrap()
                     .into(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let image = datastore.project_image_create(
-            &opctx,
-            &authz_project,
-            ProjectImage {
-                identity: ProjectImageIdentity {
-                    id: Uuid::new_v4(),
-                    name: external::Name::try_from("image".to_string())
-                        .unwrap()
-                        .into(),
-                    description: "description".into(),
-
-                    time_created: Utc::now(),
-                    time_modified: Utc::now(),
-                    time_deleted: None,
                 },
+            )
+            .await
+            .unwrap();
 
-                silo_id: Uuid::new_v4(),
-                project_id: authz_project.id(),
-                volume_id: VolumeUuid::new_v4().into(),
+        let image = datastore
+            .project_image_create(
+                &opctx,
+                &authz_project,
+                ProjectImage {
+                    identity: ProjectImageIdentity {
+                        id: Uuid::new_v4(),
+                        name: external::Name::try_from("image".to_string())
+                            .unwrap()
+                            .into(),
+                        description: "description".into(),
 
-                url: None,
-                os: String::from("debian"),
-                version: String::from("12"),
-                digest: None,
-                block_size: BlockSize::Iso,
+                        time_created: Utc::now(),
+                        time_modified: Utc::now(),
+                        time_deleted: None,
+                    },
 
-                size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
+                    silo_id: Uuid::new_v4(),
+                    project_id: authz_project.id(),
+                    volume_id: VolumeUuid::new_v4().into(),
+
+                    url: None,
+                    os: String::from("debian"),
+                    version: String::from("12"),
+                    digest: None,
+                    block_size: BlockSize::Iso,
+
+                    size: external::ByteCount::try_from(
+                        1 * MIN_DISK_SIZE_BYTES,
+                    )
                     .unwrap()
                     .into(),
-            }
-        )
-        .await
-        .unwrap();
+                },
+            )
+            .await
+            .unwrap();
 
         // Activate the task - it should try to create user data export objects
         // for the snapshot and image
@@ -343,10 +349,8 @@ mod test {
         );
         assert!(result.create_invoked_ok.iter().any(|i| i.contains(&s)));
 
-        let s = format!(
-            "{:?}",
-            UserDataExportResource::Image { id: image.id() },
-        );
+        let s =
+            format!("{:?}", UserDataExportResource::Image { id: image.id() },);
         assert!(result.create_invoked_ok.iter().any(|i| i.contains(&s)));
 
         assert_eq!(result.errors.len(), 0);
@@ -366,81 +370,85 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task = UserDataExportCoordinator::new(
-            datastore.clone(),
-            starter.clone(),
-        );
+        let mut task =
+            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
 
         let authz_project = setup_test_project(cptestctx, &opctx).await;
 
         // Add a snapshot and image
 
-        let snapshot = datastore.project_ensure_snapshot(
-            &opctx,
-            &authz_project,
-            Snapshot {
-                identity: SnapshotIdentity {
-                    id: Uuid::new_v4(),
-                    name: external::Name::try_from("snapshot".to_string())
-                        .unwrap()
-                        .into(),
-                    description: "snapshot".into(),
+        let snapshot = datastore
+            .project_ensure_snapshot(
+                &opctx,
+                &authz_project,
+                Snapshot {
+                    identity: SnapshotIdentity {
+                        id: Uuid::new_v4(),
+                        name: external::Name::try_from("snapshot".to_string())
+                            .unwrap()
+                            .into(),
+                        description: "snapshot".into(),
 
-                    time_created: Utc::now(),
-                    time_modified: Utc::now(),
-                    time_deleted: None,
-                },
+                        time_created: Utc::now(),
+                        time_modified: Utc::now(),
+                        time_deleted: None,
+                    },
 
-                project_id: authz_project.id(),
-                disk_id: Uuid::new_v4(),
-                volume_id: VolumeUuid::new_v4().into(),
-                destination_volume_id: VolumeUuid::new_v4().into(),
+                    project_id: authz_project.id(),
+                    disk_id: Uuid::new_v4(),
+                    volume_id: VolumeUuid::new_v4().into(),
+                    destination_volume_id: VolumeUuid::new_v4().into(),
 
-                gen: Generation::new(),
-                state: SnapshotState::Creating,
-                block_size: BlockSize::AdvancedFormat,
+                    gen: Generation::new(),
+                    state: SnapshotState::Creating,
+                    block_size: BlockSize::AdvancedFormat,
 
-                size: external::ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES)
+                    size: external::ByteCount::try_from(
+                        2 * MIN_DISK_SIZE_BYTES,
+                    )
                     .unwrap()
                     .into(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let image = datastore.project_image_create(
-            &opctx,
-            &authz_project,
-            ProjectImage {
-                identity: ProjectImageIdentity {
-                    id: Uuid::new_v4(),
-                    name: external::Name::try_from("image".to_string())
-                        .unwrap()
-                        .into(),
-                    description: "description".into(),
-
-                    time_created: Utc::now(),
-                    time_modified: Utc::now(),
-                    time_deleted: None,
                 },
+            )
+            .await
+            .unwrap();
 
-                silo_id: Uuid::new_v4(),
-                project_id: authz_project.id(),
-                volume_id: VolumeUuid::new_v4().into(),
+        let image = datastore
+            .project_image_create(
+                &opctx,
+                &authz_project,
+                ProjectImage {
+                    identity: ProjectImageIdentity {
+                        id: Uuid::new_v4(),
+                        name: external::Name::try_from("image".to_string())
+                            .unwrap()
+                            .into(),
+                        description: "description".into(),
 
-                url: None,
-                os: String::from("debian"),
-                version: String::from("12"),
-                digest: None,
-                block_size: BlockSize::Iso,
+                        time_created: Utc::now(),
+                        time_modified: Utc::now(),
+                        time_deleted: None,
+                    },
 
-                size: external::ByteCount::try_from(1 * MIN_DISK_SIZE_BYTES)
+                    silo_id: Uuid::new_v4(),
+                    project_id: authz_project.id(),
+                    volume_id: VolumeUuid::new_v4().into(),
+
+                    url: None,
+                    os: String::from("debian"),
+                    version: String::from("12"),
+                    digest: None,
+                    block_size: BlockSize::Iso,
+
+                    size: external::ByteCount::try_from(
+                        1 * MIN_DISK_SIZE_BYTES,
+                    )
                     .unwrap()
                     .into(),
-            }
-        )
-        .await
-        .unwrap();
+                },
+            )
+            .await
+            .unwrap();
 
         // Create user data export rows for the snapshot and image
 
@@ -451,15 +459,16 @@ mod test {
                 .await
                 .unwrap();
 
-        datastore.user_data_export_create_for_snapshot(
-            &opctx,
-            UserDataExportUuid::new_v4(),
-            &authz_snapshot,
-            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
-            VolumeUuid::new_v4(),
-        )
-        .await
-        .unwrap();
+        datastore
+            .user_data_export_create_for_snapshot(
+                &opctx,
+                UserDataExportUuid::new_v4(),
+                &authz_snapshot,
+                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+                VolumeUuid::new_v4(),
+            )
+            .await
+            .unwrap();
 
         let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
             .image_id(image.id())
@@ -467,15 +476,16 @@ mod test {
             .await
             .unwrap();
 
-        datastore.user_data_export_create_for_image(
-            &opctx,
-            UserDataExportUuid::new_v4(),
-            &authz_image,
-            SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
-            VolumeUuid::new_v4(),
-        )
-        .await
-        .unwrap();
+        datastore
+            .user_data_export_create_for_image(
+                &opctx,
+                UserDataExportUuid::new_v4(),
+                &authz_image,
+                SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
+                VolumeUuid::new_v4(),
+            )
+            .await
+            .unwrap();
 
         // Activate the task - it should do nothing, as there are user data
         // export objects already.
@@ -488,14 +498,15 @@ mod test {
 
         // Delete the snapshot
 
-        datastore.project_delete_snapshot(
-            &opctx,
-            &authz_snapshot,
-            &db_snapshot,
-            vec![SnapshotState::Creating, SnapshotState::Ready],
-        )
-        .await
-        .unwrap();
+        datastore
+            .project_delete_snapshot(
+                &opctx,
+                &authz_snapshot,
+                &db_snapshot,
+                vec![SnapshotState::Creating, SnapshotState::Ready],
+            )
+            .await
+            .unwrap();
 
         // Activate the task - it should only try to delete the user data export
         // object associated with the snapshot
@@ -526,13 +537,10 @@ mod test {
             .await
             .unwrap();
 
-        datastore.project_image_delete(
-            &opctx,
-            &authz_image,
-            db_image,
-        )
-        .await
-        .unwrap();
+        datastore
+            .project_image_delete(&opctx, &authz_image, db_image)
+            .await
+            .unwrap();
 
         let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();

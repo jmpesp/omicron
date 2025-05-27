@@ -346,7 +346,8 @@ async fn bulk_read(
     let body = body.into_inner();
     let pantry = rc.context();
 
-    let data = pantry.bulk_read(path.id.clone(), body.offset, body.size).await?;
+    let data =
+        pantry.bulk_read(path.id.clone(), body.offset, body.size).await?;
 
     Ok(HttpResponseOk(BulkReadResponse {
         base64_encoded_data: base64::Engine::encode(

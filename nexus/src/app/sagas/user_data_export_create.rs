@@ -5,21 +5,21 @@
 //! XXX TODO
 
 use super::{
+    ACTION_GENERATE_ID, ActionRegistry, NexusActionContext, NexusSaga,
+    SagaInitError,
     common_storage::{
-        call_pantry_attach_for_volume, call_pantry_detach,
-        get_pantry_address, is_pantry_gone,
+        call_pantry_attach_for_volume, call_pantry_detach, get_pantry_address,
+        is_pantry_gone,
     },
-    ActionRegistry, NexusActionContext, NexusSaga, SagaInitError,
-    ACTION_GENERATE_ID,
 };
 use crate::app::sagas::declare_saga_actions;
 use crate::app::{authn, authz, db};
 use crate::external_api::params;
 use anyhow::anyhow;
+use nexus_db_lookup::LookupPath;
 use nexus_db_model::Generation;
 use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::db::identity::{Asset, Resource};
-use nexus_db_lookup::LookupPath;
 use omicron_common::api::external::Error;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
 use omicron_common::{
@@ -28,14 +28,14 @@ use omicron_common::{
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::PropolisUuid;
 use omicron_uuid_kinds::SledUuid;
-use omicron_uuid_kinds::VolumeUuid;
 use omicron_uuid_kinds::UserDataExportUuid;
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use omicron_uuid_kinds::VolumeUuid;
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::Deserialize;
 use serde::Serialize;
-use sled_agent_client::types::VmmIssueDiskSnapshotRequestBody;
 use sled_agent_client::CrucibleOpts;
 use sled_agent_client::VolumeConstructionRequest;
+use sled_agent_client::types::VmmIssueDiskSnapshotRequestBody;
 use slog::info;
 use slog_error_chain::InlineErrorChain;
 use std::collections::BTreeMap;
@@ -151,12 +151,11 @@ async fn sudec_create_export_volume(
         UserDataExportResource::Image { id } => {
             debug!(log, "grabbing image {id}");
 
-            let (.., db_image) =
-                LookupPath::new(&opctx, osagactx.datastore())
-                    .image_id(id)
-                    .fetch()
-                    .await
-                    .map_err(ActionError::action_failed)?;
+            let (.., db_image) = LookupPath::new(&opctx, osagactx.datastore())
+                .image_id(id)
+                .fetch()
+                .await
+                .map_err(ActionError::action_failed)?;
 
             debug!(
                 log,
@@ -237,19 +236,19 @@ async fn sudec_call_pantry_attach_for_export(
 
         Ok(None) => {
             return Err(ActionError::action_failed(Error::internal_error(
-                &format!("volume {volume_id} gone!")
+                &format!("volume {volume_id} gone!"),
             )));
         }
 
         Err(e) => {
             return Err(ActionError::action_failed(Error::internal_error(
-                &format!("failed to get volume {volume_id}: {e}")
+                &format!("failed to get volume {volume_id}: {e}"),
             )));
         }
     };
 
-    let volume_construction_request =
-        serde_json::from_str(&volume.data()).map_err(|e| {
+    let volume_construction_request = serde_json::from_str(&volume.data())
+        .map_err(|e| {
             ActionError::action_failed(Error::internal_error(&format!(
                 "failed to deserialize volume {volume_id} data: {e}"
             )))
@@ -292,7 +291,7 @@ async fn sudec_call_pantry_attach_for_export_undo(
         Err(err) => Err(anyhow!(
             "failed to detach {volume_id} from pantry at {pantry_address}: {}",
             InlineErrorChain::new(&err)
-        ))
+        )),
     }
 }
 
@@ -305,7 +304,8 @@ async fn sudec_create_export_record(
 
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
     let pantry_address = sagactx.lookup::<SocketAddrV6>("pantry_address")?;
-    let user_data_export_id = sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
+    let user_data_export_id =
+        sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
 
     let opctx = crate::context::op_context_for_saga_action(
         &sagactx,
@@ -373,11 +373,15 @@ async fn sudec_create_export_record_undo(
         &params.serialized_authn,
     );
 
-    let user_data_export_id = sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
+    let user_data_export_id =
+        sagactx.lookup::<UserDataExportUuid>("user_data_export_id")?;
 
     info!(log, "calling delete export {user_data_export_id}");
 
-    osagactx.datastore().user_data_export_delete(&opctx, user_data_export_id).await?;
+    osagactx
+        .datastore()
+        .user_data_export_delete(&opctx, user_data_export_id)
+        .await?;
 
     Ok(())
 }
@@ -394,12 +398,12 @@ mod test {
     };
     use dropshot::test_util::ClientTestContext;
     use nexus_db_queries::context::OpContext;
-    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
     use nexus_db_queries::db::DataStore;
+    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
-    use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils::resource_helpers::create_project;
+    use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils::resource_helpers::delete_disk;
     use nexus_test_utils::resource_helpers::object_create;
     use nexus_test_utils_macros::nexus_test;
@@ -425,21 +429,14 @@ mod test {
     const INSTANCE_NAME: &str = "bobs-instance";
     const SNAPSHOT_NAME: &str = "bobs-snapshot";
 
-    async fn create_all_the_stuff(
-        client: &ClientTestContext,
-    ) -> Uuid {
+    async fn create_all_the_stuff(client: &ClientTestContext) -> Uuid {
         create_default_ip_pool(&client).await;
         create_project(client, PROJECT_NAME).await;
         create_disk(client, PROJECT_NAME, DISK_NAME).await;
-        create_snapshot(
-            client,
-            PROJECT_NAME,
-            DISK_NAME,
-            SNAPSHOT_NAME,
-        )
-        .await
-        .identity
-        .id
+        create_snapshot(client, PROJECT_NAME, DISK_NAME, SNAPSHOT_NAME)
+            .await
+            .identity
+            .id
     }
 
     pub fn test_opctx(cptestctx: &ControlPlaneTestContext) -> OpContext {
@@ -464,9 +461,7 @@ mod test {
 
         let params = Params {
             serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
-            resource: UserDataExportResource::Snapshot {
-                id: snapshot_id,
-            },
+            resource: UserDataExportResource::Snapshot { id: snapshot_id },
         };
 
         // Actually run the saga
@@ -483,15 +478,14 @@ mod test {
             .await
             .unwrap();
 
-        assert!(nexus
-            .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            nexus
+                .datastore()
+                .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot,)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[nexus_test(server = crate::Server)]
@@ -509,9 +503,7 @@ mod test {
 
         let params = Params {
             serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
-            resource: UserDataExportResource::Snapshot {
-                id: snapshot_id,
-            },
+            resource: UserDataExportResource::Snapshot { id: snapshot_id },
         };
 
         let dag = create_saga_dag::<SagaUserDataExportCreate>(params).unwrap();
@@ -528,15 +520,14 @@ mod test {
             .await
             .unwrap();
 
-        assert!(nexus
-            .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            nexus
+                .datastore()
+                .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot,)
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     async fn verify_clean_slate(
@@ -559,15 +550,14 @@ mod test {
             .unwrap();
 
         // Validate no user data export record exists
-        assert!(nexus
-            .datastore()
-            .user_data_export_lookup_for_snapshot(
-                &opctx,
-                &authz_snapshot,
-            )
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            nexus
+                .datastore()
+                .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot,)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[nexus_test(server = crate::Server)]
@@ -594,7 +584,9 @@ mod test {
             || {
                 Box::pin(async {
                     Params {
-                        serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
+                        serialized_authn: authn::saga::Serialized::for_opctx(
+                            &opctx,
+                        ),
                         resource: UserDataExportResource::Snapshot {
                             id: snapshot_id,
                         },
