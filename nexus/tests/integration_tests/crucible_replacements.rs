@@ -4,6 +4,7 @@
 
 //! Tests related to region and region snapshot replacement
 
+use nexus_auth::authz;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use diesel::ExpressionMethods;
 use diesel::QueryDsl;
@@ -39,6 +40,7 @@ use omicron_common::api::external::IdentityMetadataCreateParams;
 use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::VolumeUuid;
+use omicron_uuid_kinds::UserDataExportUuid;
 use slog::Logger;
 use slog::info;
 use std::collections::HashSet;
@@ -766,6 +768,57 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
     )
     .await;
 
+    // Creating the snapshot now creates the user data export, meaning that the
+    // region snapshot won't later get garbage collected due to a volume copy.
+    // Issue 6353 occurred before user data exports existed, so delete the
+    // object to faithfully recreate the issue.
+
+    let (.., authz_snapshot) =
+        LookupPath::new(&opctx, datastore)
+            .snapshot_id(snapshot.identity.id)
+            .lookup_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+    let user_data_export = wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                cptestctx.logctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let maybe_object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx, &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
+
+                match maybe_object {
+                    Some(object) => Ok(object),
+
+                    None => {
+                        Err(CondCheckError::<()>::NotYet)
+                    }
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    nexus
+        .user_data_export_delete_by_id(
+            &opctx, user_data_export.id(),
+        )
+        .await
+        .unwrap();
+
     // Before deleting the disk, save the DB model
     let (.., db_disk) = LookupPath::new(&opctx, datastore)
         .disk_id(disk.identity.id)
@@ -1040,7 +1093,7 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
         &std::time::Duration::from_secs(60),
     )
     .await
-    .expect("region snapshot garbage collected");
+    .expect("region snapshot garbage collected"); // XXX meaning here will fail
 
     // Assert that the disk's volume is still only soft-deleted, because the two
     // other associated region snapshots still exist.
@@ -1283,6 +1336,7 @@ mod region_snapshot_replacement {
         internal_client: ClientTestContext,
         replacement_request_id: Uuid,
         snapshot_socket_addr: SocketAddr,
+        user_data_export_id: UserDataExportUuid,
     }
 
     impl<'a> DeletedVolumeTest<'a> {
@@ -1316,6 +1370,13 @@ mod region_snapshot_replacement {
             let snapshot =
                 create_snapshot(&client, PROJECT_NAME, "disk", "snapshot")
                     .await;
+
+            let (.., authz_snapshot, db_snapshot) =
+                LookupPath::new(&opctx, &datastore)
+                    .snapshot_id(snapshot.identity.id)
+                    .fetch()
+                    .await
+                    .unwrap();
 
             let disk_from_snapshot = create_disk_from_snapshot(
                 &client,
@@ -1375,7 +1436,41 @@ mod region_snapshot_replacement {
                 RegionSnapshotReplacementState::Requested,
             );
 
-            // Assert two volumes reference the snapshot addr
+            // Wait until the user data export object is created.
+
+            let user_data_export = wait_for_condition(
+                || {
+                    let datastore = datastore.clone();
+                    let opctx = OpContext::for_tests(
+                        cptestctx.logctx.log.new(o!()),
+                        datastore.clone(),
+                    );
+                    let authz_snapshot = authz_snapshot.clone();
+
+                    async move {
+                        let maybe_object = datastore
+                            .user_data_export_lookup_for_snapshot(
+                                &opctx, &authz_snapshot,
+                            )
+                            .await
+                            .unwrap();
+
+                        match maybe_object {
+                            Some(object) => Ok(object),
+
+                            None => {
+                                Err(CondCheckError::<()>::NotYet)
+                            }
+                        }
+                    }
+                },
+                &std::time::Duration::from_millis(50),
+                &std::time::Duration::from_secs(60),
+            )
+            .await
+            .expect("user data export object created");
+
+            // Assert three volumes reference the snapshot addr
 
             let snapshot_socket_addr =
                 region_snapshot.snapshot_addr.parse().unwrap();
@@ -1388,18 +1483,13 @@ mod region_snapshot_replacement {
                 .await
                 .unwrap();
 
-            assert_eq!(volumes.len(), 2);
+            assert_eq!(volumes.len(), 3);
 
-            // Validate that they are snapshot and disk from snapshot
+            // Validate that they are snapshot, disk from snapshot, and the user
+            // data export volume.
 
             let volumes_set: HashSet<VolumeUuid> =
                 volumes.into_iter().map(|v| v.id()).collect();
-
-            let (.., db_snapshot) = LookupPath::new(&opctx, &datastore)
-                .snapshot_id(snapshot.identity.id)
-                .fetch()
-                .await
-                .unwrap();
 
             let (.., db_disk_from_snapshot) =
                 LookupPath::new(&opctx, &datastore)
@@ -1410,6 +1500,7 @@ mod region_snapshot_replacement {
 
             assert!(volumes_set.contains(&db_snapshot.volume_id()));
             assert!(volumes_set.contains(&db_disk_from_snapshot.volume_id()));
+            assert!(volumes_set.contains(&user_data_export.volume_id()));
 
             DeletedVolumeTest {
                 log: cptestctx.logctx.log.new(o!()),
@@ -1419,6 +1510,7 @@ mod region_snapshot_replacement {
                 internal_client: internal_client.clone(),
                 replacement_request_id,
                 snapshot_socket_addr,
+                user_data_export_id: user_data_export.id(),
             }
         }
 
@@ -1503,6 +1595,37 @@ mod region_snapshot_replacement {
 
         /// Assert no Crucible resources are leaked
         pub async fn assert_no_crucible_resources_leaked(&self) {
+            // Wait until the user data export object is deleted by the
+            // background task.
+
+            wait_for_condition(
+                || {
+                    let datastore = self.datastore.clone();
+                    let opctx = self.opctx();
+                    let user_data_export_id = self.user_data_export_id;
+
+                    async move {
+                        let maybe_object = datastore
+                            .user_data_export_lookup_by_id(
+                                &opctx, user_data_export_id,
+                            )
+                            .await
+                            .unwrap();
+
+                        match maybe_object {
+                            None => Ok(()),
+                            Some(_) => {
+                                Err(CondCheckError::<()>::NotYet)
+                            }
+                        }
+                    }
+                },
+                &std::time::Duration::from_millis(50),
+                &std::time::Duration::from_secs(60),
+            )
+            .await
+            .expect("user data export object deleted");
+
             assert!(self.disk_test.crucible_resources_deleted().await);
         }
 

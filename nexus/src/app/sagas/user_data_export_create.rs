@@ -334,20 +334,13 @@ async fn sudec_create_export_record(
                 .map_err(ActionError::action_failed)?
         }
 
-        UserDataExportResource::Image { id } => {
-            let (.., authz_image) =
-                LookupPath::new(&opctx, osagactx.datastore())
-                    .image_id(id)
-                    .lookup_for(authz::Action::Read)
-                    .await
-                    .map_err(ActionError::action_failed)?;
-
+        UserDataExportResource::Image { id: image_id } => {
             osagactx
                 .datastore()
                 .user_data_export_create_for_image(
                     &opctx,
                     user_data_export_id,
-                    &authz_image,
+                    image_id,
                     pantry_address,
                     volume_id,
                 )
@@ -417,6 +410,8 @@ mod test {
     use sled_agent_client::CrucibleOpts;
     use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
     use std::str::FromStr;
+    use omicron_test_utils::dev::poll;
+    use std::time::Duration;
 
     type DiskTest<'a> =
         nexus_test_utils::resource_helpers::DiskTest<'a, crate::Server>;
@@ -429,14 +424,74 @@ mod test {
     const INSTANCE_NAME: &str = "bobs-instance";
     const SNAPSHOT_NAME: &str = "bobs-snapshot";
 
-    async fn create_all_the_stuff(client: &ClientTestContext) -> Uuid {
+    async fn create_all_the_stuff(cptestctx: &ControlPlaneTestContext) -> Uuid {
+        let client = &cptestctx.external_client;
+
         create_default_ip_pool(&client).await;
         create_project(client, PROJECT_NAME).await;
         create_disk(client, PROJECT_NAME, DISK_NAME).await;
-        create_snapshot(client, PROJECT_NAME, DISK_NAME, SNAPSHOT_NAME)
+
+        let snapshot_id = create_snapshot(
+            client,
+            PROJECT_NAME,
+            DISK_NAME,
+            SNAPSHOT_NAME,
+        )
+        .await
+        .identity
+        .id;
+
+        // Creating the snapshot will trigger the background task to create the
+        // user data export object. Wait for that to be created here, then
+        // delete it.
+
+        let nexus = &cptestctx.server.server_context().nexus;
+        let datastore = nexus.datastore();
+        let opctx = test_opctx(cptestctx);
+
+        let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
+            .snapshot_id(snapshot_id)
+            .lookup_for(authz::Action::Read)
             .await
-            .identity
-            .id
+            .unwrap();
+
+        let export_object = poll::wait_for_condition(
+            || {
+                let opctx = test_opctx(cptestctx);
+                let datastore = datastore.clone();
+                let authz_snapshot = authz_snapshot.clone();
+
+                async move {
+                    let maybe_object = datastore
+                        .user_data_export_lookup_for_snapshot(
+                            &opctx, &authz_snapshot,
+                        )
+                        .await
+                        .unwrap();
+
+                    match maybe_object {
+                        Some(object) => Ok(object),
+
+                        None => {
+                            Err(poll::CondCheckError::<Error>::NotYet)
+                        }
+                    }
+                }
+            },
+            &Duration::from_millis(10),
+            &Duration::from_secs(20),
+        )
+        .await
+        .unwrap();
+
+        datastore.user_data_export_delete(
+            &opctx,
+            export_object.id(),
+        )
+        .await
+        .unwrap();
+
+        snapshot_id
     }
 
     pub fn test_opctx(cptestctx: &ControlPlaneTestContext) -> OpContext {
@@ -454,7 +509,7 @@ mod test {
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let snapshot_id = create_all_the_stuff(&client).await;
+        let snapshot_id = create_all_the_stuff(cptestctx).await;
 
         // Build the saga DAG with the provided test parameters
         let opctx = test_opctx(cptestctx);
@@ -496,7 +551,7 @@ mod test {
 
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
-        let snapshot_id = create_all_the_stuff(&client).await;
+        let snapshot_id = create_all_the_stuff(cptestctx).await;
 
         // Build the saga DAG with the provided test parameters
         let opctx = test_opctx(cptestctx);
@@ -553,7 +608,7 @@ mod test {
         assert!(
             nexus
                 .datastore()
-                .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot,)
+                .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot)
                 .await
                 .unwrap()
                 .is_none()
@@ -570,7 +625,7 @@ mod test {
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
 
-        let snapshot_id = create_all_the_stuff(&client).await;
+        let snapshot_id = create_all_the_stuff(cptestctx).await;
 
         // Build the saga DAG with the provided test parameters
         let opctx = test_opctx(&cptestctx);
@@ -613,7 +668,7 @@ mod test {
         let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
 
-        let snapshot_id = create_all_the_stuff(&client).await;
+        let snapshot_id = create_all_the_stuff(cptestctx).await;
 
         // Build the saga DAG with the provided test parameters
         let opctx = test_opctx(&cptestctx);

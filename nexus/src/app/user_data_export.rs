@@ -6,7 +6,6 @@
 
 //! XXX TODO
 
-use super::sagas::user_data_export_create;
 use super::sagas::user_data_export_delete;
 use bytes::Bytes;
 use dropshot::Body;
@@ -34,6 +33,7 @@ use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::NameOrId;
 use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_uuid_kinds::VolumeUuid;
+use omicron_uuid_kinds::UserDataExportUuid;
 use range_requests::PotentialRange;
 use range_requests::SingleRange;
 use slog::Logger;
@@ -351,5 +351,41 @@ impl super::Nexus {
             maybe_range,
         )
         .await
+    }
+
+    pub async fn user_data_export_delete_by_id(
+        &self,
+        opctx: &OpContext,
+        user_data_export_id: UserDataExportUuid,
+    ) -> LookupResult<()> {
+        let user_data_export = match self
+            .datastore()
+            .user_data_export_lookup_by_id(
+                &opctx, user_data_export_id,
+            )
+            .await? {
+                Some(user_data_export) => user_data_export,
+                None => {
+                    return Err(Error::non_resourcetype_not_found(format!(
+                        "user data export {} not found",
+                        user_data_export_id,
+                    )));
+                }
+            };
+
+        let saga_params = user_data_export_delete::Params {
+            serialized_authn: authn::saga::Serialized::for_opctx(opctx),
+            user_data_export_id: user_data_export.id(),
+            volume_id: user_data_export.volume_id(),
+        };
+
+        self
+            .sagas
+            .saga_execute::<user_data_export_delete::SagaUserDataExportDelete>(
+                saga_params,
+            )
+            .await?;
+
+        Ok(())
     }
 }

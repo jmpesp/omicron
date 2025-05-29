@@ -118,11 +118,22 @@ async fn suded_call_pantry_detach_for_export(
         &params.serialized_authn,
     );
 
-    let record = osagactx
+    let maybe_record = osagactx
         .datastore()
         .user_data_export_lookup_by_id(&opctx, params.user_data_export_id)
         .await
         .map_err(ActionError::action_failed)?;
+
+    let Some(record) = maybe_record else {
+        info!(
+            log,
+            "user data export {} hard deleted!",
+            params.user_data_export_id,
+        );
+        return Err(ActionError::action_failed(String::from(
+            "user data export hard deleted!"
+        )));
+    };
 
     let volume_id = record.volume_id();
     let pantry_address = record.pantry_address();
@@ -202,6 +213,9 @@ mod test {
     use sled_agent_client::CrucibleOpts;
     use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
     use std::str::FromStr;
+    use omicron_test_utils::dev::poll;
+    use std::time::Duration;
+    use omicron_common::api::external::Error;
 
     type DiskTest<'a> =
         nexus_test_utils::resource_helpers::DiskTest<'a, crate::Server>;
@@ -230,19 +244,7 @@ mod test {
                 .identity
                 .id;
 
-        // Build the create saga DAG with the provided test parameters
         let opctx = test_opctx(cptestctx);
-
-        let params = user_data_export_create::Params {
-            serialized_authn: authn::saga::Serialized::for_opctx(&opctx),
-            resource: UserDataExportResource::Snapshot { id: snapshot_id },
-        };
-
-        nexus
-            .sagas
-            .saga_execute::<SagaUserDataExportCreate>(params)
-            .await
-            .unwrap();
 
         // Make sure the record was created ok
         let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
@@ -251,13 +253,34 @@ mod test {
             .await
             .unwrap();
 
-        let export_object = nexus
-            .datastore()
-            .user_data_export_lookup_for_snapshot(&opctx, &authz_snapshot)
-            .await
-            .unwrap();
+        let export_object = poll::wait_for_condition(
+            || {
+                let opctx = test_opctx(cptestctx);
+                let datastore = nexus.datastore().clone();
+                let authz_snapshot = authz_snapshot.clone();
 
-        let export_object = export_object.unwrap();
+                async move {
+                    let maybe_object = datastore
+                        .user_data_export_lookup_for_snapshot(
+                            &opctx, &authz_snapshot,
+                        )
+                        .await
+                        .unwrap();
+
+                    match maybe_object {
+                        Some(object) => Ok(object),
+
+                        None => {
+                            Err(poll::CondCheckError::<Error>::NotYet)
+                        }
+                    }
+                }
+            },
+            &Duration::from_millis(10),
+            &Duration::from_secs(20),
+        )
+        .await
+        .unwrap();
 
         (snapshot_id, export_object)
     }

@@ -12,6 +12,7 @@ use crate::sim::SimulatedUpstairs;
 use crate::sim::http_entrypoints_pantry::ExpectedDigest;
 use crate::sim::http_entrypoints_pantry::PantryStatus;
 use crate::sim::http_entrypoints_pantry::VolumeStatus;
+use crate::sim::http_entrypoints_pantry::ReplaceResult;
 use crate::support_bundle::storage::SupportBundleManager;
 use anyhow::{self, Result, bail};
 use camino::Utf8Path;
@@ -2222,6 +2223,30 @@ impl Pantry {
         let mut inner = self.inner.lock().unwrap();
         inner.volumes.remove(&volume_id);
         Ok(())
+    }
+
+    pub fn replace(
+        &self,
+        volume_id: String,
+        new_vcr: VolumeConstructionRequest,
+    ) -> Result<ReplaceResult, HttpError> {
+        let mut inner = self.inner.lock().unwrap();
+
+        let vcr = match inner.volumes.get_mut(&volume_id) {
+            Some(entry) => &mut entry.vcr,
+
+            None => {
+                return Err(HttpError::for_not_found(None, volume_id));
+            }
+        };
+
+        // XXX are these the right values?
+        if *vcr == new_vcr {
+            Ok(ReplaceResult::StartedAlready)
+        } else {
+            *vcr = new_vcr;
+            Ok(ReplaceResult::Started)
+        }
     }
 }
 

@@ -5692,6 +5692,9 @@ ON omicron.public.user_data_export (resource_type);
 CREATE UNIQUE INDEX IF NOT EXISTS one_export_record_per_resource
 ON omicron.public.user_data_export (resource_id);
 
+CREATE INDEX IF NOT EXISTS lookup_export_by_volume
+ON omicron.public.user_data_export (volume_id);
+
 /*
  * Keep this at the end of file so that the database does not contain a version
  * until it is fully populated.
