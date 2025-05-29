@@ -4342,6 +4342,12 @@ impl DataStore {
             }
         }
 
+        // XXX if replacement says it's done, the volume should not contain what
+        // was replaced!
+
+        // XXX should this also contact the simulated pantry to see if the
+        // replacement made it?
+
         Ok(())
     }
 

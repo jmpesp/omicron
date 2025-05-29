@@ -35,6 +35,7 @@ pub fn api() -> CruciblePantryApiDescription {
         api.register(bulk_read)?;
         api.register(scrub)?;
         api.register(detach)?;
+        api.register(replace)?;
 
         Ok(())
     }
@@ -168,6 +169,41 @@ async fn attach_activate_background(
     )?;
 
     Ok(HttpResponseUpdatedNoContent())
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct ReplaceRequest {
+    pub volume_construction_request: VolumeConstructionRequest,
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplaceResult {
+    Started,
+    StartedAlready,
+    CompletedAlready,
+    Missing,
+    VcrMatches,
+}
+
+/// Call a volume's target_replace function
+#[endpoint {
+    method = POST,
+    path = "/crucible/pantry/0/volume/{id}/replace",
+}]
+async fn replace(
+    rc: RequestContext<Arc<Pantry>>,
+    path: TypedPath<VolumePath>,
+    body: TypedBody<ReplaceRequest>,
+) -> Result<HttpResponseOk<ReplaceResult>, HttpError> {
+    let path = path.into_inner();
+    let body = body.into_inner();
+    let pantry = rc.context();
+
+    let result = pantry
+        .replace(path.id.clone(), body.volume_construction_request)?;
+
+    Ok(HttpResponseOk(result))
 }
 
 #[derive(Deserialize, JsonSchema)]

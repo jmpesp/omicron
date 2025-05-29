@@ -161,7 +161,7 @@ impl DataStore {
         let err = OptionalError::new();
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        self.transaction_retry_wrapper("user_data_export_create")
+        self.transaction_retry_wrapper("user_data_export_create_for_snapshot")
             .transaction(&conn, |conn| {
                 let err = err.clone();
                 async move {
@@ -192,14 +192,14 @@ impl DataStore {
         &self,
         opctx: &OpContext,
         id: UserDataExportUuid,
-        authz_image: &authz::Image,
+        image_id: Uuid,
         pantry_address: SocketAddrV6,
         volume_id: VolumeUuid,
     ) -> CreateResult<UserDataExportRecord> {
         let err = OptionalError::new();
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        self.transaction_retry_wrapper("user_data_export_create")
+        self.transaction_retry_wrapper("user_data_export_create_for_image")
             .transaction(&conn, |conn| {
                 let err = err.clone();
                 async move {
@@ -207,7 +207,7 @@ impl DataStore {
                         &conn,
                         err,
                         id,
-                        UserDataExportResource::Image { id: authz_image.id() },
+                        UserDataExportResource::Image { id: image_id },
                         pantry_address,
                         volume_id,
                     )
@@ -245,7 +245,7 @@ impl DataStore {
         &self,
         opctx: &OpContext,
         id: UserDataExportUuid,
-    ) -> LookupResult<UserDataExportRecord> {
+    ) -> LookupResult<Option<UserDataExportRecord>> {
         let conn = self.pool_connection_authorized(opctx).await?;
 
         use nexus_db_schema::schema::user_data_export::dsl;
@@ -255,6 +255,25 @@ impl DataStore {
             .select(UserDataExportRecord::as_select())
             .first_async(&*conn)
             .await
+            .optional()
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn user_data_export_lookup_by_volume_id(
+        &self,
+        opctx: &OpContext,
+        id: VolumeUuid,
+    ) -> LookupResult<Option<UserDataExportRecord>> {
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        use nexus_db_schema::schema::user_data_export::dsl;
+
+        dsl::user_data_export
+            .filter(dsl::volume_id.eq(to_db_typed_uuid(id)))
+            .select(UserDataExportRecord::as_select())
+            .first_async(&*conn)
+            .await
+            .optional()
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 
@@ -566,17 +585,11 @@ mod tests {
             create_project_image(&opctx, &datastore, &authz_project, "image")
                 .await;
 
-        let (.., authz_image) = LookupPath::new(&opctx, datastore)
-            .image_id(image.id())
-            .lookup_for(authz::Action::Read)
-            .await
-            .unwrap();
-
         datastore
             .user_data_export_create_for_image(
                 &opctx,
                 UserDataExportUuid::new_v4(),
-                &authz_image,
+                image.id(),
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
                 VolumeUuid::new_v4(),
             )
@@ -735,17 +748,11 @@ mod tests {
             create_project_image(&opctx, &datastore, &authz_project, "image")
                 .await;
 
-        let (.., authz_image) = LookupPath::new(&opctx, datastore)
-            .image_id(image.id())
-            .lookup_for(authz::Action::Read)
-            .await
-            .unwrap();
-
         datastore
             .user_data_export_create_for_image(
                 &opctx,
                 UserDataExportUuid::new_v4(),
-                &authz_image,
+                image.id(),
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
                 VolumeUuid::new_v4(),
             )

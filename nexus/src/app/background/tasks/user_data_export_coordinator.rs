@@ -471,7 +471,7 @@ mod test {
             .unwrap();
 
         let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
-            .image_id(image.id())
+            .project_image_id(image.id())
             .fetch_for(authz::Action::Read)
             .await
             .unwrap();
@@ -480,7 +480,7 @@ mod test {
             .user_data_export_create_for_image(
                 &opctx,
                 UserDataExportUuid::new_v4(),
-                &authz_image,
+                image.id(),
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
                 VolumeUuid::new_v4(),
             )
