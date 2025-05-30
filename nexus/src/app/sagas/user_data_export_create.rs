@@ -9,42 +9,26 @@ use super::{
     SagaInitError,
     common_storage::{
         call_pantry_attach_for_volume, call_pantry_detach, get_pantry_address,
-        is_pantry_gone,
     },
 };
 use crate::app::sagas::declare_saga_actions;
 use crate::app::{authn, authz, db};
-use crate::external_api::params;
 use anyhow::anyhow;
 use nexus_db_lookup::LookupPath;
-use nexus_db_model::Generation;
 use nexus_db_model::UserDataExportResource;
-use nexus_db_queries::db::identity::{Asset, Resource};
+use nexus_db_queries::db::identity::Resource;
 use omicron_common::api::external::Error;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
-use omicron_common::{
-    api::external, progenitor_operation_retry::ProgenitorOperationRetry,
-};
 use omicron_uuid_kinds::GenericUuid;
-use omicron_uuid_kinds::PropolisUuid;
-use omicron_uuid_kinds::SledUuid;
 use omicron_uuid_kinds::UserDataExportUuid;
 use omicron_uuid_kinds::VolumeUuid;
-use rand::{RngCore, SeedableRng, rngs::StdRng};
 use serde::Deserialize;
 use serde::Serialize;
-use sled_agent_client::CrucibleOpts;
-use sled_agent_client::VolumeConstructionRequest;
-use sled_agent_client::types::VmmIssueDiskSnapshotRequestBody;
 use slog::info;
 use slog_error_chain::InlineErrorChain;
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
-use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use steno::ActionError;
 use steno::Node;
-use uuid::Uuid;
 
 // user data export create saga: input parameters
 
@@ -87,7 +71,7 @@ impl NexusSaga for SagaUserDataExportCreate {
     }
 
     fn make_saga_dag(
-        params: &Self::Params,
+        _params: &Self::Params,
         mut builder: steno::DagBuilder,
     ) -> Result<steno::Dag, SagaInitError> {
         // Generate IDs
@@ -208,7 +192,6 @@ async fn sudec_get_pantry_address(
 ) -> Result<SocketAddrV6, ActionError> {
     let log = sagactx.user_data().log();
     let osagactx = sagactx.user_data();
-    let params = sagactx.saga_params::<Params>()?;
 
     let pantry_address = get_pantry_address(osagactx.nexus()).await?;
 
@@ -222,11 +205,6 @@ async fn sudec_call_pantry_attach_for_export(
 ) -> Result<(), ActionError> {
     let log = sagactx.user_data().log();
     let osagactx = sagactx.user_data();
-    let params = sagactx.saga_params::<Params>()?;
-    let opctx = crate::context::op_context_for_saga_action(
-        &sagactx,
-        &params.serialized_authn,
-    );
 
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
     let pantry_address = sagactx.lookup::<SocketAddrV6>("pantry_address")?;
@@ -270,7 +248,6 @@ async fn sudec_call_pantry_attach_for_export_undo(
     sagactx: NexusActionContext,
 ) -> Result<(), anyhow::Error> {
     let log = sagactx.user_data().log();
-    let params = sagactx.saga_params::<Params>()?;
 
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
     let pantry_address = sagactx.lookup::<SocketAddrV6>("pantry_address")?;
@@ -381,35 +358,16 @@ async fn sudec_create_export_record_undo(
 mod test {
     use super::*;
 
+    use uuid::Uuid;
     use crate::app::saga::create_saga_dag;
-    use crate::app::sagas::test_helpers;
-    use async_bb8_diesel::AsyncRunQueryDsl;
-    use diesel::{
-        ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
-    };
-    use dropshot::test_util::ClientTestContext;
     use nexus_db_queries::context::OpContext;
-    use nexus_db_queries::db::DataStore;
-    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
     use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::create_snapshot;
-    use nexus_test_utils::resource_helpers::delete_disk;
-    use nexus_test_utils::resource_helpers::object_create;
     use nexus_test_utils_macros::nexus_test;
-    use nexus_types::external_api::params::InstanceDiskAttachment;
-    use omicron_common::api::external::ByteCount;
-    use omicron_common::api::external::IdentityMetadataCreateParams;
-    use omicron_common::api::external::Instance;
-    use omicron_common::api::external::InstanceCpuCount;
-    use omicron_common::api::external::Name;
-    use omicron_common::api::external::NameOrId;
     use omicron_test_utils::dev::poll;
-    use sled_agent_client::CrucibleOpts;
-    use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
-    use std::str::FromStr;
     use std::time::Duration;
 
     type DiskTest<'a> =
@@ -420,7 +378,6 @@ mod test {
 
     const PROJECT_NAME: &str = "bobs-barrel-of-bits";
     const DISK_NAME: &str = "bobs-disk";
-    const INSTANCE_NAME: &str = "bobs-instance";
     const SNAPSHOT_NAME: &str = "bobs-snapshot";
 
     async fn create_all_the_stuff(cptestctx: &ControlPlaneTestContext) -> Uuid {
@@ -500,7 +457,6 @@ mod test {
     ) {
         DiskTest::new(cptestctx).await;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
         let snapshot_id = create_all_the_stuff(cptestctx).await;
 
@@ -542,7 +498,6 @@ mod test {
     ) {
         DiskTest::new(cptestctx).await;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
         let snapshot_id = create_all_the_stuff(cptestctx).await;
 
@@ -612,10 +567,9 @@ mod test {
     async fn test_action_failure_can_unwind(
         cptestctx: &ControlPlaneTestContext,
     ) {
-        let test = DiskTest::new(cptestctx).await;
+        DiskTest::new(cptestctx).await;
         let log = &cptestctx.logctx.log;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
 
         let snapshot_id = create_all_the_stuff(cptestctx).await;
@@ -655,10 +609,9 @@ mod test {
     async fn test_action_failure_can_unwind_idempotently(
         cptestctx: &ControlPlaneTestContext,
     ) {
-        let test = DiskTest::new(cptestctx).await;
+        DiskTest::new(cptestctx).await;
         let log = &cptestctx.logctx.log;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
 
         let snapshot_id = create_all_the_stuff(cptestctx).await;

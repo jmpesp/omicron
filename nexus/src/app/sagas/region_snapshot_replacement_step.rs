@@ -56,7 +56,6 @@ use crate::app::sagas::declare_saga_actions;
 use crate::app::{authn, authz, db};
 use nexus_db_lookup::LookupPath;
 use nexus_db_model::VmmState;
-use nexus_db_queries::context::OpContext;
 use nexus_types::identity::Asset;
 use omicron_common::api::external::Error;
 use omicron_uuid_kinds::GenericUuid;
@@ -583,11 +582,6 @@ async fn notify_pantry_upstairs(
     let params = sagactx.saga_params::<Params>()?;
     let log = sagactx.user_data().log();
 
-    let opctx = crate::context::op_context_for_saga_action(
-        &sagactx,
-        &params.serialized_authn,
-    );
-
     info!(
         log,
         "volume attached to pantry {pantry_address} with id {attachment_id}";
@@ -666,7 +660,6 @@ async fn rsrss_notify_upstairs(
 ) -> Result<(), ActionError> {
     let osagactx = sagactx.user_data();
     let params = sagactx.saga_params::<Params>()?;
-    let log = sagactx.user_data().log();
 
     let opctx = crate::context::op_context_for_saga_action(
         &sagactx,
