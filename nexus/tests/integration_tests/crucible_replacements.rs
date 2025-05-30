@@ -4,11 +4,11 @@
 
 //! Tests related to region and region snapshot replacement
 
-use nexus_auth::authz;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use diesel::ExpressionMethods;
 use diesel::QueryDsl;
 use dropshot::test_util::ClientTestContext;
+use nexus_auth::authz;
 use nexus_client::types::LastResult;
 use nexus_db_lookup::LookupPath;
 use nexus_db_model::PhysicalDiskPolicy;
@@ -39,8 +39,8 @@ use omicron_common::api::external;
 use omicron_common::api::external::IdentityMetadataCreateParams;
 use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use omicron_uuid_kinds::GenericUuid;
-use omicron_uuid_kinds::VolumeUuid;
 use omicron_uuid_kinds::UserDataExportUuid;
+use omicron_uuid_kinds::VolumeUuid;
 use slog::Logger;
 use slog::info;
 use std::collections::HashSet;

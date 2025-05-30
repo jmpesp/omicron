@@ -11,8 +11,8 @@
 use crate::sim::SimulatedUpstairs;
 use crate::sim::http_entrypoints_pantry::ExpectedDigest;
 use crate::sim::http_entrypoints_pantry::PantryStatus;
-use crate::sim::http_entrypoints_pantry::VolumeStatus;
 use crate::sim::http_entrypoints_pantry::ReplaceResult;
+use crate::sim::http_entrypoints_pantry::VolumeStatus;
 use crate::support_bundle::storage::SupportBundleManager;
 use anyhow::{self, Result, bail};
 use camino::Utf8Path;

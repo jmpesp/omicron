@@ -334,19 +334,17 @@ async fn sudec_create_export_record(
                 .map_err(ActionError::action_failed)?
         }
 
-        UserDataExportResource::Image { id: image_id } => {
-            osagactx
-                .datastore()
-                .user_data_export_create_for_image(
-                    &opctx,
-                    user_data_export_id,
-                    image_id,
-                    pantry_address,
-                    volume_id,
-                )
-                .await
-                .map_err(ActionError::action_failed)?
-        }
+        UserDataExportResource::Image { id: image_id } => osagactx
+            .datastore()
+            .user_data_export_create_for_image(
+                &opctx,
+                user_data_export_id,
+                image_id,
+                pantry_address,
+                volume_id,
+            )
+            .await
+            .map_err(ActionError::action_failed)?,
     };
 
     info!(log, "export {} created ok", user_data_export.id());
@@ -408,10 +406,10 @@ mod test {
     use omicron_common::api::external::InstanceCpuCount;
     use omicron_common::api::external::Name;
     use omicron_common::api::external::NameOrId;
+    use omicron_test_utils::dev::poll;
     use sled_agent_client::CrucibleOpts;
     use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
     use std::str::FromStr;
-    use omicron_test_utils::dev::poll;
     use std::time::Duration;
 
     type DiskTest<'a> =
@@ -432,15 +430,11 @@ mod test {
         create_project(client, PROJECT_NAME).await;
         create_disk(client, PROJECT_NAME, DISK_NAME).await;
 
-        let snapshot_id = create_snapshot(
-            client,
-            PROJECT_NAME,
-            DISK_NAME,
-            SNAPSHOT_NAME,
-        )
-        .await
-        .identity
-        .id;
+        let snapshot_id =
+            create_snapshot(client, PROJECT_NAME, DISK_NAME, SNAPSHOT_NAME)
+                .await
+                .identity
+                .id;
 
         // Trigger the background task to create the user data export object.
         // Wait for that to be created here, then delete it.
@@ -466,7 +460,8 @@ mod test {
                 async move {
                     let maybe_object = datastore
                         .user_data_export_lookup_for_snapshot(
-                            &opctx, &authz_snapshot,
+                            &opctx,
+                            &authz_snapshot,
                         )
                         .await
                         .unwrap();
@@ -474,9 +469,7 @@ mod test {
                     match maybe_object {
                         Some(object) => Ok(object),
 
-                        None => {
-                            Err(poll::CondCheckError::<Error>::NotYet)
-                        }
+                        None => Err(poll::CondCheckError::<Error>::NotYet),
                     }
                 }
             },
@@ -486,12 +479,10 @@ mod test {
         .await
         .unwrap();
 
-        datastore.user_data_export_delete(
-            &opctx,
-            export_object.id(),
-        )
-        .await
-        .unwrap();
+        datastore
+            .user_data_export_delete(&opctx, export_object.id())
+            .await
+            .unwrap();
 
         snapshot_id
     }
