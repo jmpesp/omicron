@@ -4,6 +4,7 @@
 
 //! Tests basic user data export support in the API
 
+use nexus_test_utils::background::run_user_data_export_coordinator;
 use crate::integration_tests::images::get_image_create;
 use crate::integration_tests::images::get_project_images_url;
 use crate::integration_tests::instances::instance_simulate;
@@ -152,6 +153,8 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
         .unwrap();
 
     // Wait for user data export object to be created
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -233,6 +236,8 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
     .unwrap();
 
     // Wait for user data export object to be deleted
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -329,6 +334,8 @@ async fn test_user_data_export_basic_ranged(
         .unwrap();
 
     // Wait for user data export object to be created
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -406,6 +413,8 @@ async fn test_user_data_export_basic_ranged(
     .unwrap();
 
     // Wait for user data export object to be deleted
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -581,6 +590,8 @@ async fn test_user_data_export_after_delete(
         .unwrap();
 
     // Wait for user data export object to be created
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -654,6 +665,8 @@ async fn test_user_data_export_after_delete(
     .unwrap();
 
     // Wait for user data export object to be deleted
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -730,6 +743,8 @@ async fn test_user_data_export_basic_image_ranged(
         .unwrap();
 
     // Wait for user data export object to be created
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -807,6 +822,8 @@ async fn test_user_data_export_basic_image_ranged(
     .unwrap();
 
     // Wait for user data export object to be deleted
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();
@@ -873,6 +890,8 @@ async fn test_user_data_export_basic_image_ranged_with_promote(
         .unwrap();
 
     // Wait for user data export object to be created
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
     wait_for_condition(
         || {
             let datastore = datastore.clone();

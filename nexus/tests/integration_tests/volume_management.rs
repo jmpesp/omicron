@@ -5,6 +5,7 @@
 //! Tests that Nexus properly manages and cleans up Crucible resources
 //! associated with Volumes
 
+use nexus_db_queries::authz;
 use crate::integration_tests::crucible_replacements::wait_for_all_replacements;
 use crate::integration_tests::sleds::sleds_list;
 use async_bb8_diesel::AsyncRunQueryDsl;
@@ -77,6 +78,7 @@ use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use uuid::Uuid;
+use nexus_test_utils::background::run_user_data_export_coordinator;
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
@@ -165,6 +167,98 @@ async fn create_base_disk(
     .unwrap()
     .parsed_body()
     .unwrap()
+}
+
+// XXX which method to use? assert_crucible_resources_cleaned_up or
+// delete_snapshot_user_data_export?
+
+async fn assert_crucible_resources_cleaned_up<'a>(
+    cptestctx: &ControlPlaneTestContext,
+    disk_test: DiskTest<'a>,
+) {
+    // User data export objects are not directly managed by users, they're
+    // created and deleted by a background task depending on the presense of
+    // higher level resources like snapshots or images. Wait for them all to be
+    // cleaned up here before asserting that the Crucible resources have been
+    // cleaned up.
+
+    let apictx = &cptestctx.server.server_context();
+    let nexus = &apictx.nexus;
+    let datastore = nexus.datastore();
+    let internal_client = &cptestctx.internal_client;
+
+    // Try for 60 seconds
+    for _ in 0..1200 {
+        run_user_data_export_coordinator(&internal_client).await;
+
+        if disk_test.crucible_resources_deleted().await {
+            break;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    assert!(disk_test.crucible_resources_deleted().await);
+}
+
+async fn delete_snapshot_user_data_export(
+    cptestctx: &ControlPlaneTestContext,
+    snapshot_id: Uuid,
+) {
+    let apictx = &cptestctx.server.server_context();
+    let nexus = &apictx.nexus;
+    let datastore = nexus.datastore();
+
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        datastore.clone(),
+    );
+
+    let (.., authz_snapshot) =
+        LookupPath::new(&opctx, datastore)
+            .snapshot_id(snapshot_id)
+            .lookup_for(authz::Action::Read)
+            .await
+            .unwrap();
+
+    let user_data_export = wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx = OpContext::for_tests(
+                cptestctx.logctx.log.new(o!()),
+                datastore.clone(),
+            );
+            let authz_snapshot = authz_snapshot.clone();
+
+            async move {
+                let maybe_object = datastore
+                    .user_data_export_lookup_for_snapshot(
+                        &opctx, &authz_snapshot,
+                    )
+                    .await
+                    .unwrap();
+
+                match maybe_object {
+                    Some(object) => Ok(object),
+
+                    None => {
+                        Err(CondCheckError::<()>::NotYet)
+                    }
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export object created");
+
+    nexus
+        .user_data_export_delete_by_id(
+            &opctx, user_data_export.id(),
+        )
+        .await
+        .unwrap();
 }
 
 #[nexus_test]

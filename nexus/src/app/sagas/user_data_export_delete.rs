@@ -181,6 +181,7 @@ async fn suded_delete_user_data_export_record(
 mod test {
     use super::*;
 
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use crate::app::saga::create_saga_dag;
     use crate::app::sagas::test_helpers;
     use crate::app::sagas::user_data_export_create;
@@ -246,7 +247,9 @@ mod test {
 
         let opctx = test_opctx(cptestctx);
 
-        // Make sure the record was created ok
+        // Run the background task to create the record
+        run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
         let (.., authz_snapshot) = LookupPath::new(&opctx, nexus.datastore())
             .snapshot_id(snapshot_id)
             .lookup_for(authz::Action::Read)
