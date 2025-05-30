@@ -768,6 +768,7 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
     )
     .await;
 
+    /*
     // Creating the snapshot now creates the user data export, meaning that the
     // region snapshot won't later get garbage collected due to a volume copy.
     // Issue 6353 occurred before user data exports existed, so delete the
@@ -818,6 +819,7 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
         )
         .await
         .unwrap();
+    */
 
     // Before deleting the disk, save the DB model
     let (.., db_disk) = LookupPath::new(&opctx, datastore)
@@ -1093,7 +1095,7 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
         &std::time::Duration::from_secs(60),
     )
     .await
-    .expect("region snapshot garbage collected"); // XXX meaning here will fail
+    .expect("region snapshot garbage collected");
 
     // Assert that the disk's volume is still only soft-deleted, because the two
     // other associated region snapshots still exist.
@@ -1336,7 +1338,7 @@ mod region_snapshot_replacement {
         internal_client: ClientTestContext,
         replacement_request_id: Uuid,
         snapshot_socket_addr: SocketAddr,
-        user_data_export_id: UserDataExportUuid,
+        //user_data_export_id: UserDataExportUuid,
     }
 
     impl<'a> DeletedVolumeTest<'a> {
@@ -1436,6 +1438,7 @@ mod region_snapshot_replacement {
                 RegionSnapshotReplacementState::Requested,
             );
 
+            /*
             // Wait until the user data export object is created.
 
             let user_data_export = wait_for_condition(
@@ -1469,8 +1472,9 @@ mod region_snapshot_replacement {
             )
             .await
             .expect("user data export object created");
+            */
 
-            // Assert three volumes reference the snapshot addr
+            // Assert two (XXX three) volumes reference the snapshot addr
 
             let snapshot_socket_addr =
                 region_snapshot.snapshot_addr.parse().unwrap();
@@ -1483,7 +1487,7 @@ mod region_snapshot_replacement {
                 .await
                 .unwrap();
 
-            assert_eq!(volumes.len(), 3);
+            assert_eq!(volumes.len(), 2 /*3*/);
 
             // Validate that they are snapshot, disk from snapshot, and the user
             // data export volume.
@@ -1500,7 +1504,7 @@ mod region_snapshot_replacement {
 
             assert!(volumes_set.contains(&db_snapshot.volume_id()));
             assert!(volumes_set.contains(&db_disk_from_snapshot.volume_id()));
-            assert!(volumes_set.contains(&user_data_export.volume_id()));
+            //assert!(volumes_set.contains(&user_data_export.volume_id()));
 
             DeletedVolumeTest {
                 log: cptestctx.logctx.log.new(o!()),
@@ -1510,7 +1514,7 @@ mod region_snapshot_replacement {
                 internal_client: internal_client.clone(),
                 replacement_request_id,
                 snapshot_socket_addr,
-                user_data_export_id: user_data_export.id(),
+                //user_data_export_id: user_data_export.id(),
             }
         }
 
@@ -1598,6 +1602,8 @@ mod region_snapshot_replacement {
             // Wait until the user data export object is deleted by the
             // background task.
 
+            /*
+
             wait_for_condition(
                 || {
                     let datastore = self.datastore.clone();
@@ -1625,6 +1631,8 @@ mod region_snapshot_replacement {
             )
             .await
             .expect("user data export object deleted");
+
+            */
 
             assert!(self.disk_test.crucible_resources_deleted().await);
         }

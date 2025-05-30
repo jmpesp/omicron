@@ -1236,6 +1236,7 @@ pub(crate) mod test {
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils_macros::nexus_test;
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_types::external_api::views;
     use nexus_types::identity::Asset;
     use omicron_uuid_kinds::GenericUuid;
@@ -1303,6 +1304,8 @@ pub(crate) mod test {
 
         // Wait for the user data export object to be created, which will alter
         // the volume and affect the clean slate validation code.
+
+        run_user_data_export_coordinator(&cptestctx.internal_client).await;
 
         poll::wait_for_condition(
             || {

@@ -137,8 +137,9 @@ impl super::Nexus {
                 internal_message: e.to_string(),
             })?;
 
-        self.background_tasks
-            .activate(&self.background_tasks.task_user_data_export_coordinator);
+        // XXX
+        //self.background_tasks
+        //    .activate(&self.background_tasks.task_user_data_export_coordinator);
 
         Ok(snapshot_created)
     }
@@ -175,8 +176,9 @@ impl super::Nexus {
             )
             .await?;
 
-        self.background_tasks
-            .activate(&self.background_tasks.task_user_data_export_coordinator);
+        // XXX
+        //self.background_tasks
+        //    .activate(&self.background_tasks.task_user_data_export_coordinator);
 
         Ok(())
     }

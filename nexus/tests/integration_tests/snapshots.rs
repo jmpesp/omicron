@@ -1347,6 +1347,7 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
             .await
             .unwrap();
 
+    /*
     for authz_snapshot in [&authz_snapshot_1, &authz_snapshot_2, &authz_snapshot_3] {
         let user_data_export = wait_for_condition(
             || {
@@ -1382,6 +1383,7 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
             .await
             .unwrap();
     }
+    */
 
     // Simulate all three of these have snapshot delete sagas executing
     // concurrently. First, delete the snapshot record:

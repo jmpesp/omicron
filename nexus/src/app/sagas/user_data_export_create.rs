@@ -393,6 +393,7 @@ mod test {
     use nexus_db_queries::context::OpContext;
     use nexus_db_queries::db::DataStore;
     use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
@@ -441,9 +442,8 @@ mod test {
         .identity
         .id;
 
-        // Creating the snapshot will trigger the background task to create the
-        // user data export object. Wait for that to be created here, then
-        // delete it.
+        // Trigger the background task to create the user data export object.
+        // Wait for that to be created here, then delete it.
 
         let nexus = &cptestctx.server.server_context().nexus;
         let datastore = nexus.datastore();
@@ -454,6 +454,8 @@ mod test {
             .lookup_for(authz::Action::Read)
             .await
             .unwrap();
+
+        run_user_data_export_coordinator(&cptestctx.internal_client).await;
 
         let export_object = poll::wait_for_condition(
             || {
