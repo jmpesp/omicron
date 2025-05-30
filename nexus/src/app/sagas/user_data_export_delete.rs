@@ -127,11 +127,10 @@ async fn suded_call_pantry_detach_for_export(
     let Some(record) = maybe_record else {
         info!(
             log,
-            "user data export {} hard deleted!",
-            params.user_data_export_id,
+            "user data export {} hard deleted!", params.user_data_export_id,
         );
         return Err(ActionError::action_failed(String::from(
-            "user data export hard deleted!"
+            "user data export hard deleted!",
         )));
     };
 
@@ -181,7 +180,6 @@ async fn suded_delete_user_data_export_record(
 mod test {
     use super::*;
 
-    use nexus_test_utils::background::run_user_data_export_coordinator;
     use crate::app::saga::create_saga_dag;
     use crate::app::sagas::test_helpers;
     use crate::app::sagas::user_data_export_create;
@@ -196,6 +194,7 @@ mod test {
     use nexus_db_queries::context::OpContext;
     use nexus_db_queries::db::DataStore;
     use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
@@ -205,18 +204,18 @@ mod test {
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::external_api::params::InstanceDiskAttachment;
     use omicron_common::api::external::ByteCount;
+    use omicron_common::api::external::Error;
     use omicron_common::api::external::IdentityMetadataCreateParams;
     use omicron_common::api::external::Instance;
     use omicron_common::api::external::InstanceCpuCount;
     use omicron_common::api::external::Name;
     use omicron_common::api::external::NameOrId;
+    use omicron_test_utils::dev::poll;
     use omicron_uuid_kinds::UserDataExportUuid;
     use sled_agent_client::CrucibleOpts;
     use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
     use std::str::FromStr;
-    use omicron_test_utils::dev::poll;
     use std::time::Duration;
-    use omicron_common::api::external::Error;
 
     type DiskTest<'a> =
         nexus_test_utils::resource_helpers::DiskTest<'a, crate::Server>;
@@ -265,7 +264,8 @@ mod test {
                 async move {
                     let maybe_object = datastore
                         .user_data_export_lookup_for_snapshot(
-                            &opctx, &authz_snapshot,
+                            &opctx,
+                            &authz_snapshot,
                         )
                         .await
                         .unwrap();
@@ -273,9 +273,7 @@ mod test {
                     match maybe_object {
                         Some(object) => Ok(object),
 
-                        None => {
-                            Err(poll::CondCheckError::<Error>::NotYet)
-                        }
+                        None => Err(poll::CondCheckError::<Error>::NotYet),
                     }
                 }
             },

@@ -43,12 +43,10 @@
 //! See the documentation for the "region snapshot replacement step garbage
 //! collect" saga for the next step in the process.
 
-use nexus_types::identity::Asset;
 use super::{
     ACTION_GENERATE_ID, ActionRegistry, NexusActionContext, NexusSaga,
     SagaInitError,
 };
-use nexus_db_queries::context::OpContext;
 use crate::app::db::datastore::ExistingTarget;
 use crate::app::db::datastore::ReplacementTarget;
 use crate::app::db::datastore::VolumeReplaceResult;
@@ -58,6 +56,8 @@ use crate::app::sagas::declare_saga_actions;
 use crate::app::{authn, authz, db};
 use nexus_db_lookup::LookupPath;
 use nexus_db_model::VmmState;
+use nexus_db_queries::context::OpContext;
+use nexus_types::identity::Asset;
 use omicron_common::api::external::Error;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::VolumeUuid;
@@ -485,8 +485,8 @@ async fn notify_potential_propolis_upstairs(
         }
     };
 
-    let instance_lookup = LookupPath::new(&opctx, datastore)
-        .instance_id(instance_id);
+    let instance_lookup =
+        LookupPath::new(&opctx, datastore).instance_id(instance_id);
 
     let (vmm, client) = osagactx
         .nexus()
@@ -602,14 +602,12 @@ async fn notify_pantry_upstairs(
         .await
         .map_err(ActionError::action_failed)?
     {
-        Some(volume) => {
-            serde_json::from_str(&volume.data())
-                .map_err(|e| {
-                    ActionError::action_failed(Error::internal_error(&format!(
-                        "failed to deserialize volume {} data: {e}", volume.id()
-                    )))
-                })?
-        }
+        Some(volume) => serde_json::from_str(&volume.data()).map_err(|e| {
+            ActionError::action_failed(Error::internal_error(&format!(
+                "failed to deserialize volume {} data: {e}",
+                volume.id()
+            )))
+        })?,
 
         None => {
             return Err(ActionError::action_failed(Error::internal_error(
@@ -625,14 +623,12 @@ async fn notify_pantry_upstairs(
         volume_construction_request,
     };
 
-    let replace_result = client.replace(
-        &attachment_id.to_string(),
-        &replace_request,
-    )
-    .await
-    .map_err(|e| ActionError::action_failed(Error::internal_error(
-        &e.to_string()
-    )))?;
+    let replace_result = client
+        .replace(&attachment_id.to_string(), &replace_request)
+        .await
+        .map_err(|e| {
+            ActionError::action_failed(Error::internal_error(&e.to_string()))
+        })?;
 
     match replace_result.into_inner() {
         crucible_pantry_client::types::ReplaceResult::Started => {
@@ -723,7 +719,8 @@ async fn rsrss_notify_upstairs(
             sagactx,
             user_data_export.pantry_address(),
             user_data_export.volume_id().into_untyped_uuid(),
-        ).await?;
+        )
+        .await?;
     }
 
     Ok(())

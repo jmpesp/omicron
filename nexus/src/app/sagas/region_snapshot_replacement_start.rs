@@ -1230,18 +1230,18 @@ pub(crate) mod test {
     use nexus_db_model::Volume;
     use nexus_db_queries::authn::saga::Serialized;
     use nexus_db_queries::context::OpContext;
+    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::DiskTest;
     use nexus_test_utils::resource_helpers::DiskTestBuilder;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::create_snapshot;
     use nexus_test_utils_macros::nexus_test;
-    use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_types::external_api::views;
     use nexus_types::identity::Asset;
+    use omicron_test_utils::dev::poll;
     use omicron_uuid_kinds::GenericUuid;
     use sled_agent_client::VolumeConstructionRequest;
-    use omicron_test_utils::dev::poll;
     use std::time::Duration;
 
     type ControlPlaneTestContext =
@@ -1316,7 +1316,8 @@ pub(crate) mod test {
                 async move {
                     let maybe_object = datastore
                         .user_data_export_lookup_for_snapshot(
-                            &opctx, &authz_snapshot,
+                            &opctx,
+                            &authz_snapshot,
                         )
                         .await
                         .unwrap();
@@ -1324,9 +1325,7 @@ pub(crate) mod test {
                     match maybe_object {
                         Some(object) => Ok(object),
 
-                        None => {
-                            Err(poll::CondCheckError::<Error>::NotYet)
-                        }
+                        None => Err(poll::CondCheckError::<Error>::NotYet),
                     }
                 }
             },

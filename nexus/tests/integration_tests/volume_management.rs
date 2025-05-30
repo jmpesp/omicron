@@ -5,7 +5,6 @@
 //! Tests that Nexus properly manages and cleans up Crucible resources
 //! associated with Volumes
 
-use nexus_db_queries::authz;
 use crate::integration_tests::crucible_replacements::wait_for_all_replacements;
 use crate::integration_tests::sleds::sleds_list;
 use async_bb8_diesel::AsyncRunQueryDsl;
@@ -25,6 +24,7 @@ use nexus_db_model::Volume;
 use nexus_db_model::VolumeResourceUsage;
 use nexus_db_model::VolumeResourceUsageRecord;
 use nexus_db_model::to_db_typed_uuid;
+use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
 use nexus_db_queries::db::DataStore;
@@ -41,6 +41,7 @@ use nexus_db_queries::db::datastore::VolumeToDelete;
 use nexus_db_queries::db::datastore::VolumeWithTarget;
 use nexus_db_queries::db::pagination::Paginator;
 use nexus_db_queries::db::pagination::paginated;
+use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
@@ -78,7 +79,6 @@ use std::collections::HashSet;
 use std::net::{SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use uuid::Uuid;
-use nexus_test_utils::background::run_user_data_export_coordinator;
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
@@ -209,17 +209,14 @@ async fn delete_snapshot_user_data_export(
     let nexus = &apictx.nexus;
     let datastore = nexus.datastore();
 
-    let opctx = OpContext::for_tests(
-        cptestctx.logctx.log.new(o!()),
-        datastore.clone(),
-    );
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, datastore)
-            .snapshot_id(snapshot_id)
-            .lookup_for(authz::Action::Read)
-            .await
-            .unwrap();
+    let (.., authz_snapshot) = LookupPath::new(&opctx, datastore)
+        .snapshot_id(snapshot_id)
+        .lookup_for(authz::Action::Read)
+        .await
+        .unwrap();
 
     let user_data_export = wait_for_condition(
         || {
@@ -233,7 +230,8 @@ async fn delete_snapshot_user_data_export(
             async move {
                 let maybe_object = datastore
                     .user_data_export_lookup_for_snapshot(
-                        &opctx, &authz_snapshot,
+                        &opctx,
+                        &authz_snapshot,
                     )
                     .await
                     .unwrap();
@@ -241,9 +239,7 @@ async fn delete_snapshot_user_data_export(
                 match maybe_object {
                     Some(object) => Ok(object),
 
-                    None => {
-                        Err(CondCheckError::<()>::NotYet)
-                    }
+                    None => Err(CondCheckError::<()>::NotYet),
                 }
             }
         },
@@ -254,9 +250,7 @@ async fn delete_snapshot_user_data_export(
     .expect("user data export object created");
 
     nexus
-        .user_data_export_delete_by_id(
-            &opctx, user_data_export.id(),
-        )
+        .user_data_export_delete_by_id(&opctx, user_data_export.id())
         .await
         .unwrap();
 }

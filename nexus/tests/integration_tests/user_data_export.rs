@@ -4,7 +4,6 @@
 
 //! Tests basic user data export support in the API
 
-use nexus_test_utils::background::run_user_data_export_coordinator;
 use crate::integration_tests::images::get_image_create;
 use crate::integration_tests::images::get_project_images_url;
 use crate::integration_tests::instances::instance_simulate;
@@ -23,6 +22,7 @@ use nexus_db_queries::db::datastore::RegionAllocationFor;
 use nexus_db_queries::db::datastore::RegionAllocationParameters;
 use nexus_db_queries::db::identity::Resource;
 use nexus_test_utils::SLED_AGENT_UUID;
+use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;

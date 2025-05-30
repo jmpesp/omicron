@@ -200,8 +200,8 @@ async fn replace(
     let body = body.into_inner();
     let pantry = rc.context();
 
-    let result = pantry
-        .replace(path.id.clone(), body.volume_construction_request)?;
+    let result =
+        pantry.replace(path.id.clone(), body.volume_construction_request)?;
 
     Ok(HttpResponseOk(result))
 }

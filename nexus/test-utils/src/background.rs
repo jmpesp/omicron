@@ -471,11 +471,10 @@ pub async fn run_user_data_export_coordinator(
         );
     };
 
-    let status =
-        serde_json::from_value::<UserDataExportCoordinatorStatus>(
-            last_result_completed.details,
-        )
-        .unwrap();
+    let status = serde_json::from_value::<UserDataExportCoordinatorStatus>(
+        last_result_completed.details,
+    )
+    .unwrap();
 
     assert!(status.errors.is_empty());
 }
