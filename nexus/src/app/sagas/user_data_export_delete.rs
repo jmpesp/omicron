@@ -8,14 +8,10 @@ use super::ActionRegistry;
 use super::NexusActionContext;
 use super::NexusSaga;
 use super::common_storage::call_pantry_detach;
-use crate::app::authz;
 use crate::app::sagas::SagaInitError;
 use crate::app::sagas::declare_saga_actions;
 use crate::app::sagas::volume_delete;
-use nexus_db_lookup::LookupPath;
 use nexus_db_queries::authn;
-use nexus_db_queries::db;
-use omicron_common::api::external::DiskState;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::UserDataExportUuid;
@@ -25,7 +21,6 @@ use serde::Serialize;
 use slog_error_chain::InlineErrorChain;
 use steno::ActionError;
 use steno::Node;
-use uuid::Uuid;
 
 // user data export delete saga: input parameters
 
@@ -180,41 +175,42 @@ async fn suded_delete_user_data_export_record(
 mod test {
     use super::*;
 
+    use nexus_db_lookup::LookupPath;
+    use crate::app::authz;
+    use uuid::Uuid;
     use crate::app::saga::create_saga_dag;
-    use crate::app::sagas::test_helpers;
-    use crate::app::sagas::user_data_export_create;
-    use crate::app::sagas::user_data_export_create::SagaUserDataExportCreate;
-    use async_bb8_diesel::AsyncRunQueryDsl;
-    use diesel::{
-        ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
-    };
-    use dropshot::test_util::ClientTestContext;
+    
+    
+    
+    
+    
+    
     use nexus_db_model::UserDataExportRecord;
-    use nexus_db_model::UserDataExportResource;
+    
     use nexus_db_queries::context::OpContext;
-    use nexus_db_queries::db::DataStore;
-    use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
+    
+    
     use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::create_snapshot;
-    use nexus_test_utils::resource_helpers::delete_disk;
-    use nexus_test_utils::resource_helpers::object_create;
+    
+    
     use nexus_test_utils_macros::nexus_test;
-    use nexus_types::external_api::params::InstanceDiskAttachment;
-    use omicron_common::api::external::ByteCount;
+    
+    
     use omicron_common::api::external::Error;
-    use omicron_common::api::external::IdentityMetadataCreateParams;
-    use omicron_common::api::external::Instance;
-    use omicron_common::api::external::InstanceCpuCount;
-    use omicron_common::api::external::Name;
-    use omicron_common::api::external::NameOrId;
+    
+    
+    
+    
+    
     use omicron_test_utils::dev::poll;
-    use omicron_uuid_kinds::UserDataExportUuid;
-    use sled_agent_client::CrucibleOpts;
-    use sled_agent_client::TestInterfaces as SledAgentTestInterfaces;
-    use std::str::FromStr;
+    
+    
+    
+    
     use std::time::Duration;
 
     type DiskTest<'a> =
@@ -225,7 +221,6 @@ mod test {
 
     const PROJECT_NAME: &str = "bobs-barrel-of-bits";
     const DISK_NAME: &str = "bobs-disk";
-    const INSTANCE_NAME: &str = "bobs-instance";
     const SNAPSHOT_NAME: &str = "bobs-snapshot";
 
     async fn create_all_the_stuff(
@@ -299,7 +294,6 @@ mod test {
     ) {
         DiskTest::new(cptestctx).await;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
         let (snapshot_id, export_object) =
             create_all_the_stuff(cptestctx).await;
@@ -341,7 +335,6 @@ mod test {
     ) {
         DiskTest::new(cptestctx).await;
 
-        let client = &cptestctx.external_client;
         let nexus = &cptestctx.server.server_context().nexus;
         let (snapshot_id, export_object) =
             create_all_the_stuff(cptestctx).await;

@@ -13,13 +13,10 @@ use crate::app::sagas::user_data_export_create::*;
 use crate::app::sagas::user_data_export_delete::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
 use nexus_db_queries::db::datastore::UserDataExportChangeset;
-use nexus_types::identity::Asset;
 use nexus_types::internal_api::background::UserDataExportCoordinatorStatus;
-use omicron_common::api::external::Error;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -44,7 +41,7 @@ impl UserDataExportCoordinator {
         for item in &changeset.create_required {
             let params = sagas::user_data_export_create::Params {
                 serialized_authn: authn::saga::Serialized::for_opctx(opctx),
-                resource: item.clone(),
+                resource: *item,
             };
 
             let saga_dag = match SagaUserDataExportCreate::prepare(&params) {
@@ -168,6 +165,8 @@ impl BackgroundTask for UserDataExportCoordinator {
 #[cfg(test)]
 mod test {
     use super::*;
+    
+    use nexus_db_model::UserDataExportResource;
     use crate::app::MIN_DISK_SIZE_BYTES;
     use crate::app::authz;
     use crate::app::background::init::test::NoopStartSaga;
@@ -182,12 +181,12 @@ mod test {
     use nexus_db_model::SnapshotState;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_project;
-    use nexus_test_utils::resource_helpers::object_create;
+    
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::identity::Resource;
     use omicron_common::api::external;
-    use omicron_uuid_kinds::DatasetUuid;
-    use omicron_uuid_kinds::GenericUuid;
+    
+    
     use omicron_uuid_kinds::UserDataExportUuid;
     use omicron_uuid_kinds::VolumeUuid;
     use std::net::Ipv6Addr;
@@ -324,7 +323,7 @@ mod test {
                     block_size: BlockSize::Iso,
 
                     size: external::ByteCount::try_from(
-                        1 * MIN_DISK_SIZE_BYTES,
+                        MIN_DISK_SIZE_BYTES,
                     )
                     .unwrap()
                     .into(),
@@ -441,7 +440,7 @@ mod test {
                     block_size: BlockSize::Iso,
 
                     size: external::ByteCount::try_from(
-                        1 * MIN_DISK_SIZE_BYTES,
+                        MIN_DISK_SIZE_BYTES,
                     )
                     .unwrap()
                     .into(),
@@ -467,12 +466,6 @@ mod test {
                 SocketAddrV6::new(Ipv6Addr::LOCALHOST, 0, 0, 0),
                 VolumeUuid::new_v4(),
             )
-            .await
-            .unwrap();
-
-        let (.., authz_image, db_image) = LookupPath::new(&opctx, datastore)
-            .project_image_id(image.id())
-            .fetch_for(authz::Action::Read)
             .await
             .unwrap();
 

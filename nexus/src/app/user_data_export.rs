@@ -11,27 +11,17 @@ use bytes::Bytes;
 use dropshot::Body;
 use dropshot::ErrorStatusCode;
 use dropshot::HttpError;
-use http::{Response, StatusCode, header};
+use http::Response;
 use http_body_util::channel::Channel;
 use internal_dns_types::names::ServiceName;
-use nexus_db_lookup::LookupPath;
 use nexus_db_lookup::lookup;
 use nexus_db_model::UserDataExportRecord;
 use nexus_db_model::UserDataExportResource;
 use nexus_db_queries::authn;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
-use nexus_db_queries::db;
-use nexus_types::external_api::params;
-use nexus_types::external_api::params::SnapshotSelector;
-use nexus_types::identity::Resource;
-use omicron_common::api::external::CreateResult;
-use omicron_common::api::external::DeleteResult;
 use omicron_common::api::external::Error;
-use omicron_common::api::external::ListResultVec;
 use omicron_common::api::external::LookupResult;
-use omicron_common::api::external::NameOrId;
-use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_uuid_kinds::UserDataExportUuid;
 use omicron_uuid_kinds::VolumeUuid;
 use range_requests::PotentialRange;
@@ -62,6 +52,7 @@ impl ImageBeingRead {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn user_data_export_blocks_read_task(
     mut sender: http_body_util::channel::Sender<Bytes>,
     log: Logger,
@@ -98,9 +89,9 @@ async fn user_data_export_blocks_read_task(
 
     let mut offset: u64 = range_start;
 
-    while (offset < range_end) {
+    while offset < range_end {
         let end = std::cmp::min(offset + PANTRY_MAX_CHUNK_SIZE, range_end);
-        let size: u64 = (end - offset);
+        let size: u64 = end - offset;
 
         assert!(size <= PANTRY_MAX_CHUNK_SIZE);
 
@@ -250,9 +241,9 @@ impl super::Nexus {
                 .header(http::header::CONTENT_LENGTH, total_size);
         }
 
-        Ok(builder
+        builder
             .body(dropshot::Body::wrap(body))
-            .map_err(|e| HttpError::for_internal_error(e.to_string()))?)
+            .map_err(|e| HttpError::for_internal_error(e.to_string()))
     }
 
     pub(crate) async fn user_data_export_for_snapshot(

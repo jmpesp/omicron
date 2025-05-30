@@ -7,21 +7,15 @@
 use super::DataStore;
 use crate::authz;
 use crate::context::OpContext;
-use crate::db;
-use crate::db::datastore::SQL_BATCH_SIZE;
 use crate::db::model::Image;
 use crate::db::model::Snapshot;
 use crate::db::model::UserDataExportRecord;
 use crate::db::model::UserDataExportResource;
 use crate::db::model::UserDataExportResourceType;
 use crate::db::model::to_db_typed_uuid;
-use crate::db::pagination::Paginator;
-use crate::db::pagination::paginated;
 use async_bb8_diesel::AsyncRunQueryDsl;
-use chrono::Utc;
 use diesel::OptionalExtension;
 use diesel::prelude::*;
-use nexus_auth::authz::ApiResource;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::OptionalError;
 use nexus_db_errors::public_error_from_diesel;
@@ -454,20 +448,21 @@ impl DataStore {
 mod tests {
     use super::*;
 
-    use crate::db::datastore::REGION_REDUNDANCY_THRESHOLD;
-    use crate::db::datastore::test::TestDatasets;
+    use crate::db::model::SnapshotState;
+    
+    
     use crate::db::pub_test_utils::TestDatabase;
     use crate::db::pub_test_utils::helpers::create_project;
     use crate::db::pub_test_utils::helpers::create_project_image;
     use crate::db::pub_test_utils::helpers::create_project_snapshot;
-    use nexus_config::RegionAllocationStrategy;
+    
     use nexus_db_lookup::LookupPath;
-    use nexus_db_model::SqlU16;
-    use nexus_types::external_api::params::DiskSource;
-    use omicron_common::api::external::ByteCount;
+    
+    
+    
     use omicron_test_utils::dev;
     use omicron_uuid_kinds::VolumeUuid;
-    use sled_agent_client::CrucibleOpts;
+    
     use std::collections::BTreeSet;
     use std::net::Ipv6Addr;
 
@@ -481,7 +476,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let snapshot = create_project_snapshot(
@@ -552,7 +547,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let snapshot = create_project_snapshot(
@@ -615,7 +610,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
         let snapshot = create_project_snapshot(
             &opctx,
@@ -649,7 +644,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let image =
@@ -679,7 +674,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let snapshot = create_project_snapshot(
@@ -713,7 +708,7 @@ mod tests {
                 &opctx,
                 &authz_snapshot,
                 &snapshot,
-                vec![db::model::SnapshotState::Creating],
+                vec![SnapshotState::Creating],
             )
             .await
             .unwrap();
@@ -741,7 +736,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let image =
@@ -793,7 +788,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let mut created_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
@@ -844,7 +839,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         for i in 0..LARGE_NUMBER_OF_ROWS {
@@ -896,7 +891,7 @@ mod tests {
         let db = TestDatabase::new_with_datastore(&log).await;
         let (opctx, datastore) = (db.opctx(), db.datastore());
 
-        let (authz_project, project) =
+        let (authz_project, _) =
             create_project(&opctx, &datastore, PROJECT_NAME).await;
 
         let mut created_snapshot_ids: BTreeSet<Uuid> = BTreeSet::default();
@@ -935,7 +930,7 @@ mod tests {
                     &opctx,
                     &authz_snapshot,
                     &snapshot,
-                    vec![db::model::SnapshotState::Creating],
+                    vec![SnapshotState::Creating],
                 )
                 .await
                 .unwrap();

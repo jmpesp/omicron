@@ -8,7 +8,6 @@ use async_bb8_diesel::AsyncRunQueryDsl;
 use diesel::ExpressionMethods;
 use diesel::QueryDsl;
 use dropshot::test_util::ClientTestContext;
-use nexus_auth::authz;
 use nexus_client::types::LastResult;
 use nexus_db_lookup::LookupPath;
 use nexus_db_model::PhysicalDiskPolicy;
@@ -39,7 +38,6 @@ use omicron_common::api::external;
 use omicron_common::api::external::IdentityMetadataCreateParams;
 use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use omicron_uuid_kinds::GenericUuid;
-use omicron_uuid_kinds::UserDataExportUuid;
 use omicron_uuid_kinds::VolumeUuid;
 use slog::Logger;
 use slog::info;
@@ -1373,7 +1371,7 @@ mod region_snapshot_replacement {
                 create_snapshot(&client, PROJECT_NAME, "disk", "snapshot")
                     .await;
 
-            let (.., authz_snapshot, db_snapshot) =
+            let (.., /*authz_snapshot,*/ db_snapshot) =
                 LookupPath::new(&opctx, &datastore)
                     .snapshot_id(snapshot.identity.id)
                     .fetch()

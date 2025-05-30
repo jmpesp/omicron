@@ -24,7 +24,6 @@ use nexus_db_model::Volume;
 use nexus_db_model::VolumeResourceUsage;
 use nexus_db_model::VolumeResourceUsageRecord;
 use nexus_db_model::to_db_typed_uuid;
-use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
 use nexus_db_queries::db::DataStore;
@@ -41,7 +40,6 @@ use nexus_db_queries::db::datastore::VolumeToDelete;
 use nexus_db_queries::db::datastore::VolumeWithTarget;
 use nexus_db_queries::db::pagination::Paginator;
 use nexus_db_queries::db::pagination::paginated;
-use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
@@ -172,6 +170,9 @@ async fn create_base_disk(
 // XXX which method to use? assert_crucible_resources_cleaned_up or
 // delete_snapshot_user_data_export?
 
+// XXX delete!
+
+/*
 async fn assert_crucible_resources_cleaned_up<'a>(
     cptestctx: &ControlPlaneTestContext,
     disk_test: DiskTest<'a>,
@@ -254,6 +255,7 @@ async fn delete_snapshot_user_data_export(
         .await
         .unwrap();
 }
+*/
 
 #[nexus_test]
 async fn test_snapshot_then_delete_disk(cptestctx: &ControlPlaneTestContext) {

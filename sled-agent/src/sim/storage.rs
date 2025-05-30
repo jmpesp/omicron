@@ -2193,8 +2193,7 @@ impl Pantry {
             ));
         }
 
-        let mut data = Vec::with_capacity(size);
-        data.resize(size, 0u8);
+        let mut data = vec![0u8; size];
 
         // Write some breadcrumbs into the returning block for validation
         if size >= 16 {

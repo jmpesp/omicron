@@ -6,57 +6,34 @@
 
 use crate::integration_tests::images::get_image_create;
 use crate::integration_tests::images::get_project_images_url;
-use crate::integration_tests::instances::instance_simulate;
-use chrono::Utc;
 use dropshot::test_util::ClientTestContext;
 use http::StatusCode;
 use http::method::Method;
-use nexus_config::RegionAllocationStrategy;
 use nexus_db_lookup::LookupPath;
-use nexus_db_model::to_db_typed_uuid;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
-use nexus_db_queries::db;
-use nexus_db_queries::db::datastore::REGION_REDUNDANCY_THRESHOLD;
-use nexus_db_queries::db::datastore::RegionAllocationFor;
-use nexus_db_queries::db::datastore::RegionAllocationParameters;
 use nexus_db_queries::db::identity::Resource;
-use nexus_test_utils::SLED_AGENT_UUID;
 use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
 use nexus_test_utils::resource_helpers::create_default_ip_pool;
-use nexus_test_utils::resource_helpers::create_disk;
 use nexus_test_utils::resource_helpers::create_project;
 use nexus_test_utils::resource_helpers::object_create;
 use nexus_test_utils_macros::nexus_test;
 use nexus_types::external_api::params;
 use nexus_types::external_api::views;
-use omicron_common::api::external;
 use omicron_common::api::external::ByteCount;
 use omicron_common::api::external::Disk;
-use omicron_common::api::external::DiskState;
 use omicron_common::api::external::IdentityMetadataCreateParams;
-use omicron_common::api::external::Instance;
-use omicron_common::api::external::InstanceCpuCount;
 use omicron_common::api::external::Name;
-use omicron_nexus::app::MIN_DISK_SIZE_BYTES;
 use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
-use omicron_uuid_kinds::DatasetUuid;
-use omicron_uuid_kinds::GenericUuid;
-use omicron_uuid_kinds::InstanceUuid;
-use omicron_uuid_kinds::VolumeUuid;
 use uuid::Uuid;
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
 type DiskTest<'a> =
     nexus_test_utils::resource_helpers::DiskTest<'a, omicron_nexus::Server>;
-type DiskTestBuilder<'a> = nexus_test_utils::resource_helpers::DiskTestBuilder<
-    'a,
-    omicron_nexus::Server,
->;
 
 const PROJECT_NAME: &str = "bobs-barrel-of-bits";
 
@@ -65,10 +42,6 @@ const CHUNK_SIZE: usize = 512 * 1024;
 
 fn get_disks_url() -> String {
     format!("/v1/disks?project={}", PROJECT_NAME)
-}
-
-fn get_disk_url(name: &str) -> String {
-    format!("/v1/disks/{}?project={}", name, PROJECT_NAME)
 }
 
 async fn create_project_and_pool(client: &ClientTestContext) -> Uuid {
@@ -86,7 +59,7 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
+    create_project_and_pool(client).await;
     let disks_url = get_disks_url();
 
     // Create a blank disk
@@ -103,7 +76,7 @@ async fn test_user_data_export_basic(cptestctx: &ControlPlaneTestContext) {
         size: disk_size,
     };
 
-    let base_disk: Disk = NexusRequest::new(
+    let _: Disk = NexusRequest::new(
         RequestBuilder::new(client, Method::POST, &disks_url)
             .body(Some(&base_disk))
             .expect_status(Some(StatusCode::CREATED)),
@@ -278,7 +251,7 @@ async fn test_user_data_export_basic_ranged(
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
+    create_project_and_pool(client).await;
     let disks_url = get_disks_url();
 
     // Create a blank disk
@@ -295,7 +268,7 @@ async fn test_user_data_export_basic_ranged(
         size: disk_size,
     };
 
-    let base_disk: Disk = NexusRequest::new(
+    let _: Disk = NexusRequest::new(
         RequestBuilder::new(client, Method::POST, &disks_url)
             .body(Some(&base_disk))
             .expect_status(Some(StatusCode::CREATED)),
@@ -456,7 +429,7 @@ async fn test_user_data_export_before_creation(
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
+    create_project_and_pool(client).await;
     let disks_url = get_disks_url();
 
     // Create a blank disk
@@ -473,7 +446,7 @@ async fn test_user_data_export_before_creation(
         size: disk_size,
     };
 
-    let base_disk: Disk = NexusRequest::new(
+    let _: Disk = NexusRequest::new(
         RequestBuilder::new(client, Method::POST, &disks_url)
             .body(Some(&base_disk))
             .expect_status(Some(StatusCode::CREATED)),
@@ -505,12 +478,6 @@ async fn test_user_data_export_before_creation(
     let snapshot_url = format!("/v1/snapshots/{snapshot_id}");
     let read_url = format!("{snapshot_url}/read");
 
-    let (.., authz_snapshot, db_snapshot) = LookupPath::new(&opctx, datastore)
-        .snapshot_id(snapshot_id)
-        .fetch_for(authz::Action::Read)
-        .await
-        .unwrap();
-
     // Try to grab a single block
     NexusRequest::new(
         RequestBuilder::new(client, Method::GET, &read_url)
@@ -534,7 +501,7 @@ async fn test_user_data_export_after_delete(
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
+    create_project_and_pool(client).await;
     let disks_url = get_disks_url();
 
     // Create a blank disk
@@ -551,7 +518,7 @@ async fn test_user_data_export_after_delete(
         size: disk_size,
     };
 
-    let base_disk: Disk = NexusRequest::new(
+    let _: Disk = NexusRequest::new(
         RequestBuilder::new(client, Method::POST, &disks_url)
             .body(Some(&base_disk))
             .expect_status(Some(StatusCode::CREATED)),
@@ -717,8 +684,7 @@ async fn test_user_data_export_basic_image_ranged(
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
-    let disks_url = get_disks_url();
+    create_project_and_pool(client).await;
 
     // Create an image
     let image_create_params = get_image_create(
@@ -864,8 +830,7 @@ async fn test_user_data_export_basic_image_ranged_with_promote(
         OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
-    let project_id = create_project_and_pool(client).await;
-    let disks_url = get_disks_url();
+    create_project_and_pool(client).await;
 
     // Create a project image
     let image_create_params = get_image_create(
