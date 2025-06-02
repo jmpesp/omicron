@@ -766,59 +766,6 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
     )
     .await;
 
-    /*
-    // Creating the snapshot now creates the user data export, meaning that the
-    // region snapshot won't later get garbage collected due to a volume copy.
-    // Issue 6353 occurred before user data exports existed, so delete the
-    // object to faithfully recreate the issue.
-
-    let (.., authz_snapshot) =
-        LookupPath::new(&opctx, datastore)
-            .snapshot_id(snapshot.identity.id)
-            .lookup_for(authz::Action::Read)
-            .await
-            .unwrap();
-
-    let user_data_export = wait_for_condition(
-        || {
-            let datastore = datastore.clone();
-            let opctx = OpContext::for_tests(
-                cptestctx.logctx.log.new(o!()),
-                datastore.clone(),
-            );
-            let authz_snapshot = authz_snapshot.clone();
-
-            async move {
-                let maybe_object = datastore
-                    .user_data_export_lookup_for_snapshot(
-                        &opctx, &authz_snapshot,
-                    )
-                    .await
-                    .unwrap();
-
-                match maybe_object {
-                    Some(object) => Ok(object),
-
-                    None => {
-                        Err(CondCheckError::<()>::NotYet)
-                    }
-                }
-            }
-        },
-        &std::time::Duration::from_millis(50),
-        &std::time::Duration::from_secs(60),
-    )
-    .await
-    .expect("user data export object created");
-
-    nexus
-        .user_data_export_delete_by_id(
-            &opctx, user_data_export.id(),
-        )
-        .await
-        .unwrap();
-    */
-
     // Before deleting the disk, save the DB model
     let (.., db_disk) = LookupPath::new(&opctx, datastore)
         .disk_id(disk.identity.id)
