@@ -358,7 +358,6 @@ async fn sudec_create_export_record_undo(
 mod test {
     use super::*;
 
-    use uuid::Uuid;
     use crate::app::saga::create_saga_dag;
     use nexus_db_queries::context::OpContext;
     use nexus_test_utils::background::run_user_data_export_coordinator;
@@ -369,6 +368,7 @@ mod test {
     use nexus_test_utils_macros::nexus_test;
     use omicron_test_utils::dev::poll;
     use std::time::Duration;
+    use uuid::Uuid;
 
     type DiskTest<'a> =
         nexus_test_utils::resource_helpers::DiskTest<'a, crate::Server>;

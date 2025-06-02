@@ -449,20 +449,17 @@ mod tests {
     use super::*;
 
     use crate::db::model::SnapshotState;
-    
-    
+
     use crate::db::pub_test_utils::TestDatabase;
     use crate::db::pub_test_utils::helpers::create_project;
     use crate::db::pub_test_utils::helpers::create_project_image;
     use crate::db::pub_test_utils::helpers::create_project_snapshot;
-    
+
     use nexus_db_lookup::LookupPath;
-    
-    
-    
+
     use omicron_test_utils::dev;
     use omicron_uuid_kinds::VolumeUuid;
-    
+
     use std::collections::BTreeSet;
     use std::net::Ipv6Addr;
 

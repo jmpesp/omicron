@@ -175,42 +175,27 @@ async fn suded_delete_user_data_export_record(
 mod test {
     use super::*;
 
-    use nexus_db_lookup::LookupPath;
     use crate::app::authz;
-    use uuid::Uuid;
     use crate::app::saga::create_saga_dag;
-    
-    
-    
-    
-    
-    
+    use nexus_db_lookup::LookupPath;
+    use uuid::Uuid;
+
     use nexus_db_model::UserDataExportRecord;
-    
+
     use nexus_db_queries::context::OpContext;
-    
-    
+
     use nexus_test_utils::background::run_user_data_export_coordinator;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_disk;
     use nexus_test_utils::resource_helpers::create_project;
     use nexus_test_utils::resource_helpers::create_snapshot;
-    
-    
+
     use nexus_test_utils_macros::nexus_test;
-    
-    
+
     use omicron_common::api::external::Error;
-    
-    
-    
-    
-    
+
     use omicron_test_utils::dev::poll;
-    
-    
-    
-    
+
     use std::time::Duration;
 
     type DiskTest<'a> =
