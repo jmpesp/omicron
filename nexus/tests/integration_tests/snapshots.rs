@@ -1345,44 +1345,6 @@ async fn test_multiple_deletes_not_sent(cptestctx: &ControlPlaneTestContext) {
             .await
             .unwrap();
 
-    /*
-    for authz_snapshot in [&authz_snapshot_1, &authz_snapshot_2, &authz_snapshot_3] {
-        let user_data_export = wait_for_condition(
-            || {
-                let datastore = datastore.clone();
-                let opctx = OpContext::for_tests(
-                    client.client_log.new(o!()),
-                    datastore.clone(),
-                );
-                let authz_snapshot = authz_snapshot.clone();
-
-                async move {
-                    let maybe_object = datastore
-                        .user_data_export_lookup_for_snapshot(
-                            &opctx, &authz_snapshot
-                        )
-                        .await
-                        .unwrap();
-
-                    match maybe_object {
-                        Some(object) => Ok(object),
-                        None => Err(CondCheckError::<()>::NotYet),
-                    }
-                }
-            },
-            &std::time::Duration::from_millis(50),
-            &std::time::Duration::from_secs(60),
-        )
-        .await
-        .unwrap();
-
-        nexus
-            .user_data_export_delete_by_id(&opctx, user_data_export.id())
-            .await
-            .unwrap();
-    }
-    */
-
     // Simulate all three of these have snapshot delete sagas executing
     // concurrently. First, delete the snapshot record:
 
