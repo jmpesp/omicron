@@ -12,7 +12,6 @@ use http::method::Method;
 use nexus_db_lookup::LookupPath;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
-use nexus_db_queries::db::identity::Resource;
 use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
@@ -423,10 +422,6 @@ async fn test_user_data_export_before_creation(
     cptestctx: &ControlPlaneTestContext,
 ) {
     let client = &cptestctx.external_client;
-    let nexus = &cptestctx.server.server_context().nexus;
-    let datastore = nexus.datastore();
-    let opctx =
-        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
 
     DiskTest::new(&cptestctx).await;
     create_project_and_pool(client).await;

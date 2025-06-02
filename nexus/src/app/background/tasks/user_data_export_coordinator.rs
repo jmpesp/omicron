@@ -165,8 +165,7 @@ impl BackgroundTask for UserDataExportCoordinator {
 #[cfg(test)]
 mod test {
     use super::*;
-    
-    use nexus_db_model::UserDataExportResource;
+
     use crate::app::MIN_DISK_SIZE_BYTES;
     use crate::app::authz;
     use crate::app::background::init::test::NoopStartSaga;
@@ -179,14 +178,14 @@ mod test {
     use nexus_db_model::Snapshot;
     use nexus_db_model::SnapshotIdentity;
     use nexus_db_model::SnapshotState;
+    use nexus_db_model::UserDataExportResource;
     use nexus_test_utils::resource_helpers::create_default_ip_pool;
     use nexus_test_utils::resource_helpers::create_project;
-    
+
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::identity::Resource;
     use omicron_common::api::external;
-    
-    
+
     use omicron_uuid_kinds::UserDataExportUuid;
     use omicron_uuid_kinds::VolumeUuid;
     use std::net::Ipv6Addr;
@@ -322,11 +321,9 @@ mod test {
                     digest: None,
                     block_size: BlockSize::Iso,
 
-                    size: external::ByteCount::try_from(
-                        MIN_DISK_SIZE_BYTES,
-                    )
-                    .unwrap()
-                    .into(),
+                    size: external::ByteCount::try_from(MIN_DISK_SIZE_BYTES)
+                        .unwrap()
+                        .into(),
                 },
             )
             .await
@@ -439,11 +436,9 @@ mod test {
                     digest: None,
                     block_size: BlockSize::Iso,
 
-                    size: external::ByteCount::try_from(
-                        MIN_DISK_SIZE_BYTES,
-                    )
-                    .unwrap()
-                    .into(),
+                    size: external::ByteCount::try_from(MIN_DISK_SIZE_BYTES)
+                        .unwrap()
+                        .into(),
                 },
             )
             .await
