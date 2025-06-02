@@ -181,14 +181,18 @@ impl super::Nexus {
             )
             .await?
         {
-            // XXX nuke user data export record here?
-
             let s = format!("pantry {pantry_address} is gone from DNS!");
             warn!(
                 self.log,
                 "{s}";
                 "user_data_export" => %user_data_export.id(),
             );
+
+            // Nuke the existing object here. The associated background task
+            // will eventually create another.
+            // XXX no opctx
+            //self.user_data_export_delete_by_id(&opctx, user_data_export.id())
+            //    .await?;
 
             let s = String::from("resource not ready for export");
             let mut error = HttpError::for_internal_error(s);
