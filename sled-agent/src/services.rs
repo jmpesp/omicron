@@ -1025,7 +1025,7 @@ impl ServiceManager {
                             Ok(link) => {
                                 // Set MTU to 9000 before use, so as not to
                                 // fragment packets!
-                                Dladm::set_linkprop(&name.to_string(), "mtu", "9000")?;
+                                Dladm::set_linkprop(&name.to_string(), "mtu", "9000").await?;
 
                                 // Link local addresses should be created in the
                                 // zone so that maghemite can listen on them.
