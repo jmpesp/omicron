@@ -52,6 +52,9 @@ use omicron_common::disk::DiskVariant;
 use sprockets_tls::keys::SprocketsConfig;
 use sprockets_tls::keys::ResolveSetting;
 use omicron_gateway::RetryConfig;
+use uuid::Uuid;
+use sp_sim::config::EreportConfig;
+use sp_sim::config::EreportRestart;
 
 fn main() -> Result<()> {
     let cmd = Command::new("hostname").output()?;
@@ -467,6 +470,16 @@ fn main() -> Result<()> {
                         no_stage0_caboose: true,
 
                         old_rot_state: false,
+
+                        ereport_config: EreportConfig {
+                            restart: EreportRestart {
+                                restart_id: Uuid::new_v4(),
+                                metadata: toml::map::Map::default(),
+                            },
+                            ereports: vec![],
+                        },
+
+                        ereport_network_config: None,
                     }}
                 ]
             } else {
@@ -589,6 +602,16 @@ fn main() -> Result<()> {
                     no_stage0_caboose: true,
 
                     old_rot_state: false,
+
+                    ereport_config: EreportConfig {
+                        restart: EreportRestart {
+                            restart_id: Uuid::new_v4(),
+                            metadata: toml::map::Map::default(),
+                        },
+                        ereports: vec![],
+                    },
+
+                    ereport_network_config: None,
                 }},
             ],
         },
@@ -619,6 +642,7 @@ fn main() -> Result<()> {
                     config: omicron_gateway::SwitchPortConfig::Simulated {
                         fake_interface: String::from("sidecar0"), // has to match local ignition interface?
                         addr: "[::1]:33300".parse().unwrap(),
+                        ereport_addr: "[::1]:43300".parse().unwrap(),
                     },
 
                     ignition_target: 0,
@@ -776,6 +800,8 @@ fn main() -> Result<()> {
                 },
 
                 port,
+
+                ereport_udp_listen_port: 1225, // bogus
             },
 
             log: ConfigLogging::File {
