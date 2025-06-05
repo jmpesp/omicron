@@ -953,18 +953,18 @@ crucible-smf = { path = "../crucible/smf" }
 oxide-vpc = { path = "../opte/lib/oxide-vpc" }
 opte-ioctl = { path = "../opte/lib/opte-ioctl" }
 
-# [patch."https://github.com/oxidecomputer/falcon"]
-# libfalcon = { path = "../falcon/lib" }
+[patch."https://github.com/oxidecomputer/falcon"]
+libfalcon = { path = "../falcon/lib" }
 
 # [patch."https://github.com/oxidecomputer/propolis"]
 # propolis-client = { path = "../propolis/lib/propolis-client" }
 # propolis-mock-server = { path = "../propolis/bin/mock-server" }
 
-# [patch."https://github.com/oxidecomputer/tufaceous"]
-# tufaceous = { path = "../tufaceous/bin" }
-# tufaceous-artifact = { path = "../tufaceous/artifact" }
-# tufaceous-brand-metadata = { path = "../tufaceous/brand-metadata" }
-# tufaceous-lib = { path = "../tufaceous/lib" }
+[patch."https://github.com/oxidecomputer/tufaceous"]
+tufaceous = { path = "../tufaceous/bin" }
+tufaceous-artifact = { path = "../tufaceous/artifact" }
+tufaceous-brand-metadata = { path = "../tufaceous/brand-metadata" }
+tufaceous-lib = { path = "../tufaceous/lib" }
 
 # [patch."https://github.com/oxidecomputer/typify"]
 # typify = { path = "../typify/typify" }
@@ -1011,9 +1011,6 @@ branch = 'state-derive-eq-hash'
 [patch.crates-io.reqwest]
 git = 'https://github.com/seanmonstar/reqwest'
 rev = '114d97c1a862567b465cb57f14d584626e1cf30c'
-
-#[patch."https://github.com/oxidecomputer/falcon"]
-#libfalcon = { path = "../falcon/lib" }
 
 [patch."https://github.com/oxidecomputer/sprockets.git"]
 sprockets-tls = { path = "../sprockets/tls" }
