@@ -984,4 +984,105 @@ mod tests {
         db.terminate().await;
         logctx.cleanup_successful();
     }
+
+    /// Distribute user data export objects to a number of Pantries, then
+    /// simulate one of those being expunged, and validaate that the affected
+    /// records will be marked for deletion.
+    #[tokio::test]
+    async fn test_delete_records_for_expunged_pantries() {
+        let logctx =
+            dev::test_setup_log("test_delete_records_for_expunged_pantries");
+        let log = logctx.log.new(o!());
+        let db = TestDatabase::new_with_datastore(&log).await;
+        let (opctx, datastore) = (db.opctx(), db.datastore());
+
+        let (authz_project, _) =
+            create_project(&opctx, &datastore, PROJECT_NAME).await;
+
+        let pantry_ips = [
+            SocketAddrV6::new(
+                Ipv6Addr::new(0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x1, 0x0),
+                0,
+                0,
+                0,
+            ),
+            SocketAddrV6::new(
+                Ipv6Addr::new(0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x3, 0x0),
+                0,
+                0,
+                0,
+            ),
+            SocketAddrV6::new(
+                Ipv6Addr::new(0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x5, 0x0),
+                0,
+                0,
+                0,
+            ),
+        ];
+
+        for i in 0..LARGE_NUMBER_OF_ROWS {
+            let snapshot_string = format!("snap{i}");
+
+            let snapshot = create_project_snapshot(
+                &opctx,
+                &datastore,
+                &authz_project,
+                Uuid::new_v4(),
+                &snapshot_string,
+            )
+            .await;
+
+            let (.., authz_snapshot) = LookupPath::new(&opctx, datastore)
+                .snapshot_id(snapshot.id())
+                .lookup_for(authz::Action::Read)
+                .await
+                .unwrap();
+
+            datastore
+                .user_data_export_create_for_snapshot(
+                    &opctx,
+                    UserDataExportUuid::new_v4(),
+                    &authz_snapshot,
+                    pantry_ips[i % 3],
+                    VolumeUuid::new_v4(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let in_service_pantries = vec![
+            Ipv6Addr::new(0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x1, 0x0)
+                .into(),
+            Ipv6Addr::new(0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x5, 0x0)
+                .into(),
+        ];
+
+        datastore
+            .user_data_export_delete_expunged(&opctx, in_service_pantries)
+            .await
+            .unwrap();
+
+        let changeset =
+            datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+        assert!(changeset.create_required.is_empty());
+        assert_eq!(changeset.delete_required.len(), LARGE_NUMBER_OF_ROWS / 3);
+
+        for record in &changeset.delete_required {
+            assert_eq!(
+                record.pantry_address(),
+                SocketAddrV6::new(
+                    Ipv6Addr::new(
+                        0xfd00, 0x1122, 0x3344, 0x0, 0x0, 0x0, 0x3, 0x0
+                    ),
+                    0,
+                    0,
+                    0,
+                ),
+            );
+        }
+
+        db.terminate().await;
+        logctx.cleanup_successful();
+    }
 }
