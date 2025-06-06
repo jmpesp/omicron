@@ -2,7 +2,15 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! XXX TODO
+//! When a user deletes a resource that is backed by read-only data, a
+//! background task will call this saga to undo the process of attaching a copy
+//! of that resource's volume to a Pantry for use with the related export API.
+//!
+//! This saga will, for the argument user data export object:
+//!
+//! 1. Detach the user data export's volume from the appropriate Pantry
+//! 2. Delete that volume (using the volume delete sub-saga)
+//! 3. Delete the user data export record.
 
 use super::ActionRegistry;
 use super::NexusActionContext;

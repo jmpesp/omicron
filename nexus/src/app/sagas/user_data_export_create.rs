@@ -2,7 +2,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! XXX TODO
+//! When a user creates a resource that is backed by read-only data, like a
+//! snapshot or image, a background task will call this saga to attach a copy of
+//! the backing volume to a Pantry so that data can be exported through Nexus.
+//! The intention is that users can export any read-only data at any time by
+//! proxying through Nexus, without having to manage any implementation details.
+//!
+//! This saga will, for the argument read-only resource:
+//!
+//! 1. Make a copy of the read-only object's volume
+//! 2. Attach that volume to a random Pantry
+//! 3. Create a user data export object to store all relevant information.
 
 use super::{
     ACTION_GENERATE_ID, ActionRegistry, NexusActionContext, NexusSaga,
@@ -181,8 +191,6 @@ async fn sudec_create_export_volume_undo(
     info!(log, "calling soft delete for volume {}", volume_id);
 
     osagactx.datastore().soft_delete_volume(volume_id).await?;
-
-    // XXX what about hard delete? bg task?
 
     Ok(())
 }

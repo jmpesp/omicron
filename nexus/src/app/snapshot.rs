@@ -1,3 +1,9 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! Snapshots
+
 use std::sync::Arc;
 
 use nexus_db_lookup::LookupPath;
@@ -137,10 +143,6 @@ impl super::Nexus {
                 internal_message: e.to_string(),
             })?;
 
-        // XXX
-        //self.background_tasks
-        //    .activate(&self.background_tasks.task_user_data_export_coordinator);
-
         Ok(snapshot_created)
     }
 
@@ -175,10 +177,6 @@ impl super::Nexus {
                 saga_params,
             )
             .await?;
-
-        // XXX
-        //self.background_tasks
-        //    .activate(&self.background_tasks.task_user_data_export_coordinator);
 
         Ok(())
     }

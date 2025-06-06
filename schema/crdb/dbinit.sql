@@ -5767,14 +5767,6 @@ CREATE TABLE IF NOT EXISTS omicron.public.user_data_export (
     resource_deleted BOOL NOT NULL
 );
 
-/*
-CREATE INDEX IF NOT EXISTS lookup_export_by_id
-ON omicron.public.user_data_export (id);
-
-CREATE INDEX IF NOT EXISTS lookup_export_by_resource_id
-ON omicron.public.user_data_export (resource_id);
-*/
-
 CREATE INDEX IF NOT EXISTS lookup_export_by_resource_type
 ON omicron.public.user_data_export (resource_type);
 
