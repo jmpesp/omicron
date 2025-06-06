@@ -2166,8 +2166,9 @@ impl Pantry {
             }
 
             VolumeConstructionRequest::File { block_size, .. } => {
-                // XXX hard coded value from image create saga, see comment
-                // there.
+                // The File variant almost certainly corresponds to the propolis
+                // zone's alpine.iso image. Use the same hard coded value for
+                // size from image create saga, see comment there for rationale.
                 (block_size, 100 * 1024 * 1024)
             }
         };
@@ -2239,7 +2240,6 @@ impl Pantry {
             }
         };
 
-        // XXX are these the right values?
         if *vcr == new_vcr {
             Ok(ReplaceResult::StartedAlready)
         } else {

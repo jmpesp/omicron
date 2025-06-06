@@ -27,7 +27,38 @@ impl_enum_type!(
     Image => b"image"
 );
 
-/// XXX docstring
+// FromStr impl required for use with clap (aka omdb)
+impl std::str::FromStr for UserDataExportResourceType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "snapshot" => Ok(UserDataExportResourceType::Snapshot),
+            "image" => Ok(UserDataExportResourceType::Image),
+            _ => Err(format!("unrecognized value {} for enum", s)),
+        }
+    }
+}
+
+impl UserDataExportResourceType {
+    pub fn to_string(&self) -> String {
+        String::from(match self {
+            UserDataExportResourceType::Snapshot => "snapshot",
+            UserDataExportResourceType::Image => "image",
+        })
+    }
+}
+
+/// A "user data export" object represents an attachment of a read-only volume
+/// to a Pantry for the purpose of exporting data. As of this writing only
+/// snapshots and images are able to be exported this way. Management of these
+/// objects is done automatically by a background task.
+///
+/// Note that read-only volumes should never directly be constructed (read: be
+/// passed to Volume::construct). Copies should be created so that the
+/// appropriate reference counting for the read-only volume targets can be
+/// maintained. The user data export object stores that copied Volume, among
+/// other things.
 #[derive(Queryable, Insertable, Selectable, Clone, Debug)]
 #[diesel(table_name = user_data_export)]
 pub struct UserDataExportRecord {
@@ -84,11 +115,9 @@ impl UserDataExportRecord {
         }
     }
 
-    /*
-    pub fn resource_deleted(&self) -> bool {
+    pub fn deleted(&self) -> bool {
         self.resource_deleted
     }
-    */
 
     pub fn pantry_address(&self) -> SocketAddrV6 {
         SocketAddrV6::new(self.pantry_ip.into(), *self.pantry_port, 0, 0)
@@ -104,4 +133,20 @@ pub enum UserDataExportResource {
     Snapshot { id: Uuid },
 
     Image { id: Uuid },
+}
+
+impl UserDataExportResource {
+    pub fn type_string(&self) -> String {
+        String::from(match self {
+            UserDataExportResource::Snapshot { .. } => "snapshot",
+            UserDataExportResource::Image { .. } => "image",
+        })
+    }
+
+    pub fn id(&self) -> Uuid {
+        match self {
+            UserDataExportResource::Snapshot { id } => *id,
+            UserDataExportResource::Image { id } => *id,
+        }
+    }
 }
