@@ -171,7 +171,9 @@ impl super::Nexus {
 
         let pantry_address = user_data_export.pantry_address();
 
-        // Check if it's gone from DNS, and fail early if so
+        // Check if it's gone from DNS, and fail early if so. The coordinator
+        // background task will eventually notice this too, delete affected
+        // records, and recreate them on in-service Pantries.
         if self
             .is_internal_service_gone(
                 ServiceName::CruciblePantry,
@@ -185,12 +187,6 @@ impl super::Nexus {
                 "{s}";
                 "user_data_export" => %user_data_export.id(),
             );
-
-            // Nuke the existing object here. The associated background task
-            // will eventually create another.
-            // XXX no opctx
-            //self.user_data_export_delete_by_id(&opctx, user_data_export.id())
-            //    .await?;
 
             let s = String::from("resource not ready for export");
             let mut error = HttpError::for_internal_error(s);

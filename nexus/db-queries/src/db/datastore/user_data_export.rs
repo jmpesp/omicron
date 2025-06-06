@@ -12,6 +12,7 @@ use crate::db::model::Snapshot;
 use crate::db::model::UserDataExportRecord;
 use crate::db::model::UserDataExportResource;
 use crate::db::model::UserDataExportResourceType;
+use crate::db::model::ipv6;
 use crate::db::model::to_db_typed_uuid;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use diesel::OptionalExtension;
@@ -25,6 +26,7 @@ use omicron_common::api::external::CreateResult;
 use omicron_common::api::external::DeleteResult;
 use omicron_common::api::external::Error;
 use omicron_common::api::external::LookupResult;
+use omicron_common::api::external::UpdateResult;
 use omicron_uuid_kinds::UserDataExportUuid;
 use omicron_uuid_kinds::VolumeUuid;
 use std::net::SocketAddrV6;
@@ -441,6 +443,31 @@ impl DataStore {
         }
 
         Ok(changeset)
+    }
+
+    /// Remove any records where the Pantry address is not in the list of
+    /// in-service addresses.
+    ///
+    /// Returns how many records were marked for deletion.
+    pub async fn user_data_export_delete_expunged(
+        &self,
+        opctx: &OpContext,
+        in_service_pantries: Vec<ipv6::Ipv6Addr>,
+    ) -> UpdateResult<usize> {
+        opctx.check_complex_operations_allowed()?;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        use nexus_db_schema::schema::user_data_export::dsl;
+
+        diesel::update(dsl::user_data_export)
+            .filter(diesel::dsl::not(
+                dsl::pantry_ip.eq_any(in_service_pantries),
+            ))
+            .set(dsl::resource_deleted.eq(true))
+            .execute_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }
 }
 
