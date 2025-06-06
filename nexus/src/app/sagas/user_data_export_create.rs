@@ -182,10 +182,11 @@ async fn sudec_create_export_volume_undo(
     let osagactx = sagactx.user_data();
     let volume_id = sagactx.lookup::<VolumeUuid>("volume_id")?;
 
-    // `volume_create` will increase the resource count for read only resources
-    // in a volume, which there are guaranteed to be for snapshot volumes.
-    // decreasing crucible resources is necessary as an undo step. Do not call
-    // `volume_hard_delete` here: soft deleting volumes is necessary for
+    // `volume_checkout_randomize_ids` calls `volume_create`, which will
+    // increase the resource count for read only resources in a volume, which
+    // there are guaranteed to be for these volumes. Decreasing crucible
+    // resources is necessary as an undo step. Do not call `volume_hard_delete`
+    // here: soft deleting volumes is necessary for
     // `find_deleted_volume_regions` to work.
 
     info!(log, "calling soft delete for volume {}", volume_id);

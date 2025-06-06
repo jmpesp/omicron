@@ -2,7 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! TODO
+//! This background task will process the user data export changeset and trigger
+//! the appropriate create or delete saga according to the changeset contents.
+//! It will also check if any Pantry used for user data export is no longer in
+//! DNS, and will delete affected records so they can be re-created.
 
 use crate::app::authn;
 use crate::app::background::BackgroundTask;
@@ -13,6 +16,8 @@ use crate::app::sagas::user_data_export_create::*;
 use crate::app::sagas::user_data_export_delete::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use internal_dns_resolver::Resolver;
+use internal_dns_types::names::ServiceName;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
 use nexus_db_queries::db::datastore::UserDataExportChangeset;
@@ -23,11 +28,62 @@ use std::sync::Arc;
 pub struct UserDataExportCoordinator {
     datastore: Arc<DataStore>,
     sagas: Arc<dyn StartSaga>,
+    resolver: Resolver,
 }
 
 impl UserDataExportCoordinator {
-    pub fn new(datastore: Arc<DataStore>, sagas: Arc<dyn StartSaga>) -> Self {
-        UserDataExportCoordinator { datastore, sagas }
+    pub fn new(
+        datastore: Arc<DataStore>,
+        sagas: Arc<dyn StartSaga>,
+        resolver: Resolver,
+    ) -> Self {
+        UserDataExportCoordinator { datastore, sagas, resolver }
+    }
+
+    async fn delete_records_for_expunged_pantries(
+        &self,
+        opctx: &OpContext,
+        status: &mut UserDataExportCoordinatorStatus,
+    ) {
+        let log = &opctx.log;
+        let in_service_pantries = match self
+            .resolver
+            .lookup_all_socket_v6(ServiceName::CruciblePantry)
+            .await
+        {
+            Ok(pantries) => pantries,
+            Err(e) => {
+                let s = format!("error looking up in-service Pantries: {e}");
+                error!(&log, "{s}");
+                status.errors.push(s);
+                return;
+            }
+        };
+
+        let in_service_pantries = in_service_pantries
+            .into_iter()
+            .map(|socketaddr| socketaddr.ip().into())
+            .collect();
+
+        let result = self
+            .datastore
+            .user_data_export_delete_expunged(opctx, in_service_pantries)
+            .await;
+
+        match result {
+            Ok(records_marked_for_deletion) => {
+                status.records_marked_for_deletion =
+                    records_marked_for_deletion;
+            }
+
+            Err(e) => {
+                let s = format!(
+                    "error deleting records for expunged Pantries: {e}"
+                );
+                error!(&log, "{s}");
+                status.errors.push(s);
+            }
+        }
     }
 
     async fn process_user_data_export_changeset(
@@ -132,6 +188,9 @@ impl BackgroundTask for UserDataExportCoordinator {
             let log = &opctx.log;
             let mut status = UserDataExportCoordinatorStatus::default();
 
+            self.delete_records_for_expunged_pantries(&opctx, &mut status)
+                .await;
+
             let changeset =
                 match self.datastore.user_data_export_changeset(&opctx).await {
                     Ok(changeset) => changeset,
@@ -229,8 +288,12 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task =
-            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
+        let resolver = nexus.resolver();
+        let mut task = UserDataExportCoordinator::new(
+            datastore.clone(),
+            starter.clone(),
+            resolver.clone(),
+        );
 
         let result: UserDataExportCoordinatorStatus =
             serde_json::from_value(task.activate(&opctx).await).unwrap();
@@ -251,8 +314,12 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task =
-            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
+        let resolver = nexus.resolver();
+        let mut task = UserDataExportCoordinator::new(
+            datastore.clone(),
+            starter.clone(),
+            resolver.clone(),
+        );
 
         let authz_project = setup_test_project(cptestctx, &opctx).await;
 
@@ -366,8 +433,12 @@ mod test {
         );
 
         let starter = Arc::new(NoopStartSaga::new());
-        let mut task =
-            UserDataExportCoordinator::new(datastore.clone(), starter.clone());
+        let resolver = nexus.resolver();
+        let mut task = UserDataExportCoordinator::new(
+            datastore.clone(),
+            starter.clone(),
+            resolver.clone(),
+        );
 
         let authz_project = setup_test_project(cptestctx, &opctx).await;
 

@@ -536,5 +536,6 @@ pub struct ReadOnlyRegionReplacementStartStatus {
 pub struct UserDataExportCoordinatorStatus {
     pub create_invoked_ok: Vec<String>,
     pub delete_invoked_ok: Vec<String>,
+    pub records_marked_for_deletion: usize,
     pub errors: Vec<String>,
 }
