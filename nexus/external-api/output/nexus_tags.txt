@@ -86,6 +86,7 @@ image_delete                             DELETE   /v1/images/{image}
 image_demote                             POST     /v1/images/{image}/demote
 image_list                               GET      /v1/images
 image_promote                            POST     /v1/images/{image}/promote
+image_read                               GET      /v1/images/{image}/read
 image_view                               GET      /v1/images/{image}
 
 API operations found with tag "instances"
@@ -162,10 +163,10 @@ utilization_view                         GET      /v1/utilization
 
 API operations found with tag "snapshots"
 OPERATION ID                             METHOD   URL PATH
-snapshot_bulk_read_export                GET      /v1/snapshots/{snapshot}/bulk-read
 snapshot_create                          POST     /v1/snapshots
 snapshot_delete                          DELETE   /v1/snapshots/{snapshot}
 snapshot_list                            GET      /v1/snapshots
+snapshot_read                            GET      /v1/snapshots/{snapshot}/read
 snapshot_view                            GET      /v1/snapshots/{snapshot}
 
 API operations found with tag "system/alerts"

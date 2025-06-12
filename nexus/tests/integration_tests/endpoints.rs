@@ -889,6 +889,13 @@ pub static DEMO_PROJECT_IMAGES_URL: LazyLock<String> =
 pub static DEMO_PROJECT_IMAGE_URL: LazyLock<String> = LazyLock::new(|| {
     format!("/v1/images/{}?project={}", *DEMO_IMAGE_NAME, *DEMO_PROJECT_NAME)
 });
+pub static DEMO_PROJECT_IMAGE_READ_URL: LazyLock<String> =
+    LazyLock::new(|| {
+        format!(
+            "/v1/images/{}/read?project={}",
+            *DEMO_IMAGE_NAME, *DEMO_PROJECT_NAME
+        )
+    });
 pub static DEMO_PROJECT_PROMOTE_IMAGE_URL: LazyLock<String> =
     LazyLock::new(|| {
         format!(
@@ -991,6 +998,12 @@ pub static DEMO_SNAPSHOT_NAME: LazyLock<Name> =
 pub static DEMO_SNAPSHOT_URL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "/v1/snapshots/{}?project={}",
+        *DEMO_SNAPSHOT_NAME, *DEMO_PROJECT_NAME
+    )
+});
+pub static DEMO_SNAPSHOT_READ_URL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "/v1/snapshots/{}/read?project={}",
         *DEMO_SNAPSHOT_NAME, *DEMO_PROJECT_NAME
     )
 });
@@ -1347,6 +1360,8 @@ pub enum AllowedMethod {
     GetVolatile,
     /// HTTP "GET" method with websocket handshake headers.
     GetWebsocket,
+    /// HTTP "GET" method that does not return a JSON body.
+    GetBytes,
     /// HTTP "POST" method, with sample input (which should be valid input for
     /// this endpoint)
     Post(serde_json::Value),
@@ -1364,7 +1379,8 @@ impl AllowedMethod {
             | AllowedMethod::GetNonexistent
             | AllowedMethod::GetUnimplemented
             | AllowedMethod::GetVolatile
-            | AllowedMethod::GetWebsocket => &Method::GET,
+            | AllowedMethod::GetWebsocket
+            | AllowedMethod::GetBytes => &Method::GET,
             AllowedMethod::Post(_) => &Method::POST,
             AllowedMethod::Put(_) => &Method::PUT,
         }
@@ -1381,7 +1397,8 @@ impl AllowedMethod {
             | AllowedMethod::GetNonexistent
             | AllowedMethod::GetUnimplemented
             | AllowedMethod::GetVolatile
-            | AllowedMethod::GetWebsocket => None,
+            | AllowedMethod::GetWebsocket
+            | AllowedMethod::GetBytes => None,
             AllowedMethod::Post(body) => Some(&body),
             AllowedMethod::Put(body) => Some(&body),
         }
@@ -2194,6 +2211,12 @@ pub static VERIFY_ENDPOINTS: LazyLock<Vec<VerifyEndpoint>> =
                 ],
             },
             VerifyEndpoint {
+                url: &DEMO_PROJECT_IMAGE_READ_URL,
+                visibility: Visibility::Protected,
+                unprivileged_access: UnprivilegedAccess::None,
+                allowed_methods: vec![AllowedMethod::GetBytes],
+            },
+            VerifyEndpoint {
                 url: &DEMO_PROJECT_PROMOTE_IMAGE_URL,
                 visibility: Visibility::Protected,
                 unprivileged_access: UnprivilegedAccess::None,
@@ -2230,6 +2253,12 @@ pub static VERIFY_ENDPOINTS: LazyLock<Vec<VerifyEndpoint>> =
                     AllowedMethod::Get,
                     AllowedMethod::Delete,
                 ],
+            },
+            VerifyEndpoint {
+                url: &DEMO_SNAPSHOT_READ_URL,
+                visibility: Visibility::Protected,
+                unprivileged_access: UnprivilegedAccess::None,
+                allowed_methods: vec![AllowedMethod::GetBytes],
             },
             /* Instances */
             VerifyEndpoint {
