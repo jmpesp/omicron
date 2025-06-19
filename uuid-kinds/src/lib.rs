@@ -95,8 +95,6 @@ impl_typed_uuid_kind! {
     Volume => "volume",
     WebhookDelivery => "webhook_delivery",
     WebhookDeliveryAttempt => "webhook_delivery_attempt",
-    WebhookEvent => "webhook_event",
-    WebhookReceiver => "webhook_receiver",
     WebhookSecret => "webhook_secret",
     Zpool => "zpool",
 }
