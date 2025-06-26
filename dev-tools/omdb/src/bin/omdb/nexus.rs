@@ -45,25 +45,7 @@ use nexus_types::deployment::ClickhouseMode;
 use nexus_types::deployment::ClickhousePolicy;
 use nexus_types::deployment::OximeterReadMode;
 use nexus_types::deployment::OximeterReadPolicy;
-use nexus_types::internal_api::background::AbandonedVmmReaperStatus;
-use nexus_types::internal_api::background::BlueprintPlannerStatus;
-use nexus_types::internal_api::background::BlueprintRendezvousStatus;
-use nexus_types::internal_api::background::EreporterStatus;
-use nexus_types::internal_api::background::InstanceReincarnationStatus;
-use nexus_types::internal_api::background::InstanceUpdaterStatus;
-use nexus_types::internal_api::background::LookupRegionPortStatus;
-use nexus_types::internal_api::background::ReadOnlyRegionReplacementStartStatus;
-use nexus_types::internal_api::background::RegionReplacementDriverStatus;
-use nexus_types::internal_api::background::RegionReplacementStatus;
-use nexus_types::internal_api::background::RegionSnapshotReplacementFinishStatus;
-use nexus_types::internal_api::background::RegionSnapshotReplacementGarbageCollectStatus;
-use nexus_types::internal_api::background::RegionSnapshotReplacementStartStatus;
-use nexus_types::internal_api::background::RegionSnapshotReplacementStepStatus;
-use nexus_types::internal_api::background::SupportBundleCleanupReport;
-use nexus_types::internal_api::background::SupportBundleCollectionReport;
-use nexus_types::internal_api::background::TufArtifactReplicationCounters;
-use nexus_types::internal_api::background::TufArtifactReplicationRequest;
-use nexus_types::internal_api::background::TufArtifactReplicationStatus;
+use nexus_types::internal_api::background::*;
 use nexus_types::inventory::BaseboardId;
 use omicron_uuid_kinds::BlueprintUuid;
 use omicron_uuid_kinds::CollectionUuid;
@@ -1146,6 +1128,9 @@ fn print_task_details(bgtask: &BackgroundTask, details: &serde_json::Value) {
         }
         "webhook_deliverator" => {
             print_task_webhook_deliverator(details);
+        }
+        "user_data_export_coordinator" => {
+            print_task_user_data_export_coordinator(details);
         }
         _ => {
             println!(
@@ -2617,6 +2602,7 @@ fn print_task_alert_dispatcher(details: &serde_json::Value) {
         );
     }
 }
+
 fn print_task_webhook_deliverator(details: &serde_json::Value) {
     use nexus_types::external_api::views::WebhookDeliveryAttemptResult;
     use nexus_types::internal_api::background::WebhookDeliveratorStatus;
@@ -2888,6 +2874,53 @@ fn print_ereporter_status_totals<'status>(
         "    {REPORTERS_WITH_ERRORS:<WIDTH$}\
          {reporters_with_errors:>NUM_WIDTH$}"
     );
+}
+
+fn print_task_user_data_export_coordinator(details: &serde_json::Value) {
+    match serde_json::from_value::<UserDataExportCoordinatorStatus>(
+        details.clone(),
+    ) {
+        Err(error) => eprintln!(
+            "warning: failed to interpret task details: {:?}: {:?}",
+            error, details
+        ),
+
+        Ok(status) => {
+            println!(
+                "    total create steps invoked ok: {}",
+                status.create_invoked_ok.len(),
+            );
+            for line in &status.create_invoked_ok {
+                println!("    > {line}");
+            }
+
+            println!(
+                "    total delete steps invoked ok: {}",
+                status.delete_invoked_ok.len(),
+            );
+            for line in &status.delete_invoked_ok {
+                println!("    > {line}");
+            }
+
+            println!(
+                "    total records affected by expunge: {}",
+                status.records_marked_for_deletion,
+            );
+
+            println!(
+                "    total records fast-deleted (resource was deleted): {}",
+                status.records_bypassed_ok.len(),
+            );
+            for line in &status.records_bypassed_ok {
+                println!("    > {line}");
+            }
+
+            println!("    errors: {}", status.errors.len());
+            for line in &status.errors {
+                println!("    > {line}");
+            }
+        }
+    }
 }
 
 const ERRICON: &str = "/!\\";

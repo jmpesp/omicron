@@ -41,6 +41,7 @@ pub mod support_bundle_collector;
 pub mod sync_service_zone_nat;
 pub mod sync_switch_configuration;
 pub mod tuf_artifact_replication;
+pub mod user_data_export_coordinator;
 pub mod v2p_mappings;
 pub mod vpc_routes;
 pub mod webhook_deliverator;

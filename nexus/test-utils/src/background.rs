@@ -451,3 +451,30 @@ pub async fn run_tuf_artifact_replication_step(
     assert_eq!(status.last_run_counters.err(), 0);
     status
 }
+
+/// Run the user_data_export_coordinator background task
+pub async fn run_user_data_export_coordinator(
+    internal_client: &ClientTestContext,
+) {
+    let last_background_task = activate_background_task(
+        &internal_client,
+        "user_data_export_coordinator",
+    )
+    .await;
+
+    let LastResult::Completed(last_result_completed) =
+        last_background_task.last
+    else {
+        panic!(
+            "unexpected {:?} returned from user_data_export_coordinator task",
+            last_background_task.last,
+        );
+    };
+
+    let status = serde_json::from_value::<UserDataExportCoordinatorStatus>(
+        last_result_completed.details,
+    )
+    .unwrap();
+
+    assert!(status.errors.is_empty());
+}

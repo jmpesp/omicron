@@ -441,6 +441,8 @@ pub struct BackgroundTaskConfig {
     pub webhook_deliverator: WebhookDeliveratorConfig,
     /// configuration for SP ereport ingester task
     pub sp_ereport_ingester: SpEreportIngesterConfig,
+    /// configuration for user data export coordinator task
+    pub user_data_export_coordinator: UserDataExportCoordinatorConfig,
 }
 
 #[serde_as]
@@ -827,6 +829,14 @@ impl Default for SpEreportIngesterConfig {
     }
 }
 
+#[serde_as]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct UserDataExportCoordinatorConfig {
+    /// period (in seconds) for periodic activations of this background task
+    #[serde_as(as = "DurationSeconds<u64>")]
+    pub period_secs: Duration,
+}
+
 /// Configuration for a nexus server
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PackageConfig {
@@ -1111,6 +1121,7 @@ mod test {
             webhook_deliverator.first_retry_backoff_secs = 45
             webhook_deliverator.second_retry_backoff_secs = 46
             sp_ereport_ingester.period_secs = 47
+            user_data_export_coordinator.period_secs = 60
             [default_region_allocation_strategy]
             type = "random"
             seed = 0
@@ -1333,6 +1344,10 @@ mod test {
                         sp_ereport_ingester: SpEreportIngesterConfig {
                             period_secs: Duration::from_secs(47),
                         },
+                        user_data_export_coordinator:
+                            UserDataExportCoordinatorConfig {
+                                period_secs: Duration::from_secs(60),
+                            },
                     },
                     default_region_allocation_strategy:
                         crate::nexus_config::RegionAllocationStrategy::Random {
@@ -1424,6 +1439,7 @@ mod test {
             alert_dispatcher.period_secs = 42
             webhook_deliverator.period_secs = 43
             sp_ereport_ingester.period_secs = 44
+            user_data_export_coordinator.period_secs = 60
             [default_region_allocation_strategy]
             type = "random"
             "##,

@@ -125,6 +125,7 @@ use super::tasks::support_bundle_collector;
 use super::tasks::sync_service_zone_nat::ServiceZoneNatTracker;
 use super::tasks::sync_switch_configuration::SwitchPortSettingsManager;
 use super::tasks::tuf_artifact_replication;
+use super::tasks::user_data_export_coordinator::*;
 use super::tasks::v2p_mappings::V2PManager;
 use super::tasks::vpc_routes;
 use super::tasks::webhook_deliverator;
@@ -230,6 +231,7 @@ impl BackgroundTasksInitializer {
             task_alert_dispatcher: Activator::new(),
             task_webhook_deliverator: Activator::new(),
             task_sp_ereport_ingester: Activator::new(),
+            task_user_data_export_coordinator: Activator::new(),
 
             task_internal_dns_propagation: Activator::new(),
             task_external_dns_propagation: Activator::new(),
@@ -306,6 +308,7 @@ impl BackgroundTasksInitializer {
             task_alert_dispatcher,
             task_webhook_deliverator,
             task_sp_ereport_ingester,
+            task_user_data_export_coordinator,
             // Add new background tasks here.  Be sure to use this binding in a
             // call to `Driver::register()` below.  That's what actually wires
             // up the Activator to the corresponding background task.
@@ -870,7 +873,7 @@ impl BackgroundTasksInitializer {
             period: config.region_snapshot_replacement_finish.period_secs,
             task_impl: Box::new(RegionSnapshotReplacementFinishDetector::new(
                 datastore.clone(),
-                sagas,
+                sagas.clone(),
             )),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
@@ -967,11 +970,25 @@ impl BackgroundTasksInitializer {
             description: "collects error reports from service processors",
             period: config.sp_ereport_ingester.period_secs,
             task_impl: Box::new(ereport_ingester::SpEreportIngester::new(
-                datastore, resolver, nexus_id,
+                datastore.clone(),
+                resolver.clone(),
+                nexus_id,
             )),
             opctx: opctx.child(BTreeMap::new()),
             watchers: vec![],
             activator: task_sp_ereport_ingester,
+        });
+
+        driver.register(TaskDefinition {
+            name: "user_data_export_coordinator",
+            description: "make the user resources available for export",
+            period: config.user_data_export_coordinator.period_secs,
+            task_impl: Box::new(UserDataExportCoordinator::new(
+                datastore, sagas, resolver,
+            )),
+            opctx: opctx.child(BTreeMap::new()),
+            watchers: vec![],
+            activator: task_user_data_export_coordinator,
         });
 
         driver
