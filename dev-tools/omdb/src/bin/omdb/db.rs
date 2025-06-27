@@ -2642,7 +2642,7 @@ fn print_saga_nodes(saga: Option<Saga>, saga_nodes: Vec<SagaNodeEvent>) {
     }
 
     struct SagaNodeRow {
-        saga_id: Uuid,
+        sec_id: Uuid,
         event_time: String,
         sub_saga_id: Option<u32>,
         node_id: String,
@@ -2796,7 +2796,7 @@ fn print_saga_nodes(saga: Option<Saga>, saga_nodes: Vec<SagaNodeEvent>) {
         };
 
         rows.push(SagaNodeRow {
-            saga_id: saga_node.saga_id.0.into(),
+            sec_id: saga_node.creator.0.into(),
             event_time: chrono_to_rfc_3999(&saga_node.event_time),
             sub_saga_id,
             node_id,
@@ -2816,7 +2816,7 @@ fn print_saga_nodes(saga: Option<Saga>, saga_nodes: Vec<SagaNodeEvent>) {
         .iter()
         .map(|x| {
             (
-                format!("{}", x.saga_id).chars().count(),
+                format!("{}", x.sec_id).chars().count(),
                 x.event_time.chars().count(),
                 if let Some(sub_saga_id) = x.sub_saga_id {
                     format!("{}", sub_saga_id).chars().count()
@@ -2876,7 +2876,7 @@ fn print_saga_nodes(saga: Option<Saga>, saga_nodes: Vec<SagaNodeEvent>) {
     for row in rows {
         println!(
             "{:>width0$} | {:width1$} | {:>width2$} | {:width3$} | {:width4$} | {}",
-            row.saga_id,
+            row.sec_id,
             row.event_time,
             if let Some(sub_saga_id) = row.sub_saga_id {
                 format!("{}", sub_saga_id)
