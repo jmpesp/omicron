@@ -14,6 +14,8 @@ use http::StatusCode;
 use http::method::Method;
 use httptest::{Expectation, ServerBuilder, matchers::*, responders::*};
 use nexus_db_queries::authn::external::spoof;
+use nexus_db_queries::context::OpContext;
+use nexus_test_utils::background::run_user_data_export_coordinator;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
@@ -21,6 +23,7 @@ use nexus_test_utils::http_testing::TestResponse;
 use nexus_test_utils::resource_helpers::TestDataset;
 use nexus_test_utils_macros::nexus_test;
 use omicron_common::disk::DatasetKind;
+use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
 use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::ZpoolUuid;
 use std::sync::LazyLock;
@@ -116,6 +119,41 @@ async fn test_unauthorized(cptestctx: &ControlPlaneTestContext) {
             setup_results.insert(id_route, result.clone());
         });
     }
+
+    // Create snapshot and image user data export objects, then wait for them to
+    // be created.
+    run_user_data_export_coordinator(&cptestctx.internal_client).await;
+
+    let nexus = &cptestctx.server.server_context().nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    wait_for_condition(
+        || {
+            let datastore = datastore.clone();
+            let opctx =
+                OpContext::for_tests(opctx.log.new(o!()), datastore.clone());
+
+            async move {
+                // Adding the user data export records to the database is the
+                // last step of the saga, so if the changeset reports that there
+                // are no more creations required then those sagas are done.
+                let changeset =
+                    datastore.user_data_export_changeset(&opctx).await.unwrap();
+
+                if changeset.create_required.is_empty() {
+                    Ok(())
+                } else {
+                    Err(CondCheckError::<()>::NotYet)
+                }
+            }
+        },
+        &std::time::Duration::from_millis(50),
+        &std::time::Duration::from_secs(60),
+    )
+    .await
+    .expect("user data export objects created");
 
     // Verify the hardcoded endpoints.
     info!(log, "verifying endpoints");
@@ -491,6 +529,7 @@ async fn verify_endpoint(
                 | AllowedMethod::GetUnimplemented
                 | AllowedMethod::GetVolatile
                 | AllowedMethod::GetWebsocket
+                | AllowedMethod::GetBytes
         )
     });
     let resource_before = match get_allowed {
@@ -552,6 +591,31 @@ async fn verify_endpoint(
                 .execute()
                 .await
                 .unwrap();
+            None
+        }
+        Some(AllowedMethod::GetBytes) => {
+            info!(log, "test: privileged GET that returns Bytes");
+            record_operation(WhichTest::PrivilegedGet(Some(
+                &http::StatusCode::OK,
+            )));
+
+            NexusRequest::new(
+                RequestBuilder::new(client, http::Method::GET, &uri)
+                    .expect_status(Some(http::StatusCode::OK))
+                    .expect_response_header(
+                        http::header::CONTENT_TYPE,
+                        "application/octet-stream",
+                    )
+                    .expect_response_header(
+                        http::header::CONTENT_DISPOSITION,
+                        "attachment",
+                    ),
+            )
+            .authn_as(AuthnMode::PrivilegedUser)
+            .execute()
+            .await
+            .unwrap_or_else(|e| panic!("Failed to GET: {uri}: {e}"));
+
             None
         }
         Some(_) => unimplemented!(),

@@ -465,7 +465,7 @@ hkdf = "0.12.4"
 hmac = "0.12.1"
 http = "1.3.1"
 http-body = "1.0.1"
-http-body-util = "0.1.3"
+http-body-util = { version = "0.1.3", features = ["channel"] }
 http-range = "0.1.5"
 httpmock = "0.8.0-alpha.1"
 httptest = "0.16.3"

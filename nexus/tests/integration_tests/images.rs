@@ -29,11 +29,11 @@ type ControlPlaneTestContext =
 
 const PROJECT_NAME: &str = "myproj";
 
-fn get_project_images_url(project_name: &str) -> String {
+pub fn get_project_images_url(project_name: &str) -> String {
     format!("/v1/images?project={}", project_name)
 }
 
-fn get_image_create(source: params::ImageSource) -> params::ImageCreate {
+pub fn get_image_create(source: params::ImageSource) -> params::ImageCreate {
     params::ImageCreate {
         identity: IdentityMetadataCreateParams {
             name: "alpine-edge".parse().unwrap(),
