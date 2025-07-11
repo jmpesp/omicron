@@ -422,12 +422,17 @@ impl super::Nexus {
             // In this branch, no user exists for the authenticated subject
             // external id. The next action depends on the silo's user
             // provision type.
-            match db_silo.user_provision_type {
-                // If the user provision type is ApiOnly, do not create a
-                // new user if one does not exist.
-                db::model::UserProvisionType::ApiOnly => {
+            match &db_silo.user_provision_type {
+                // If the user provision type is ApiOnly or SCIM, do not create
+                // a new user if one does not exist.
+                db::model::UserProvisionType::ApiOnly
+                | db::model::UserProvisionType::Scim => {
                     return Err(Error::Unauthenticated {
-                            internal_message: "User must exist before login when user provision type is ApiOnly".to_string(),
+                        internal_message: format!(
+                            "User must exist before login when provision type \
+                            is {:?}",
+                            db_silo.user_provision_type,
+                        )
                     });
                 }
 
@@ -456,7 +461,8 @@ impl super::Nexus {
 
         for group in &authenticated_subject.groups {
             let silo_group = match db_silo.user_provision_type {
-                db::model::UserProvisionType::ApiOnly => {
+                db::model::UserProvisionType::ApiOnly
+                | db::model::UserProvisionType::Scim => {
                     self.db_datastore
                         .silo_group_optional_lookup(
                             opctx,
@@ -934,4 +940,6 @@ impl super::Nexus {
     ) -> lookup::SiloGroup<'a> {
         LookupPath::new(opctx, &self.db_datastore).silo_group_id(*group_id)
     }
+
+    // XXX silo_scim_client CRUD
 }
