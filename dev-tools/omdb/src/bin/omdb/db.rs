@@ -2543,7 +2543,7 @@ fn print_sagas(sagas: Vec<Saga>, with_start_params: bool) {
         ) = (
             std::cmp::max(
                 row_char_counts.iter().map(|x| x.0).max().unwrap(),
-                "saga id".len(),
+                "sec id".len(),
             ),
             std::cmp::max(
                 row_char_counts.iter().map(|x| x.1).max().unwrap(),
@@ -2565,7 +2565,7 @@ fn print_sagas(sagas: Vec<Saga>, with_start_params: bool) {
 
         println!(
             "{:>width0$} | {:width1$} | {:width2$} | {:width3$} | {:width4$} | {}",
-            String::from("saga id"),
+            String::from("sec id"),
             String::from("creator id"),
             String::from("time created"),
             String::from("name"),
@@ -2855,7 +2855,7 @@ fn print_saga_nodes(saga: Option<Saga>, saga_nodes: Vec<SagaNodeEvent>) {
 
     println!(
         "{:>width0$} | {:width1$} | {:width2$} | {:width3$} | {:width4$} | {}",
-        String::from("saga id"),
+        String::from("sec id"),
         String::from("event time"),
         String::from("sub saga"),
         String::from("node id"),
