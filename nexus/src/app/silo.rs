@@ -47,6 +47,7 @@ impl super::Nexus {
         let silo = self.silo_lookup(opctx, NameOrId::Id(silo.id()))?;
         Ok(silo)
     }
+
     pub fn silo_lookup<'a>(
         &'a self,
         opctx: &'a OpContext,
@@ -246,6 +247,7 @@ impl super::Nexus {
         // separate permission
         let (.., authz_silo) =
             silo_lookup.lookup_for(authz::Action::Modify).await?;
+
         self.db_datastore
             .silo_auth_settings_update(
                 opctx,
@@ -273,6 +275,7 @@ impl super::Nexus {
                 .silo_user_id(silo_user_id)
                 .fetch_for(action)
                 .await?;
+
         if db_silo_user.silo_id != authz_silo.id() {
             return Err(authz_silo_user.not_found());
         }
@@ -490,15 +493,22 @@ impl super::Nexus {
             }
         }
 
-        // Update the user's group memberships
+        // Update the user's group memberships depending on provision type
 
-        self.db_datastore
-            .silo_group_membership_replace_for_user(
-                opctx,
-                &authz_silo_user,
-                silo_user_group_ids,
-            )
-            .await?;
+        match db_silo.user_provision_type {
+            db::model::UserProvisionType::ApiOnly
+            | db::model::UserProvisionType::Scim => {}
+
+            db::model::UserProvisionType::Jit => {
+                self.db_datastore
+                    .silo_group_membership_replace_for_user(
+                        opctx,
+                        &authz_silo_user,
+                        silo_user_group_ids,
+                    )
+                    .await?;
+            }
+        }
 
         Ok(db_silo_user)
     }
