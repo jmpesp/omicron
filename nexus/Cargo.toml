@@ -138,6 +138,7 @@ update-engine.workspace = true
 omicron-workspace-hack.workspace = true
 omicron-uuid-kinds.workspace = true
 zip.workspace = true
+scim2-rs.workspace = true
 
 [dev-dependencies]
 async-bb8-diesel.workspace = true
