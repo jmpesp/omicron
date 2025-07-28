@@ -2642,3 +2642,36 @@ pub struct AlertReceiverProbe {
     #[serde(default)]
     pub resend: bool,
 }
+
+// SCIM V2
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2GetUserPathParam {
+    pub user_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2PutUserPathParam {
+    pub user_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2DeleteUserPathParam {
+    pub user_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2GetGroupPathParam {
+    pub group_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2PutGroupPathParam {
+    pub group_id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2DeleteGroupPathParam {
+    pub group_id: String,
+}
+

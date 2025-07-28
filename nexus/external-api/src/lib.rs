@@ -576,6 +576,116 @@ pub trait NexusExternalApi {
         update: TypedBody<params::UserPassword>,
     ) -> Result<HttpResponseUpdatedNoContent, HttpError>;
 
+    // SAML+SCIM Identity Provider
+
+    // TODO
+
+    // SCIM endpoints
+    // XXX is "silos" the correct tag?
+
+    // XXX do I need silo name, or can I get by with endpoint_for_request or
+    // matching on bearer auth
+
+    // XXX SCIM server endpoints
+
+    // SCIM user endpoints
+
+    #[endpoint {
+        method = GET,
+        path = "/scim/v2/Users",
+        tags = ["silos"],
+    }]
+    async fn scim_v2_list_users(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = GET,
+        path = "/scim/v2/Users/{user_id}"
+    }]
+    async fn scim_v2_get_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2GetUserPathParam>,
+        query_params: Query<scim2_rs::QueryParams>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = POST,
+        path = "/scim/v2/Users",
+    }]
+    async fn scim_v2_create_user(
+        rqctx: RequestContext<Self::Context>,
+        body: TypedBody<scim2_rs::CreateUserRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = PUT,
+        path = "/scim/v2/Users/{user_id}"
+    }]
+    async fn scim_v2_put_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2PutUserPathParam>,
+        body: TypedBody<scim2_rs::CreateUserRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = DELETE,
+        path = "/scim/v2/Users/{user_id}"
+    }]
+    async fn scim_v2_delete_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2DeleteUserPathParam>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    // SCIM group endpoints
+
+    #[endpoint {
+        method = GET,
+        path = "/scim/v2/Groups",
+        tags = ["silos"],
+    }]
+    async fn scim_v2_list_groups(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = GET,
+        path = "/scim/v2/Groups/{group_id}"
+    }]
+    async fn scim_v2_get_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2GetGroupPathParam>,
+        query_params: Query<scim2_rs::QueryParams>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = POST,
+        path = "/scim/v2/Groups",
+    }]
+    async fn scim_v2_create_group(
+        rqctx: RequestContext<Self::Context>,
+        body: TypedBody<scim2_rs::CreateGroupRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = PUT,
+        path = "/scim/v2/Groups/{group_id}"
+    }]
+    async fn scim_v2_put_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2PutUserPathParam>,
+        body: TypedBody<scim2_rs::CreateGroupRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = DELETE,
+        path = "/scim/v2/Groups/{group_id}"
+    }]
+    async fn scim_v2_delete_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2DeleteGroupPathParam>,
+    ) -> Result<Response<Body>, HttpError>;
+
     /// List projects
     #[endpoint {
         method = GET,

@@ -884,6 +884,78 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
+    async fn scim_v2_list_users(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_get_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2GetUserPathParam>,
+        query_params: Query<scim2_rs::QueryParams>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_create_user(
+        rqctx: RequestContext<Self::Context>,
+        body: TypedBody<scim2_rs::CreateUserRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_put_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2PutUserPathParam>,
+        body: TypedBody<scim2_rs::CreateUserRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_delete_user(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2DeleteUserPathParam>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_list_groups(
+        rqctx: RequestContext<Self::Context>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_get_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2GetGroupPathParam>,
+        query_params: Query<scim2_rs::QueryParams>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_create_group(
+        rqctx: RequestContext<Self::Context>,
+        body: TypedBody<scim2_rs::CreateGroupRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_put_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2PutUserPathParam>,
+        body: TypedBody<scim2_rs::CreateGroupRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
+    async fn scim_v2_delete_group(
+        rqctx: RequestContext<Self::Context>,
+        path_param: Path<params::ScimV2DeleteGroupPathParam>,
+    ) -> Result<Response<Body>, HttpError> {
+        unimplemented!();
+    }
+
     async fn project_list(
         rqctx: RequestContext<ApiContext>,
         query_params: Query<PaginatedByNameOrId>,
