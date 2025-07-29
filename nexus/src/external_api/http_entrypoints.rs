@@ -884,76 +884,346 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
+    async fn scim_idp_get_tokens(
+        rqctx: RequestContext<Self::Context>,
+        query_params: Query<params::SiloSelector>,
+    ) -> Result<HttpResponseOk<Vec<views::ScimBearerToken>>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let silo_lookup = nexus.silo_lookup(&opctx, query.silo)?;
+
+            let tokens = nexus.scim_idp_get_tokens(&opctx, &silo_lookup).await?;
+
+            Ok(HttpResponseOk(tokens))
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn scim_idp_create_token(
+        rqctx: RequestContext<Self::Context>,
+        query_params: Query<params::SiloSelector>,
+    ) -> Result<HttpResponseCreated<views::ScimBearerToken>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let silo_lookup = nexus.silo_lookup(&opctx, query.silo)?;
+
+            let token = nexus.scim_idp_create_token(&opctx, &silo_lookup).await?;
+
+            Ok(HttpResponseCreated(token))
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn scim_idp_get_token_by_id(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2GetTokenPathParam>,
+        query_params: Query<params::SiloSelector>,
+    ) -> Result<HttpResponseOk<views::ScimBearerToken>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let path_params = path_params.into_inner();
+            let silo_lookup = nexus.silo_lookup(&opctx, query.silo)?;
+
+            let token = nexus.scim_idp_get_token_by_id(
+                &opctx,
+                &silo_lookup,
+                path_params.token_id,
+            ).await?;
+
+            Ok(HttpResponseOk(token))
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn scim_idp_delete_token_by_id(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2DeleteTokenPathParam>,
+        query_params: Query<params::SiloSelector>,
+    ) -> Result<HttpResponseDeleted, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let path_params = path_params.into_inner();
+            let silo_lookup = nexus.silo_lookup(&opctx, query.silo)?;
+
+            nexus.scim_idp_delete_token_by_id(
+                &opctx,
+                &silo_lookup,
+                path_params.token_id,
+            ).await?;
+
+            Ok(HttpResponseDeleted())
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn scim_idp_delete_all_tokens(
+        rqctx: RequestContext<Self::Context>,
+        query_params: Query<params::SiloSelector>,
+    ) -> Result<HttpResponseDeleted, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let silo_lookup = nexus.silo_lookup(&opctx, query.silo)?;
+
+            nexus.scim_idp_delete_tokens_for_silo(
+                &opctx,
+                &silo_lookup,
+            ).await?;
+
+            Ok(HttpResponseDeleted())
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
     async fn scim_v2_list_users(
         rqctx: RequestContext<Self::Context>,
+        query_params: Query<scim2_rs::QueryParams>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+
+            nexus.scim_v2_list_users(&rqctx.request, query).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_get_user(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2GetUserPathParam>,
+        path_params: Path<params::ScimV2GetUserPathParam>,
         query_params: Query<scim2_rs::QueryParams>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_get_user_by_id(
+                &rqctx.request,
+                query,
+                path_params.user_id,
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_create_user(
         rqctx: RequestContext<Self::Context>,
         body: TypedBody<scim2_rs::CreateUserRequest>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+
+            nexus.scim_v2_create_user(
+                &rqctx.request,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_put_user(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2PutUserPathParam>,
+        path_params: Path<params::ScimV2PutUserPathParam>,
         body: TypedBody<scim2_rs::CreateUserRequest>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_replace_user(
+                &rqctx.request,
+                path_params.user_id,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_delete_user(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2DeleteUserPathParam>,
+        path_params: Path<params::ScimV2DeleteUserPathParam>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_delete_user(
+                &rqctx.request,
+                path_params.user_id,
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_list_groups(
         rqctx: RequestContext<Self::Context>,
+        query_params: Query<scim2_rs::QueryParams>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+
+            nexus.scim_v2_list_groups(&rqctx.request, query).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_get_group(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2GetGroupPathParam>,
+        path_params: Path<params::ScimV2GetGroupPathParam>,
         query_params: Query<scim2_rs::QueryParams>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let query = query_params.into_inner();
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_get_group_by_id(
+                &rqctx.request,
+                query,
+                path_params.group_id,
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_create_group(
         rqctx: RequestContext<Self::Context>,
         body: TypedBody<scim2_rs::CreateGroupRequest>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+
+            nexus.scim_v2_create_group(
+                &rqctx.request,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_put_group(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2PutUserPathParam>,
+        path_params: Path<params::ScimV2PutGroupPathParam>,
         body: TypedBody<scim2_rs::CreateGroupRequest>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_replace_group(
+                &rqctx.request,
+                path_params.group_id,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn scim_v2_delete_group(
         rqctx: RequestContext<Self::Context>,
-        path_param: Path<params::ScimV2DeleteGroupPathParam>,
+        path_params: Path<params::ScimV2DeleteGroupPathParam>,
     ) -> Result<Response<Body>, HttpError> {
-        unimplemented!();
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_delete_group(
+                &rqctx.request,
+                path_params.group_id,
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
     }
 
     async fn project_list(

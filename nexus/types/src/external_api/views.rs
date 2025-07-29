@@ -1508,6 +1508,14 @@ fn expected_one_of<T: strum::VariantArray + fmt::Display>() -> String {
     msg
 }
 
+// SCIM
+
+#[derive(Serialize, JsonSchema)]
+pub struct ScimBearerToken {
+    pub id: Uuid,
+    pub bearer_token: String,
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

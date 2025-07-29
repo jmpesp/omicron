@@ -6189,13 +6189,11 @@ ON omicron.public.host_ereport (
     time_deleted IS NULL;
 
 
-CREATE TABLE IF NOT EXISTS omicron.public.silo_scim_client (
+CREATE TABLE IF NOT EXISTS omicron.public.silo_scim_client_bearer_token (
     /* Identity metadata */
     id UUID PRIMARY KEY,
-    name STRING(63) NOT NULL,
-    description STRING(512) NOT NULL,
+
     time_created TIMESTAMPTZ NOT NULL,
-    time_modified TIMESTAMPTZ NOT NULL,
     time_deleted TIMESTAMPTZ,
 
     silo_id UUID NOT NULL,
@@ -6204,14 +6202,14 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_scim_client (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS lookup_scim_client_by_silo_id
-ON omicron.public.silo_scim_client (
+ON omicron.public.silo_scim_client_bearer_token (
     silo_id,
     id
 ) WHERE
     time_deleted IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS bearer_token_unique_for_scim_client
-ON omicron.public.silo_scim_client (
+ON omicron.public.silo_scim_client_bearer_token (
     bearer_token
 ) WHERE
     time_deleted IS NULL;

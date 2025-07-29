@@ -1,5 +1,5 @@
 CREATE UNIQUE INDEX IF NOT EXISTS lookup_scim_client_by_silo_id
-ON omicron.public.silo_scim_client (
+ON omicron.public.silo_scim_client_bearer_token (
     silo_id,
     id
 ) WHERE

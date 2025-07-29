@@ -2643,7 +2643,17 @@ pub struct AlertReceiverProbe {
     pub resend: bool,
 }
 
-// SCIM V2
+// SCIM
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2GetTokenPathParam {
+    pub token_id: Uuid,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ScimV2DeleteTokenPathParam {
+    pub token_id: Uuid,
+}
 
 #[derive(Deserialize, JsonSchema)]
 pub struct ScimV2GetUserPathParam {

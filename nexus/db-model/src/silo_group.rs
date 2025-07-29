@@ -8,12 +8,14 @@ use nexus_types::external_api::views;
 use nexus_types::identity::Asset;
 use uuid::Uuid;
 
+// XXX silo group uuid, silo user uuid
+
 /// Describes a silo group within the database.
-#[derive(Asset, Queryable, Insertable, Debug, Selectable)]
+#[derive(Asset, Queryable, Insertable, Debug, Selectable, Clone)]
 #[diesel(table_name = silo_group)]
 pub struct SiloGroup {
     #[diesel(embed)]
-    identity: SiloGroupIdentity,
+    pub identity: SiloGroupIdentity,
 
     pub silo_id: Uuid,
 
@@ -28,7 +30,7 @@ impl SiloGroup {
 }
 
 /// Describe which silo users belong to which silo groups
-#[derive(Queryable, Insertable, Debug, Selectable)]
+#[derive(Queryable, Insertable, Debug, Selectable, Clone)]
 #[diesel(table_name = silo_group_membership)]
 pub struct SiloGroupMembership {
     pub silo_group_id: Uuid,

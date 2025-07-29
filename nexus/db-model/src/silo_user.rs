@@ -9,11 +9,11 @@ use nexus_types::identity::Asset;
 use uuid::Uuid;
 
 /// Describes a silo user within the database.
-#[derive(Asset, Queryable, Insertable, Debug, Selectable)]
+#[derive(Asset, Queryable, Insertable, Debug, Selectable, Clone)]
 #[diesel(table_name = silo_user)]
 pub struct SiloUser {
     #[diesel(embed)]
-    identity: SiloUserIdentity,
+    pub identity: SiloUserIdentity,
 
     pub time_deleted: Option<chrono::DateTime<chrono::Utc>>,
     pub silo_id: Uuid,

@@ -1,0 +1,303 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! SCIM endpoints
+
+use nexus_db_queries::authz;
+use nexus_db_queries::context::OpContext;
+use nexus_db_queries::db::datastore::CrdbScimProviderStore;
+use omicron_common::api::external::ListResultVec;
+use omicron_common::api::external::CreateResult;
+use omicron_common::api::external::LookupResult;
+use omicron_common::api::external::DeleteResult;
+use omicron_common::api::external::Error;
+use nexus_db_lookup::lookup;
+use nexus_types::external_api::views;
+use http::Response;
+use http::StatusCode;
+use dropshot::Body;
+use dropshot::HttpError;
+use uuid::Uuid;
+
+//use scim2_rs::User;
+
+impl super::Nexus {
+    // SCIM tokens
+
+    pub(crate) async fn scim_idp_get_tokens(
+        &self,
+        opctx: &OpContext,
+        silo_lookup: &lookup::Silo<'_>,
+    ) -> ListResultVec<views::ScimBearerToken> {
+        let (.., authz_silo, _) =
+            silo_lookup.fetch_for(authz::Action::ListChildren).await?;
+        let tokens = self.datastore().scim_idp_get_tokens(opctx, &authz_silo).await?;
+        Ok(tokens.into_iter().map(|t| t.into()).collect())
+    }
+
+    pub(crate) async fn scim_idp_create_token(
+        &self,
+        opctx: &OpContext,
+        silo_lookup: &lookup::Silo<'_>,
+    ) -> CreateResult<views::ScimBearerToken> {
+        let (.., authz_silo, _) =
+            silo_lookup.fetch_for(authz::Action::ListChildren).await?;
+        let token = self.datastore().scim_idp_create_token(opctx, &authz_silo).await?;
+        Ok(token.into())
+    }
+
+    pub(crate) async fn scim_idp_get_token_by_id(
+        &self,
+        opctx: &OpContext,
+        silo_lookup: &lookup::Silo<'_>,
+        token_id: Uuid,
+    ) -> LookupResult<views::ScimBearerToken> {
+        let (.., authz_silo, _) =
+            silo_lookup.fetch_for(authz::Action::ListChildren).await?;
+
+        let maybe_token = self.datastore().scim_idp_get_token_by_id(opctx, &authz_silo, token_id).await?;
+
+        match maybe_token {
+            Some(token) => Ok(token.into()),
+
+            None => Err(Error::non_resourcetype_not_found(
+                format!("token with id {token_id} not found")
+            )),
+        }
+    }
+
+    pub(crate) async fn scim_idp_delete_token_by_id(
+        &self,
+        opctx: &OpContext,
+        silo_lookup: &lookup::Silo<'_>,
+        token_id: Uuid,
+    ) -> DeleteResult {
+        let (.., authz_silo, _) =
+            silo_lookup.fetch_for(authz::Action::ListChildren).await?;
+
+        self.datastore().scim_idp_delete_token_by_id(opctx, &authz_silo, token_id).await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn scim_idp_delete_tokens_for_silo(
+        &self,
+        opctx: &OpContext,
+        silo_lookup: &lookup::Silo<'_>,
+    ) -> DeleteResult {
+        let (.., authz_silo, _) =
+            silo_lookup.fetch_for(authz::Action::ListChildren).await?;
+
+        self.datastore().scim_idp_delete_tokens_for_silo(opctx, &authz_silo).await?;
+
+        Ok(())
+    }
+
+    // SCIM implementation
+
+    // XXX get provider for silo comment
+    pub(crate) async fn scim_idp_get_provider(
+        &self,
+        request: &dropshot::RequestInfo,
+    ) -> LookupResult<scim2_rs::Provider<CrdbScimProviderStore>> {
+        let Some(header) = request.headers().get(http::header::AUTHORIZATION)
+        else {
+            return Err(Error::Unauthenticated {
+                internal_message: "Missing bearer token".to_string(),
+            });
+        };
+
+        const BEARER: &str = "Bearer ";
+
+        let token = match header.to_str() {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(Error::Unauthenticated {
+                    internal_message: "Invalid bearer token".to_string(),
+                });
+            }
+        };
+
+        if !token.starts_with(BEARER) {
+            return Err(Error::Unauthenticated {
+                internal_message: "Invalid bearer token".to_string(),
+            });
+        }
+
+        let Some(bearer_token) = self
+            .datastore()
+            .scim_idp_lookup_token_by_bearer(token[BEARER.len()..].to_string())
+            .await? else {
+            //
+            return Err(Error::Unauthenticated {
+                internal_message: "Invalid bearer token".to_string(),
+            });
+        };
+
+        // XXX validate that silo has SAML+SCIM idp
+
+        let provider = scim2_rs::Provider::new(
+            self
+                .datastore()
+                .scim_idp_provider_store_for_silo(bearer_token.silo_id)
+                .await,
+            );
+
+        Ok(provider)
+    }
+
+    pub async fn scim_v2_list_users(
+        &self,
+        request: &dropshot::RequestInfo,
+        query: scim2_rs::QueryParams,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.list_users(query).await {
+            Ok(response) => response.to_http_response(),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_get_user_by_id(
+        &self,
+        request: &dropshot::RequestInfo,
+        query: scim2_rs::QueryParams,
+        user_id: String,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.get_user_by_id(query, user_id).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_create_user(
+        &self,
+        request: &dropshot::RequestInfo,
+        body: scim2_rs::CreateUserRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.create_user(body).await {
+            Ok(response) => response.to_http_response(StatusCode::CREATED),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_replace_user(
+        &self,
+        request: &dropshot::RequestInfo,
+        user_id: String,
+        body: scim2_rs::CreateUserRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.replace_user(user_id, body).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_delete_user(
+        &self,
+        request: &dropshot::RequestInfo,
+        user_id: String,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.delete_user(user_id).await {
+            Ok(response) => Ok(response),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_list_groups(
+        &self,
+        request: &dropshot::RequestInfo,
+        query: scim2_rs::QueryParams,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.list_groups(query).await {
+            Ok(response) => response.to_http_response(),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_get_group_by_id(
+        &self,
+        request: &dropshot::RequestInfo,
+        query: scim2_rs::QueryParams,
+        group_id: String,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.get_group_by_id(query, group_id).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_create_group(
+        &self,
+        request: &dropshot::RequestInfo,
+        body: scim2_rs::CreateGroupRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.create_group(body).await {
+            Ok(response) => response.to_http_response(StatusCode::CREATED),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_replace_group(
+        &self,
+        request: &dropshot::RequestInfo,
+        group_id: String,
+        body: scim2_rs::CreateGroupRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.replace_group(group_id, body).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_delete_group(
+        &self,
+        request: &dropshot::RequestInfo,
+        group_id: String,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.delete_group(group_id).await {
+            Ok(response) => Ok(response),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+}

@@ -2606,12 +2606,10 @@ table! {
 allow_tables_to_appear_in_same_query!(user_data_export, snapshot, image);
 
 table! {
-    silo_scim_client (id) {
+    silo_scim_client_bearer_token (id) {
         id -> Uuid,
-        name -> Text,
-        description -> Text,
+
         time_created -> Timestamptz,
-        time_modified -> Timestamptz,
         time_deleted -> Nullable<Timestamptz>,
 
         silo_id -> Uuid,

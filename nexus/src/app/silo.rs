@@ -33,7 +33,6 @@ use omicron_common::bail_unless;
 use std::net::IpAddr;
 use std::str::FromStr;
 use uuid::Uuid;
-use scim2_rs::User;
 
 impl super::Nexus {
     // Silos
