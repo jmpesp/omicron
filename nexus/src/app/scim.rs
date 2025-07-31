@@ -4,20 +4,21 @@
 
 //! SCIM endpoints
 
+use dropshot::Body;
+use dropshot::HttpError;
+use http::Response;
+use http::StatusCode;
+use nexus_db_lookup::lookup;
+use nexus_db_model::UserProvisionType;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::datastore::CrdbScimProviderStore;
-use omicron_common::api::external::ListResultVec;
+use nexus_types::external_api::views;
 use omicron_common::api::external::CreateResult;
-use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::DeleteResult;
 use omicron_common::api::external::Error;
-use nexus_db_lookup::lookup;
-use nexus_types::external_api::views;
-use http::Response;
-use http::StatusCode;
-use dropshot::Body;
-use dropshot::HttpError;
+use omicron_common::api::external::ListResultVec;
+use omicron_common::api::external::LookupResult;
 use uuid::Uuid;
 
 //use scim2_rs::User;
@@ -32,7 +33,8 @@ impl super::Nexus {
     ) -> ListResultVec<views::ScimBearerToken> {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
-        let tokens = self.datastore().scim_idp_get_tokens(opctx, &authz_silo).await?;
+        let tokens =
+            self.datastore().scim_idp_get_tokens(opctx, &authz_silo).await?;
         Ok(tokens.into_iter().map(|t| t.into()).collect())
     }
 
@@ -43,7 +45,8 @@ impl super::Nexus {
     ) -> CreateResult<views::ScimBearerToken> {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
-        let token = self.datastore().scim_idp_create_token(opctx, &authz_silo).await?;
+        let token =
+            self.datastore().scim_idp_create_token(opctx, &authz_silo).await?;
         Ok(token.into())
     }
 
@@ -56,14 +59,17 @@ impl super::Nexus {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
 
-        let maybe_token = self.datastore().scim_idp_get_token_by_id(opctx, &authz_silo, token_id).await?;
+        let maybe_token = self
+            .datastore()
+            .scim_idp_get_token_by_id(opctx, &authz_silo, token_id)
+            .await?;
 
         match maybe_token {
             Some(token) => Ok(token.into()),
 
-            None => Err(Error::non_resourcetype_not_found(
-                format!("token with id {token_id} not found")
-            )),
+            None => Err(Error::non_resourcetype_not_found(format!(
+                "token with id {token_id} not found"
+            ))),
         }
     }
 
@@ -76,7 +82,9 @@ impl super::Nexus {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
 
-        self.datastore().scim_idp_delete_token_by_id(opctx, &authz_silo, token_id).await?;
+        self.datastore()
+            .scim_idp_delete_token_by_id(opctx, &authz_silo, token_id)
+            .await?;
 
         Ok(())
     }
@@ -89,7 +97,9 @@ impl super::Nexus {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
 
-        self.datastore().scim_idp_delete_tokens_for_silo(opctx, &authz_silo).await?;
+        self.datastore()
+            .scim_idp_delete_tokens_for_silo(opctx, &authz_silo)
+            .await?;
 
         Ok(())
     }
@@ -128,21 +138,32 @@ impl super::Nexus {
         let Some(bearer_token) = self
             .datastore()
             .scim_idp_lookup_token_by_bearer(token[BEARER.len()..].to_string())
-            .await? else {
-            //
+            .await?
+        else {
             return Err(Error::Unauthenticated {
                 internal_message: "Invalid bearer token".to_string(),
             });
         };
 
-        // XXX validate that silo has SAML+SCIM idp
+        // Validate that silo has the SCIM user provision type
+        let (_, db_silo) = {
+            let nexus_opctx = self.opctx_external_authn();
+            self.silo_lookup(nexus_opctx, bearer_token.silo_id.into())?
+                .fetch()
+                .await?
+        };
+
+        if db_silo.user_provision_type != UserProvisionType::Scim {
+            return Err(Error::invalid_request(
+                "silo is not provisioned with scim",
+            ));
+        }
 
         let provider = scim2_rs::Provider::new(
-            self
-                .datastore()
+            self.datastore()
                 .scim_idp_provider_store_for_silo(bearer_token.silo_id)
                 .await,
-            );
+        );
 
         Ok(provider)
     }

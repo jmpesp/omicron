@@ -883,6 +883,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS lookup_silo_user_by_silo ON omicron.public.sil
 ) WHERE
     time_deleted IS NULL;
 
+CREATE INDEX IF NOT EXISTS lookup_silo_user_by_silo_only ON omicron.public.silo_user (
+    silo_id
+) WHERE
+    time_deleted IS NULL;
+
 CREATE TABLE IF NOT EXISTS omicron.public.silo_user_password_hash (
     silo_user_id UUID NOT NULL,
     hash TEXT NOT NULL,

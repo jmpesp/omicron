@@ -14,6 +14,7 @@
 //  - does this delete the users? sessions?
 //  - do not offer delete at this time?
 // - scim2 test compliance client from crate
+//  - use tester!
 
 use nexus_types::external_api::views;
 use nexus_test_utils::resource_helpers::create_silo;
@@ -32,6 +33,7 @@ async fn test_silo_with_saml_scim(cptestctx: &ControlPlaneTestContext) {
     const SILO_NAME: &str = "saml-scim-silo";
     create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
         .await;
+
     let _silo: views::Silo = NexusRequest::object_get(
         &client,
         &format!("/v1/system/silos/{}", SILO_NAME),

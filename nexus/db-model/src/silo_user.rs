@@ -20,6 +20,13 @@ pub struct SiloUser {
 
     /// The identity provider's ID for this user.
     pub external_id: String,
+    //pub external_id: Option<String>,
+
+    // XXX type?
+
+    //pub active: Option<bool>,
+
+    //pub user_name: Option<String>,
 }
 
 impl SiloUser {
@@ -43,3 +50,14 @@ impl From<SiloUser> for views::User {
         }
     }
 }
+
+/*
+enum SiloUser {
+    Jit {
+    },
+    Local {
+    },
+    Scim {
+    }
+}
+*/

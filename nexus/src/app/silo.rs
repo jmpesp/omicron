@@ -408,6 +408,7 @@ impl super::Nexus {
         opctx.authorize(authz::Action::CreateChild, authz_silo).await?;
         opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
 
+        // XXX fetch by user name for scim provisioned user
         let fetch_result = self
             .datastore()
             .silo_user_fetch_by_external_id(
