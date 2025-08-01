@@ -396,7 +396,16 @@ impl super::Nexus {
         self.db_datastore.silo_user_delete(opctx, &authz_silo_user).await
     }
 
-    /// Based on an authenticated subject, fetch or create a silo user
+    /// Based on an authenticated subject, return a SiloUser based on an
+    /// AuthenticatedSubject. If the silo's provision type is JIT:
+    ///
+    /// - create a SiloUser from the AuthenticatedSubject
+    /// - create SiloGroups from the groups in AuthenticatedSubject 
+    /// - create SiloGroupMemberships for the SiloUser and those SiloGroups
+    /// - if the SiloUser already existed, then update the group memberships
+    ///   based on what is in the authenticated subject.
+    ///
+    /// Note groups created in this way are never deleted
     pub async fn silo_user_from_authenticated_subject(
         &self,
         opctx: &OpContext,
@@ -408,18 +417,44 @@ impl super::Nexus {
         opctx.authorize(authz::Action::CreateChild, authz_silo).await?;
         opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
 
-        // XXX fetch by user name for scim provisioned user
-        let fetch_result = self
-            .datastore()
-            .silo_user_fetch_by_external_id(
-                opctx,
-                &authz_silo,
-                &authenticated_subject.external_id,
-            )
-            .await?;
+        let maybe_silo_user = match &db_silo.user_provision_type {
+            db::model::UserProvisionType::ApiOnly => {
+                return Err(Error::invalid_request(
+                    format!("cannot use SAML to login to ApiOnly silos")
+                ));
+            }
+
+            db::model::UserProvisionType::Jit => {
+                // For JIT, silo users are created based on the SAML assertion's
+                // Subject, and this is recorded into silo user's external id.
+                self
+                    .datastore()
+                    .silo_user_fetch_by_external_id(
+                        opctx,
+                        &authz_silo,
+                        &authenticated_subject.external_id,
+                    )
+                    .await?
+            }
+
+            db::model::UserProvisionType::Scim => {
+                // For SCIM, silo users have an additional table of attributes,
+                // one of which is userName, which seems to be the default used
+                // for SAML assertion Subjects (though this is probably
+                // configurable on the IDP side). Lookup based on that.
+                self
+                    .datastore()
+                    .silo_user_fetch_scim_by_user_name(
+                        opctx,
+                        &authz_silo,
+                        &authenticated_subject.external_id,
+                    )
+                    .await?
+            }
+        };
 
         let (authz_silo_user, db_silo_user) = if let Some(existing_silo_user) =
-            fetch_result
+            maybe_silo_user
         {
             existing_silo_user
         } else {
@@ -770,10 +805,16 @@ impl super::Nexus {
         let (authz_silo, db_silo) = silo_lookup.fetch().await?;
         let authz_idp_list = authz::SiloIdentityProviderList::new(authz_silo);
 
-        if db_silo.user_provision_type != UserProvisionType::Jit {
-            return Err(Error::invalid_request(
-                "cannot create identity providers in this kind of Silo",
-            ));
+        match &db_silo.user_provision_type {
+            UserProvisionType::Jit | UserProvisionType::Scim => {
+                // ok
+            }
+
+            UserProvisionType::ApiOnly => {
+                return Err(Error::invalid_request(
+                    "cannot create identity providers in api-only silos",
+                ));
+            }
         }
 
         // This check is not strictly necessary yet.  We'll check this

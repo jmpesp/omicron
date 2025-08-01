@@ -8,8 +8,6 @@ use nexus_types::external_api::views;
 use nexus_types::identity::Asset;
 use uuid::Uuid;
 
-// XXX silo group uuid, silo user uuid
-
 /// Describes a silo group within the database.
 #[derive(Asset, Queryable, Insertable, Debug, Selectable, Clone)]
 #[diesel(table_name = silo_group)]
@@ -19,7 +17,9 @@ pub struct SiloGroup {
 
     pub silo_id: Uuid,
 
-    /// The identity provider's name for this group.
+    /// The identity provider's name for this group. If this Group has
+    /// associated SCIM attributes, this field will be the same as the ID to
+    /// avoid collisions that would fail the UNIQUE INDEX for this column.
     pub external_id: String,
 }
 
@@ -43,6 +43,7 @@ impl SiloGroupMembership {
     }
 }
 
+// XXX remove this
 impl From<SiloGroup> for views::Group {
     fn from(group: SiloGroup) -> Self {
         Self {

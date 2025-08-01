@@ -750,6 +750,8 @@ table! {
         mapped_fleet_roles -> Jsonb,
 
         rcgen -> Int8,
+
+        admin_group_name -> Nullable<Text>,
     }
 }
 
@@ -794,9 +796,8 @@ table! {
 
 allow_tables_to_appear_in_same_query!(silo_user, silo_user_password_hash);
 allow_tables_to_appear_in_same_query!(
-    silo_group,
-    silo_group_membership,
     silo_user,
+    silo_group_membership,
 );
 allow_tables_to_appear_in_same_query!(role_assignment, silo_group_membership);
 
@@ -2617,3 +2618,26 @@ table! {
         bearer_token -> Text,
     }
 }
+
+table! {
+    silo_user_scim_attributes (silo_user_id) {
+        silo_user_id -> Uuid,
+
+        user_name -> Text,
+        external_id -> Nullable<Text>,
+        active -> Nullable<Bool>,
+    }
+}
+
+allow_tables_to_appear_in_same_query!(silo_user, silo_user_scim_attributes);
+
+table! {
+    silo_group_scim_attributes (silo_group_id) {
+        silo_group_id -> Uuid,
+
+        display_name -> Text,
+        external_id -> Nullable<Text>,
+    }
+}
+
+allow_tables_to_appear_in_same_query!(silo_group, silo_group_membership, silo_group_scim_attributes);

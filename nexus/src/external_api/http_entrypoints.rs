@@ -1099,6 +1099,29 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
+    async fn scim_v2_patch_user(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2PatchUserPathParam>,
+        body: TypedBody<scim2_rs::PatchRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_patch_user(
+                &rqctx.request,
+                path_params.user_id,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
     async fn scim_v2_delete_user(
         rqctx: RequestContext<Self::Context>,
         path_params: Path<params::ScimV2DeleteUserPathParam>,
@@ -1193,6 +1216,29 @@ impl NexusExternalApi for NexusExternalApiImpl {
             let path_params = path_params.into_inner();
 
             nexus.scim_v2_replace_group(
+                &rqctx.request,
+                path_params.group_id,
+                body.into_inner(),
+            ).await
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn scim_v2_patch_group(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2PatchGroupPathParam>,
+        body: TypedBody<scim2_rs::PatchRequest>,
+    ) -> Result<Response<Body>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let nexus = &apictx.context.nexus;
+            let path_params = path_params.into_inner();
+
+            nexus.scim_v2_patch_group(
                 &rqctx.request,
                 path_params.group_id,
                 body.into_inner(),

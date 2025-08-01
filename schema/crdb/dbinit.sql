@@ -855,7 +855,9 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo (
     mapped_fleet_roles JSONB NOT NULL,
 
     /* child resource generation number, per RFD 192 */
-    rcgen INT NOT NULL
+    rcgen INT NOT NULL,
+
+    admin_group_name TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS lookup_silo_by_name ON omicron.public.silo (
@@ -6218,6 +6220,27 @@ ON omicron.public.silo_scim_client_bearer_token (
     bearer_token
 ) WHERE
     time_deleted IS NULL;
+
+CREATE TABLE IF NOT EXISTS omicron.public.silo_user_scim_attributes (
+    silo_user_id UUID PRIMARY KEY,
+
+    user_name TEXT NOT NULL,
+    external_id TEXT,
+    active BOOL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_scim_attribute_record_per_user
+  ON omicron.public.silo_user_scim_attributes (silo_user_id);
+
+CREATE TABLE IF NOT EXISTS omicron.public.silo_group_scim_attributes (
+    silo_group_id UUID PRIMARY KEY,
+
+    display_name TEXT NOT NULL,
+    external_id TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_scim_attribute_record_per_group
+  ON omicron.public.silo_group_scim_attributes (silo_group_id);
 
 /*
  * Keep this at the end of file so that the database does not contain a version

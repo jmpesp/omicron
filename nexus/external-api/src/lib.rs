@@ -685,6 +685,17 @@ pub trait NexusExternalApi {
     ) -> Result<Response<Body>, HttpError>;
 
     #[endpoint {
+        method = PATCH,
+        path = "/scim/v2/Users/{user_id}",
+        tags = ["silos"],
+    }]
+    async fn scim_v2_patch_user(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2PatchUserPathParam>,
+        body: TypedBody<scim2_rs::PatchRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
         method = DELETE,
         path = "/scim/v2/Users/{user_id}",
         tags = ["silos"],
@@ -736,6 +747,17 @@ pub trait NexusExternalApi {
         rqctx: RequestContext<Self::Context>,
         path_params: Path<params::ScimV2PutGroupPathParam>,
         body: TypedBody<scim2_rs::CreateGroupRequest>,
+    ) -> Result<Response<Body>, HttpError>;
+
+    #[endpoint {
+        method = PATCH,
+        path = "/scim/v2/Groups/{group_id}",
+        tags = ["silos"],
+    }]
+    async fn scim_v2_patch_group(
+        rqctx: RequestContext<Self::Context>,
+        path_params: Path<params::ScimV2PatchGroupPathParam>,
+        body: TypedBody<scim2_rs::PatchRequest>,
     ) -> Result<Response<Body>, HttpError>;
 
     #[endpoint {

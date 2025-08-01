@@ -230,6 +230,22 @@ impl super::Nexus {
         result.map_err(HttpError::from)
     }
 
+    pub async fn scim_v2_patch_user(
+        &self,
+        request: &dropshot::RequestInfo,
+        user_id: String,
+        body: scim2_rs::PatchRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.patch_user(user_id, body).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
     pub async fn scim_v2_delete_user(
         &self,
         request: &dropshot::RequestInfo,
@@ -300,6 +316,22 @@ impl super::Nexus {
         let provider = self.scim_idp_get_provider(&request).await?;
 
         let result = match provider.replace_group(group_id, body).await {
+            Ok(response) => response.to_http_response(StatusCode::OK),
+            Err(error) => error.to_http_response(),
+        };
+
+        result.map_err(HttpError::from)
+    }
+
+    pub async fn scim_v2_patch_group(
+        &self,
+        request: &dropshot::RequestInfo,
+        group_id: String,
+        body: scim2_rs::PatchRequest,
+    ) -> Result<Response<Body>, HttpError> {
+        let provider = self.scim_idp_get_provider(&request).await?;
+
+        let result = match provider.patch_group(group_id, body).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };

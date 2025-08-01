@@ -192,6 +192,51 @@ impl DataStore {
             }))
     }
 
+    /// Given an user name for a SCIM user, return
+    /// - Ok(Some((authz::SiloUser, SiloUser))) if that user name refers to an
+    ///   existing silo user provisioned using SCIM
+    /// - Ok(None) if it does not
+    /// - Err(...) if there was an error doing this lookup.
+    pub async fn silo_user_fetch_scim_by_user_name(
+        &self,
+        opctx: &OpContext,
+        authz_silo: &authz::Silo,
+        user_name: &str,
+    ) -> Result<Option<(authz::SiloUser, SiloUser)>, Error> {
+        opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
+
+        use nexus_db_schema::schema::silo_user::dsl;
+        use nexus_db_schema::schema::silo_user_scim_attributes::dsl as
+            attributes_dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let maybe_user = dsl::silo_user
+            .inner_join(attributes_dsl::silo_user_scim_attributes.on(
+                attributes_dsl::silo_user_id.eq(dsl::id)
+            ))
+            .filter(dsl::silo_id.eq(authz_silo.id()))
+            .filter(dsl::time_deleted.is_null())
+            .filter(attributes_dsl::user_name.eq(user_name.to_string()))
+            .select(SiloUser::as_select())
+            .first_async::<SiloUser>(&*conn)
+            .await
+            .optional()
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        let Some(db_silo_user) = maybe_user else {
+            return Ok(None);
+        };
+
+        let authz_silo_user = authz::SiloUser::new(
+            authz_silo.clone(),
+            db_silo_user.id(),
+            LookupType::ByName(user_name.to_owned()),
+        );
+
+        Ok(Some((authz_silo_user, db_silo_user)))
+    }
+
     pub async fn silo_users_list(
         &self,
         opctx: &OpContext,

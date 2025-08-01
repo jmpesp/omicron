@@ -18,15 +18,10 @@ pub struct SiloUser {
     pub time_deleted: Option<chrono::DateTime<chrono::Utc>>,
     pub silo_id: Uuid,
 
-    /// The identity provider's ID for this user.
+    /// The identity provider's ID for this user. If this User has associated
+    /// SCIM attributes, this field will be the same as the ID to avoid
+    /// collisions that would fail the UNIQUE INDEX for this column.
     pub external_id: String,
-    //pub external_id: Option<String>,
-
-    // XXX type?
-
-    //pub active: Option<bool>,
-
-    //pub user_name: Option<String>,
 }
 
 impl SiloUser {
@@ -40,6 +35,7 @@ impl SiloUser {
     }
 }
 
+// XXX remove this
 impl From<SiloUser> for views::User {
     fn from(user: SiloUser) -> Self {
         Self {
@@ -50,14 +46,3 @@ impl From<SiloUser> for views::User {
         }
     }
 }
-
-/*
-enum SiloUser {
-    Jit {
-    },
-    Local {
-    },
-    Scim {
-    }
-}
-*/

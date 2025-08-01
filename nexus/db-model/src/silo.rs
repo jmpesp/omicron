@@ -103,6 +103,8 @@ pub struct Silo {
 
     /// child resource generation number, per RFD 192
     pub rcgen: Generation,
+
+    pub admin_group_name: Option<String>,
 }
 
 /// Form of mapped fleet roles used when serializing to the database
@@ -183,6 +185,7 @@ impl Silo {
                 .into(),
             rcgen: Generation::new(),
             mapped_fleet_roles,
+            admin_group_name: params.admin_group_name,
         })
     }
 
@@ -233,6 +236,7 @@ impl TryFrom<Silo> for views::Silo {
             discoverable: silo.discoverable,
             identity_mode,
             mapped_fleet_roles,
+            admin_group_name: silo.admin_group_name,
         })
     }
 }
