@@ -1154,6 +1154,9 @@ impl CrdbScimProviderStore {
             None
         };
 
+        // XXX if displayName changes, invalidate role assignments, or delete
+        // them all then re-check name?
+
         Ok(convert_to_scim_group(group, attributes, members))
     }
 
