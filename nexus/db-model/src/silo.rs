@@ -216,7 +216,7 @@ impl TryFrom<Silo> for views::Silo {
             }
 
             (AuthenticationMode::Saml, UserProvisionType::Scim) => {
-                Some(SiloIdentityMode::SamlJit)
+                Some(SiloIdentityMode::SamlScim)
             }
 
             _ => None,
