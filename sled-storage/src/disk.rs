@@ -278,6 +278,7 @@ impl Disk {
                 SyntheticDisk::new(log, mount_config, disk, pool_id).await,
             ),
         };
+
         dataset::ensure_zpool_has_datasets(
             log,
             mount_config,

@@ -20230,6 +20230,13 @@
               }
             ]
           },
+          "local_storage": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceLocalStorage"
+            }
+          },
           "memory": {
             "description": "The amount of RAM (in bytes) to be allocated to the instance",
             "allOf": [
@@ -20356,6 +20363,21 @@
               "type"
             ]
           }
+        ]
+      },
+      "InstanceLocalStorage": {
+        "type": "object",
+        "properties": {
+          "block_size": {
+            "$ref": "#/components/schemas/BlockSize"
+          },
+          "size": {
+            "$ref": "#/components/schemas/ByteCount"
+          }
+        },
+        "required": [
+          "block_size",
+          "size"
         ]
       },
       "InstanceNetworkInterface": {

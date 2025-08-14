@@ -16,6 +16,11 @@ use crate::db::model::SledResourceVmm;
 use crate::db::model::SledState;
 use crate::db::model::SledUpdate;
 use crate::db::model::to_db_sled_policy;
+use crate::db::model::VmmLocalStorage;
+use crate::db::model::LocalStorageRequest;
+use crate::db::model::PossibleConfig;
+use crate::db::model::Zpool;
+use crate::db::model::ByteCount;
 use crate::db::pagination::Paginator;
 use crate::db::pagination::paginated;
 use crate::db::queries::sled_reservation::sled_find_targets_query;
@@ -48,6 +53,7 @@ use omicron_uuid_kinds::PropolisUuid;
 use omicron_uuid_kinds::SledUuid;
 use slog::Logger;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fmt;
 use strum::IntoEnumIterator;
 use thiserror::Error;
@@ -463,6 +469,7 @@ impl DataStore {
             .limit(1)
             .load_async(&*conn)
             .await?;
+
         if !old_resource.is_empty() {
             return Ok(old_resource[0].clone());
         }
@@ -479,6 +486,9 @@ impl DataStore {
         // Note that this is not transactional, to reduce contention.
         // However, that lack of transactionality means we need to validate
         // our constraints again when we later try to INSERT the reservation.
+        //
+        // XXX jwm shrink sled_targets based on local storage required?
+
         let possible_sleds = sled_find_targets_query(instance_id, &resources)
             .get_results_async::<(
                 // Sled UUID
@@ -500,6 +510,7 @@ impl DataStore {
         let mut unpreferred = HashSet::new();
         let mut required = HashSet::new();
         let mut preferred = HashSet::new();
+
         for (sled_id, fits, affinity_policy, anti_affinity_policy) in
             possible_sleds
         {
@@ -524,6 +535,20 @@ impl DataStore {
                 };
             }
         }
+
+        let instance_local_storage_requests: Vec<LocalStorageRequest> =
+            self.get_instance_local_storage_requests(
+                &opctx,
+                instance_id,
+            )
+            .await?
+            .into_iter()
+            .map(|request| LocalStorageRequest {
+                slot: request.slot.into(),
+                size: request.size.into(),
+                block_size: request.block_size.to_bytes(),
+            })
+            .collect();
 
         // We loop here because our attempts to INSERT may be violated by
         // concurrent operations. We'll respond by looking through a slightly
@@ -552,14 +577,175 @@ impl DataStore {
                 resources.clone(),
             );
 
-            // Try to INSERT the record. If this is still a valid target, we'll
-            // use it. If it isn't a valid target, we'll shrink the set of
-            // viable sled targets and try again.
-            let rows_inserted = sled_insert_resource_query(&resource)
-                .execute_async(&*conn)
-                .await?;
-            if rows_inserted > 0 {
-                return Ok(resource);
+            // If local storage is required, match the requests with all the
+            // zpools of a sled with available space.
+
+            #[derive(Clone)]
+            struct LocalStorageRequest2 {
+                pub slot: u8,
+                pub size: ByteCount,
+                pub block_size: u32,
+                pub candidate_zpools: HashSet<Uuid>,
+            }
+
+            #[derive(Clone)]
+            struct PossibleConfigSet {
+                configs: Vec<PossibleConfig>,
+                zpools_left: HashSet<Uuid>, // XXX jwm all these typed
+                request_index: usize,
+            }
+
+            #[derive(Clone)] // XXX required?
+            struct ValidatedConfigSet {
+                configs: Vec<PossibleConfig>,
+            }
+
+            let local_storage_configs = if !instance_local_storage_requests.is_empty() {
+                // if anyone can figure out how to do this with a CTE, you're my
+                // hero.
+
+                let zpools_for_sled: Vec<(Zpool, Option<i64>, Option<i64>, Option<i64>)> =
+                    self.zpool_get_for_sled(&opctx, sled_target).await?;
+
+                // filter out all optional fields
+
+                let zpools_for_sled: Vec<(Zpool, i64, i64, i64)> =
+                    zpools_for_sled
+                        .into_iter()
+                        .filter(|(zpool, maybe_usage_1, maybe_usage_2, maybe_total)| {
+                            maybe_usage_1.is_some() &&
+                                maybe_usage_2.is_some() &&
+                                maybe_total.is_some()
+                        })
+                        .map(|(zpool, maybe_usage_1, maybe_usage_2, maybe_total)| {
+                            (zpool, maybe_usage_1.unwrap(), maybe_usage_2.unwrap(), maybe_total.unwrap())
+                        })
+                        .collect();
+
+                let mut requests: Vec<LocalStorageRequest2> = vec![];
+
+                for request in &instance_local_storage_requests {
+                    let candidate_zpools: HashSet<Uuid> = zpools_for_sled
+                        .iter()
+                        .filter(|(zpool, crucible_usage, local_usage, total)| {
+                            let request_size: i64 = request.size.into();
+                            let new_size_used: i64 =
+                                crucible_usage + local_usage + request_size;
+
+                            let control_plane_storage_buffer: i64 =
+                                zpool.control_plane_storage_buffer().into();
+                            let adjusted_total: i64 = total
+                                - control_plane_storage_buffer;
+
+                            new_size_used < adjusted_total
+                        })
+                        .map(|(zpool, ..)| zpool.id())
+                        .collect();
+
+                    if candidate_zpools.is_empty() {
+                        // there's no zpools on this sled for this request
+                        sled_targets.remove(&sled_target);
+                        banned.remove(&sled_target);
+                        unpreferred.remove(&sled_target);
+                        preferred.remove(&sled_target);
+
+                        continue;
+                    }
+
+                    requests.push(LocalStorageRequest2 {
+                        slot: request.slot,
+                        size: request.size,
+                        block_size: request.block_size,
+                        candidate_zpools,
+                    });
+                }
+
+                let mut possible_configs: Vec<ValidatedConfigSet> = vec![];
+                let mut queue = VecDeque::new();
+
+                queue.push_back(PossibleConfigSet {
+                    configs: vec![],
+                    zpools_left: zpools_for_sled
+                        .iter()
+                        .map(|(zpool, ..)| zpool.id())
+                        .collect(),
+                    request_index: 0,
+                });
+
+                while let Some(possible_config_set) = queue.pop_front() {
+                    let PossibleConfigSet {
+                        configs,
+                        zpools_left,
+                        request_index,
+                    } = possible_config_set;
+
+                    if request_index == requests.len() {
+                        possible_configs.push(ValidatedConfigSet {
+                            configs,
+                        });
+                        continue;
+                    }
+
+                    // Try to add request
+
+                    let request = &requests[request_index];
+
+                    // Create a possible config based on the what zpools are
+                    // left, and the candidate zpools for this request.
+
+                    for candidate_zpool in &request.candidate_zpools {
+                        if zpools_left.contains(candidate_zpool) {
+                            let mut set_configs = configs.clone();
+                            set_configs.push(PossibleConfig {
+                                request: instance_local_storage_requests[request_index].clone(),
+                                pool: *candidate_zpool,
+                            });
+
+                            let mut set_zpools_left = zpools_left.clone();
+                            set_zpools_left.remove(candidate_zpool);
+
+                            queue.push_back(PossibleConfigSet {
+                                configs: set_configs,
+                                zpools_left: set_zpools_left,
+                                request_index: request_index + 1,
+                            });
+                        }
+                    }
+
+                    // else, there are no candidates for this request
+                }
+
+                Some(possible_configs)
+            } else {
+                None
+            };
+
+            if let Some(local_storage_configs) = local_storage_configs {
+                // XXX jwm loop required here: multiple mappings might satisfy
+                // local storage requirement, but will apply for a single sled.
+                for local_storage_config in local_storage_configs {
+                    let ValidatedConfigSet { configs } = local_storage_config;
+
+                    let rows_inserted =
+                        sled_insert_resource_query(&resource, Some(configs))
+                            .execute_async(&*conn)
+                            .await?;
+
+                    if rows_inserted > 0 {
+                        return Ok(resource);
+                    }
+                }
+            } else {
+                // Try to INSERT the record. If this is still a valid target,
+                // we'll use it. If it isn't a valid target, we'll shrink the
+                // set of viable sled targets and try again.
+                let rows_inserted = sled_insert_resource_query(&resource, None)
+                    .execute_async(&*conn)
+                    .await?;
+
+                if rows_inserted > 0 {
+                    return Ok(resource);
+                }
             }
 
             sled_targets.remove(&sled_target);
@@ -574,6 +760,7 @@ impl DataStore {
         opctx: &OpContext,
         vmm_id: PropolisUuid,
     ) -> DeleteResult {
+        // XXX local storage!
         use nexus_db_schema::schema::sled_resource_vmm::dsl as resource_dsl;
         diesel::delete(resource_dsl::sled_resource_vmm)
             .filter(resource_dsl::id.eq(vmm_id.into_untyped_uuid()))
@@ -1537,7 +1724,7 @@ pub(in crate::db::datastore) mod test {
                 self.resources.clone(),
             );
 
-            sled_insert_resource_query(&resource)
+            sled_insert_resource_query(&resource, None)
                 .execute_async(
                     &*datastore.pool_connection_for_tests().await.unwrap(),
                 )

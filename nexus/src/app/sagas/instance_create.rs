@@ -86,6 +86,15 @@ struct DiskAttachParams {
     attach_params: InstanceDiskAttachment,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct CreateLocalStorageRequestParams {
+    serialized_authn: authn::saga::Serialized,
+    project_id: Uuid,
+    instance_id: InstanceUuid,
+    slot: u8,
+    request: params::InstanceLocalStorage,
+}
+
 // instance create saga: actions
 
 declare_saga_actions! {
@@ -125,6 +134,10 @@ declare_saga_actions! {
     }
     MOVE_TO_STOPPED -> "stopped_instance" {
         + sic_move_to_stopped
+    }
+    CREATE_LOCAL_STORAGE_REQUEST -> "local_storage_request" {
+        + sic_create_local_storage_request_instance
+        - sic_create_local_storage_request_instance_undo
     }
 }
 
@@ -354,6 +367,32 @@ impl NexusSaga for SagaInstanceCreate {
             };
             subsaga_append(
                 "attach_disk".into(),
+                subsaga_builder.build()?,
+                &mut builder,
+                params,
+                i,
+            )?;
+        }
+
+        // Create instance local storage requests
+        for (i, local_storage_request) in params.create_params.local_storage.iter().enumerate() {
+            let subsaga_name =
+                SagaName::new(&format!("instance-local-storage-request-{i}"));
+            let mut subsaga_builder = DagBuilder::new(subsaga_name);
+            subsaga_builder.append(Node::action(
+                "create_local_storage_request",
+                format!("CreateLocalStorageRequest-{i}").as_str(),
+                CREATE_LOCAL_STORAGE_REQUEST.as_ref(),
+            ));
+            let params = CreateLocalStorageRequestParams {
+                serialized_authn: params.serialized_authn.clone(),
+                project_id: params.project_id,
+                instance_id,
+                slot: i as u8, // XXX not safe!
+                request: local_storage_request.clone(),
+            };
+            subsaga_append(
+                "create_local_storage".into(),
                 subsaga_builder.build()?,
                 &mut builder,
                 params,
@@ -979,9 +1018,17 @@ async fn ensure_instance_disk_attach_state(
         InstanceDiskAttachment::Create(create_params) => {
             db::model::Name(create_params.identity.name)
         }
+
         InstanceDiskAttachment::Attach(attach_params) => {
             db::model::Name(attach_params.name)
         }
+
+        /*
+        InstanceDiskAttachment::LocalStorage(_) => {
+            // XXX what to do here?
+            return Ok(());
+        }
+        */
     };
 
     let (.., authz_instance, _db_instance) = LookupPath::new(&opctx, datastore)
@@ -1227,6 +1274,56 @@ async fn sic_move_to_stopped(
     Ok(())
 }
 
+async fn sic_create_local_storage_request_instance(
+    sagactx: NexusActionContext,
+) -> Result<(), ActionError> {
+    let osagactx = sagactx.user_data();
+    let params = sagactx.saga_params::<CreateLocalStorageRequestParams>()?;
+    let datastore = osagactx.datastore();
+    let opctx = crate::context::op_context_for_saga_action(
+        &sagactx,
+        &params.serialized_authn,
+    );
+
+    datastore.create_instance_local_storage_request(
+        &opctx,
+        params.project_id,
+        params.instance_id,
+        params.slot,
+        params.request.size.into(),
+        db::model::BlockSize::try_from(params.request.block_size)
+            .map_err(|e| ActionError::action_failed(Error::internal_error(
+                &e.to_string(),
+            )))?,
+    )
+    .await
+    .map_err(ActionError::action_failed)?;
+
+    Ok(())
+}
+
+async fn sic_create_local_storage_request_instance_undo(
+    sagactx: NexusActionContext,
+) -> Result<(), anyhow::Error> {
+    let osagactx = sagactx.user_data();
+    let params = sagactx.saga_params::<CreateLocalStorageRequestParams>()?;
+    let datastore = osagactx.datastore();
+    let opctx = crate::context::op_context_for_saga_action(
+        &sagactx,
+        &params.serialized_authn,
+    );
+
+    datastore.delete_instance_local_storage_request(
+        &opctx,
+        params.project_id,
+        params.instance_id,
+        params.slot,
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 pub mod test {
     use crate::{
@@ -1298,6 +1395,7 @@ pub mod test {
                 start: false,
                 auto_restart_policy: Default::default(),
                 anti_affinity_groups: Vec::new(),
+                local_storage: Vec::new(),
             },
             boundary_switches: HashSet::from([SwitchLocation::Switch0]),
         }

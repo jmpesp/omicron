@@ -79,6 +79,7 @@ async fn sid_delete_instance_record(
         &sagactx,
         &params.serialized_authn,
     );
+    // XXX local storage
     osagactx
         .datastore()
         .project_delete_instance(&opctx, &params.authz_instance)
@@ -239,6 +240,7 @@ mod test {
             start: false,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+            local_storage: Vec::new(),
         }
     }
 

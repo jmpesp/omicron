@@ -1101,6 +1101,15 @@ pub struct SledIdentifiers {
     pub serial: String,
 }
 
+// XXX specific to propolis? specific to volume delegation?
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)] // XXX don't need all this
+pub struct DelegatedDataset {
+    pub pool_name: String,
+    pub dataset_name: String,
+    pub volume_size: u64,
+    pub block_size: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

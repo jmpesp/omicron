@@ -4,6 +4,7 @@
 
 //! Virtual Machine Instances
 
+use super::MAX_DISK_SIZE_BYTES;
 use super::MAX_DISKS_PER_INSTANCE;
 use super::MAX_EPHEMERAL_IPS_PER_INSTANCE;
 use super::MAX_EXTERNAL_IPS_PER_INSTANCE;
@@ -67,6 +68,7 @@ use sagas::instance_start;
 use sagas::instance_update;
 use sled_agent_client::types::InstanceMigrationTargetParams;
 use sled_agent_client::types::VmmPutStateBody;
+use sled_agent_client::types::DelegatedDataset;
 use std::matches;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -404,24 +406,57 @@ impl super::Nexus {
             params.boot_disk.iter().chain(params.disks.iter()).collect();
 
         // Validate parameters
-        if all_disks.len() > MAX_DISKS_PER_INSTANCE as usize {
+        if (all_disks.len() + params.local_storage.len()) > MAX_DISKS_PER_INSTANCE as usize {
             return Err(Error::invalid_request(&format!(
                 "cannot attach more than {} disks to instance",
                 MAX_DISKS_PER_INSTANCE
             )));
         }
+
         for disk in all_disks.iter() {
-            if let params::InstanceDiskAttachment::Create(create) = disk {
-                self.validate_disk_create_params(opctx, &authz_project, create)
-                    .await?;
+            match disk {
+                params::InstanceDiskAttachment::Create(create) => {
+                    self
+                        .validate_disk_create_params(
+                            opctx,
+                            &authz_project,
+                            create,
+                        )
+                        .await?;
+                }
+
+                params::InstanceDiskAttachment::Attach(_) => {
+                    // XXX disk was already validated during its creation?
+                }
+
+                /*
+                params::InstanceDiskAttachment::LocalStorage(local_storage) => {
+                    // XXX what size here?
+                    if local_storage.size.to_bytes() > MAX_DISK_SIZE_BYTES {
+                        return Err(Error::invalid_request(&format!(
+                            "local storage max size is {MAX_DISK_SIZE_BYTES}",
+                        )));
+                    }
+                }
+                */
             }
         }
+
+        for local_storage in &params.local_storage {
+            if local_storage.size.to_bytes() > MAX_DISK_SIZE_BYTES {
+                return Err(Error::invalid_request(&format!(
+                    "local storage max size is {MAX_DISK_SIZE_BYTES}",
+                )));
+            }
+        }
+
         if params.external_ips.len() > MAX_EXTERNAL_IPS_PER_INSTANCE {
             return Err(Error::invalid_request(&format!(
                 "An instance may not have more than {} external IP addresses",
                 MAX_EXTERNAL_IPS_PER_INSTANCE,
             )));
         }
+
         if params
             .external_ips
             .iter()
@@ -434,6 +469,7 @@ impl super::Nexus {
                 MAX_EPHEMERAL_IPS_PER_INSTANCE,
             )));
         }
+
         if let params::InstanceNetworkInterfaceAttachment::Create(ref ifaces) =
             params.network_interfaces
         {
@@ -533,6 +569,7 @@ impl super::Nexus {
                     instance_start::Reason::AutoStart,
                 )
                 .await;
+
             if let Err(e) = start_result {
                 info!(self.log, "failed to start newly-created instance";
                       "instance_id" => %instance_id,
@@ -607,6 +644,7 @@ impl super::Nexus {
             instance,
             boundary_switches,
         };
+
         self.sagas
             .saga_execute::<sagas::instance_delete::SagaInstanceDelete>(
                 saga_params,
@@ -614,6 +652,7 @@ impl super::Nexus {
             .await?;
 
         self.background_tasks.task_vpc_route_manager.activate();
+
         Ok(())
     }
 
@@ -652,6 +691,8 @@ impl super::Nexus {
         if instance.runtime().migration_id.is_some() {
             return Err(Error::conflict("instance is already migrating"));
         }
+
+        // XXX cannot migrate if instance has local storage
 
         // Kick off the migration saga
         let saga_params = sagas::instance_migrate::Params {
@@ -738,6 +779,7 @@ impl super::Nexus {
             .db_datastore
             .instance_fetch_with_vmm(opctx, &authz_instance)
             .await?;
+
         state.instance = self
             .db_datastore
             .instance_set_intended_state(
@@ -791,6 +833,8 @@ impl super::Nexus {
                 IntendedState::Stopped,
             )
             .await?;
+
+        // XXX local storage
 
         if let Err(e) = self
             .instance_request_state(
@@ -1138,6 +1182,11 @@ impl super::Nexus {
             )
             .await?;
 
+        let vmm_local_storage = self
+            .db_datastore
+            .vmm_list_local_storage(&opctx, initial_vmm.id)
+            .await?;
+
         let nics = self
             .db_datastore
             .derive_guest_network_interface_info(&opctx, &authz_instance)
@@ -1258,6 +1307,7 @@ impl super::Nexus {
                 &operation,
                 db_instance,
                 &disks,
+                &vmm_local_storage,
                 &nics,
                 &ssh_keys,
             )
@@ -1271,6 +1321,17 @@ impl super::Nexus {
         let local_config = sled_agent_client::types::InstanceSledLocalConfig {
             hostname,
             nics,
+            delegated_datasets: {
+                vmm_local_storage
+                    .iter()
+                    .map(|record| DelegatedDataset {
+                        pool_name: format!("oxp_{}", record.pool_id),
+                        dataset_name: format!("{}", record.id),
+                        volume_size: record.size.to_bytes(),
+                        block_size: record.block_size.to_bytes(),
+                    })
+                    .collect()
+            },
             source_nat,
             ephemeral_ip,
             floating_ips,
@@ -2463,6 +2524,7 @@ mod tests {
             start: false,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+            local_storage: Vec::new(),
         };
 
         let instance_id = InstanceUuid::from_untyped_uuid(Uuid::new_v4());

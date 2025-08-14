@@ -6486,6 +6486,83 @@ ON omicron.public.host_ereport (
 ) WHERE
     time_deleted IS NULL;
 
+CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset (
+    /* Identity metadata (asset) */
+    id UUID PRIMARY KEY,
+    time_created TIMESTAMPTZ NOT NULL,
+    time_modified TIMESTAMPTZ NOT NULL,
+    time_deleted TIMESTAMPTZ,
+    /*rcgen INT NOT NULL,*/
+
+    /* FK into the Pool table */
+    pool_id UUID NOT NULL,
+
+    /*
+     * An upper bound on the amount of space that might be in-use
+     *
+     * This field is owned by Nexus. When a new row is inserted during the
+     * Reconfigurator rendezvous process, this field is set to 0. Reconfigurator
+     * otherwise ignores this field. It's updated by Nexus as vmm allocations
+     * and deletions are performed using this dataset.
+     */
+    size_used INT NOT NULL
+);
+
+/* Create an index on the size usage for any Crucible dataset */
+CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_size_used ON
+    omicron.public.crucible_dataset (size_used)
+  WHERE time_deleted IS NULL;
+
+/* Create an index on the zpool id */
+CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_zpool ON
+    omicron.public.crucible_dataset (pool_id, id)
+  WHERE time_deleted IS NULL;
+
+CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_ip ON
+  omicron.public.crucible_dataset (ip);
+
+CREATE TABLE IF NOT EXISTS omicron.public.vmm_local_storage (
+    id UUID PRIMARY KEY,
+
+    /* Every Disk is in exactly one Project at a time. */
+    /*project_id UUID NOT NULL,*/
+
+    /* local storage is strongly tied to the vmm */
+    vmm_id UUID NOT NULL,
+
+    slot INT2 CHECK (slot >= 0 AND slot < 8),
+
+    /* Disk configuration */
+    size_bytes INT NOT NULL,
+    block_size omicron.public.block_size NOT NULL,
+
+    /* FK into the zpool table */
+    pool_id UUID NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS lookup_local_storage_by_vmm
+    ON omicron.public.vmm_local_storage (vmm_id);
+
+CREATE TABLE IF NOT EXISTS omicron.public.instance_local_storage (
+    id UUID PRIMARY KEY,
+
+    /* Every Disk is in exactly one Project at a time. */
+    project_id UUID NOT NULL,
+
+    instance_id UUID NOT NULL,
+
+    slot INT2 CHECK (slot >= 0 AND slot < 8),
+
+    /* Disk configuration */
+    size_bytes INT NOT NULL,
+    block_size omicron.public.block_size NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS lookup_local_storage_by_instance
+    ON omicron.public.instance_local_storage (instance_id);
+CREATE INDEX IF NOT EXISTS lookup_instance_local_storage_request_by_slot
+    ON omicron.public.instance_local_storage (slot);
+
 /*
  * Keep this at the end of file so that the database does not contain a version
  * until it is fully populated.

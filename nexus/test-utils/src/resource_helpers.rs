@@ -666,6 +666,7 @@ pub async fn create_instance_with(
             start,
             auto_restart_policy,
             anti_affinity_groups: Vec::new(),
+            local_storage: Vec::new(),
         },
     )
     .await

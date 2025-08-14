@@ -6,9 +6,15 @@
 
 use super::DataStore;
 use crate::context::OpContext;
+use crate::db::model::ByteCount;
+use crate::db::model::to_db_typed_uuid;
+use crate::db::model::BlockSize;
+use crate::db::model::SqlU8;
 use crate::db::model::Vmm;
 use crate::db::model::VmmRuntimeState;
 use crate::db::model::VmmState as DbVmmState;
+use crate::db::model::VmmLocalStorage;
+use crate::db::model::InstanceLocalStorageRequest;
 use crate::db::pagination::paginated;
 use crate::db::update_and_check::UpdateAndCheck;
 use crate::db::update_and_check::UpdateAndQueryResult;
@@ -30,10 +36,12 @@ use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::LookupType;
 use omicron_common::api::external::ResourceType;
 use omicron_common::api::external::UpdateResult;
+use omicron_common::api::external::DeleteResult;
 use omicron_common::api::internal::nexus;
 use omicron_common::api::internal::nexus::Migrations;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::PropolisUuid;
+use omicron_uuid_kinds::InstanceUuid;
 use std::net::SocketAddr;
 use uuid::Uuid;
 
@@ -82,6 +90,8 @@ impl DataStore {
         opctx: &OpContext,
         vmm_id: &PropolisUuid,
     ) -> UpdateResult<bool> {
+        // XXX jwm deal with vmm local storage
+
         let updated = diesel::update(dsl::vmm)
             .filter(dsl::id.eq(vmm_id.into_untyped_uuid()))
             .filter(dsl::state.eq_any(DbVmmState::DESTROYABLE_STATES))
@@ -432,6 +442,104 @@ impl DataStore {
             )
             .select(Vmm::as_select())
             .load_async(&*self.pool_connection_authorized(opctx).await?)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn vmm_list_local_storage(
+        &self,
+        opctx: &OpContext,
+        vmm_id: Uuid,
+    ) -> ListResultVec<VmmLocalStorage> {
+        // XXX opctx auth
+
+        use nexus_db_schema::schema::vmm_local_storage::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        dsl::vmm_local_storage
+            .filter(dsl::vmm_id.eq(vmm_id))
+            .select(VmmLocalStorage::as_select())
+            .load_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn create_instance_local_storage_request(
+        &self,
+        opctx: &OpContext,
+        project_id: Uuid, // XXX required?
+        instance_id: InstanceUuid,
+        slot: u8,
+        size: ByteCount,
+        block_size: BlockSize,
+    ) -> CreateResult<InstanceLocalStorageRequest> {
+        // XXX opctx auth
+
+        use nexus_db_schema::schema::instance_local_storage::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        // XXX conflicts?
+
+        let request = InstanceLocalStorageRequest {
+            id: Uuid::new_v4(), // XXX not idempotent // XXX do we need id? or primary key of instance + slot?
+            project_id,
+            instance_id: instance_id.into_untyped_uuid(),
+            slot: slot.into(),
+            size,
+            block_size,
+        };
+
+        diesel::insert_into(dsl::instance_local_storage)
+            .values(request)
+            .returning(InstanceLocalStorageRequest::as_returning())
+            .get_result_async(&*conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn delete_instance_local_storage_request(
+        &self,
+        opctx: &OpContext,
+        project_id: Uuid,
+        instance_id: InstanceUuid,
+        slot: u8,
+    ) -> DeleteResult {
+        // XXX opctx auth
+
+        use nexus_db_schema::schema::instance_local_storage::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let slot: SqlU8 = slot.into();
+
+        diesel::delete(dsl::instance_local_storage)
+            .filter(dsl::project_id.eq(project_id))
+            .filter(dsl::instance_id.eq(to_db_typed_uuid(instance_id)))
+            .filter(dsl::slot.eq(slot))
+            .execute_async(&*conn)
+            .await
+            .map(|_| ())
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn get_instance_local_storage_requests(
+        &self,
+        opctx: &OpContext,
+        //project_id: Uuid,
+        instance_id: InstanceUuid,
+    ) -> ListResultVec<InstanceLocalStorageRequest> {
+        // XXX opctx auth
+
+        use nexus_db_schema::schema::instance_local_storage::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        dsl::instance_local_storage
+            //.filter(dsl::project_id.eq(project_id))
+            .filter(dsl::instance_id.eq(to_db_typed_uuid(instance_id)))
+            .load_async(&*conn)
             .await
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
     }

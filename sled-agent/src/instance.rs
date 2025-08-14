@@ -24,7 +24,9 @@ use illumos_utils::zpool::ZpoolOrRamdisk;
 use omicron_common::api::internal::nexus::{SledVmmState, VmmRuntimeState};
 use omicron_common::api::internal::shared::{
     NetworkInterface, ResolvedVpcFirewallRule, SledIdentifiers, SourceNatConfig,
+    DelegatedDataset,
 };
+use omicron_common::api::external::ByteCount;
 use omicron_common::backoff;
 use omicron_common::backoff::BackoffError;
 use omicron_common::zpool_name::ZpoolName;
@@ -135,6 +137,9 @@ pub enum Error {
 
     #[error("Instance is terminating")]
     Terminating,
+
+    #[error("Failure with delegated dataset: {0}")]
+    DelegatedDataset(anyhow::Error),
 }
 
 type PropolisClientError =
@@ -541,6 +546,9 @@ struct InstanceRunner {
 
     // Queue to notify the sled agent's metrics task about our VNICs.
     metrics_queue: MetricsRequestQueue,
+
+    // datasets to delegate to the Propolis zone
+    delegated_datasets: Vec<DelegatedDataset>,
 }
 
 impl InstanceRunner {
@@ -1649,6 +1657,7 @@ impl Instance {
             zone_builder_factory,
             zone_bundler,
             metrics_queue,
+            delegated_datasets: local_config.delegated_datasets,
         };
 
         let runner_handle = tokio::task::spawn(async move {
@@ -1992,12 +2001,93 @@ impl InstanceRunner {
         let zname = propolis_zone_name(&self.propolis_id);
         let mut rng = rand::rngs::StdRng::from_entropy();
 
+        let datasets: Vec<_> = self
+            .delegated_datasets
+            .iter()
+            .map(|delegated_dataset| {
+                let name = format!(
+                    "oxp_{}/crypt/local_storage/{}",
+                    delegated_dataset.pool_name,
+                    delegated_dataset.dataset_name,
+                );
+
+                zone::Dataset { name }
+            })
+            .collect();
+
+        let mut devices = vec![
+            zone::Device { name: "/dev/vmm/*".to_string() },
+            zone::Device { name: "/dev/vmmctl".to_string() },
+            zone::Device { name: "/dev/viona".to_string() },
+        ];
+
+        if !datasets.is_empty() {
+            for delegated_dataset in &self.delegated_datasets {
+                // XXX what should actually do this? 
+                // pfexec zfs create -V 1G {dustertank/minecraft}/vol
+
+                use illumos_utils::zfs::*;
+
+                // XXX duped code
+                let name = format!(
+                    "oxp_{}/crypt/local_storage/{}",
+                    delegated_dataset.pool_name,
+                    delegated_dataset.dataset_name,
+                );
+
+                let mountpoint = camino::Utf8PathBuf::try_from("/unused").unwrap();
+
+                let size = ByteCount::try_from(delegated_dataset.volume_size)
+                    .map_err(|e| Error::DelegatedDataset(e.into()))?;
+
+                // XXX fudge factor for overhead
+                let byte_count = ByteCount::try_from(delegated_dataset.volume_size + 64 * 1024 * 1024)
+                    .map_err(|e| Error::DelegatedDataset(e.into()))?;
+
+                Zfs::ensure_dataset(DatasetEnsureArgs {
+                    name: &name,
+                    mountpoint: Mountpoint(mountpoint),
+                    can_mount: CanMount::NoAuto,
+                    zoned: true,
+                    encryption_details: None, // inherits from parent "crypt/local_storage"
+                    size_details: Some(SizeDetails {
+                        quota: Some(byte_count),
+                        reservation: Some(byte_count),
+                        compression: omicron_common::disk::CompressionAlgorithm::Off,
+                    }),
+                    id: None,
+                    additional_options: None, /*Some(vec![]),*/
+                })
+                .await
+                .map_err(|e| Error::DelegatedDataset(e.into()))?;
+
+                Zfs::ensure_dataset_volume(
+                    format!("{}/vol", name),
+                    size,
+                )
+                .await
+                .map_err(|e| Error::DelegatedDataset(e.into()))?;
+
+                // XXX and is this name correct?
+                // /dev/zvol/rdsk/{dustertank/minecraft}/zvol/*
+                // root@minecraft:~# stat /dev/zvol/rdsk/{dustertank/minecraft}/vol
+
+                devices.push(zone::Device {
+                    name: format!("/dev/zvol/rdsk/{}/zvol/*", name),
+                });
+            }
+        }
+
+        // XXX the request for a dataset / volume above is async!
+        // XXX what deletes these vols
+
         let root = self
             .available_datasets_rx
             .all_mounted_zone_root_datasets()
             .into_iter()
             .choose(&mut rng)
             .ok_or_else(|| Error::U2NotFound)?;
+
         let installed_zone = self
             .zone_builder_factory
             .builder()
@@ -2009,14 +2099,10 @@ impl InstanceRunner {
             .with_unique_name(OmicronZoneUuid::from_untyped_uuid(
                 self.propolis_id.into_untyped_uuid(),
             ))
-            .with_datasets(&[])
+            .with_datasets(&datasets)
             .with_filesystems(&[])
             .with_data_links(&[])
-            .with_devices(&[
-                zone::Device { name: "/dev/vmm/*".to_string() },
-                zone::Device { name: "/dev/vmmctl".to_string() },
-                zone::Device { name: "/dev/viona".to_string() },
-            ])
+            .with_devices(&devices)
             .with_opte_ports(opte_ports)
             .with_links(vec![])
             .with_limit_priv(vec![])
@@ -2478,6 +2564,7 @@ mod tests {
         let local_config = InstanceSledLocalConfig {
             hostname: Hostname::from_str("bert").unwrap(),
             nics: vec![],
+            delegated_datasets: vec![],
             source_nat: SourceNatConfig::new(
                 IpAddr::V6(Ipv6Addr::UNSPECIFIED),
                 0,
@@ -3102,6 +3189,7 @@ mod tests {
                 zone_builder_factory,
                 zone_bundler,
                 metrics_queue,
+                delegated_datasets: local_config.delegated_datasets,
             }
         }
     }

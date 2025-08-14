@@ -17,7 +17,7 @@ use nexus_types::{
     identity::Asset,
     internal_api::params,
 };
-use omicron_uuid_kinds::{GenericUuid, SledUuid};
+use omicron_uuid_kinds::{GenericUuid, SledUuid, ZpoolUuid};
 use std::net::Ipv6Addr;
 use std::net::SocketAddrV6;
 use uuid::Uuid;
@@ -324,9 +324,24 @@ impl SledUpdate {
     }
 }
 
+// XXX jwm what type here? sharing with external / params?
+#[derive(Clone, Debug)]
+pub struct LocalStorageRequest {
+    pub slot: u8,
+    pub size: ByteCount,
+    pub block_size: u32,
+}
+
+#[derive(Clone)]
+pub struct PossibleConfig {
+    pub request: LocalStorageRequest,
+    pub pool: Uuid, // XXX jwm typed
+}
+
 /// A set of constraints that can be placed on operations that select a sled.
 #[derive(Clone, Debug)]
 pub struct SledReservationConstraints {
+    /// set of sleds to select from
     must_select_from: Vec<Uuid>,
 }
 

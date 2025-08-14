@@ -1797,6 +1797,9 @@ table! {
     }
 }
 
+allow_tables_to_appear_in_same_query!(zpool, inv_zpool);
+allow_tables_to_appear_in_same_query!(inv_zpool, physical_disk);
+
 table! {
     inv_dataset (inv_collection_id, sled_id, name) {
         inv_collection_id -> Uuid,
@@ -2727,5 +2730,45 @@ table! {
         error_code -> Nullable<Text>,
         error_message -> Nullable<Text>,
         result_kind -> crate::enums::AuditLogResultKindEnum,
+    }
+}
+
+table! {
+    local_storage_dataset (id) {
+        id -> Uuid,
+        time_created -> Timestamptz,
+        time_modified -> Timestamptz,
+        time_deleted -> Nullable<Timestamptz>,
+        //rcgen -> Int8,
+
+        pool_id -> Uuid,
+
+        size_used -> Int8,
+    }
+}
+
+allow_tables_to_appear_in_same_query!(zpool, local_storage_dataset);
+allow_tables_to_appear_in_same_query!(physical_disk, local_storage_dataset);
+
+table! {
+    vmm_local_storage (id) {
+        id -> Uuid,
+        //project_id -> Uuid,
+        vmm_id -> Uuid,
+        slot -> Int2,
+        size_bytes -> Int8,
+        block_size -> crate::enums::BlockSizeEnum,
+        pool_id -> Uuid,
+    }
+}
+
+table! {
+    instance_local_storage (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        instance_id -> Uuid,
+        slot -> Int2,
+        size_bytes -> Int8,
+        block_size -> crate::enums::BlockSizeEnum,
     }
 }

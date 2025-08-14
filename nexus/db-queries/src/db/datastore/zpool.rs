@@ -16,12 +16,14 @@ use crate::db::model::PhysicalDiskPolicy;
 use crate::db::model::PhysicalDiskState;
 use crate::db::model::Sled;
 use crate::db::model::Zpool;
+use crate::db::model::ByteCount;
 use crate::db::pagination::Paginator;
 use crate::db::pagination::paginated;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::upsert::excluded;
+use diesel::query_dsl::InternalJoinDsl;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::TransactionError;
 use nexus_db_errors::public_error_from_diesel;
@@ -342,5 +344,131 @@ impl DataStore {
             .await
             .map(|_| ())
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+    }
+
+    pub async fn zpool_get(
+        &self,
+        id: ZpoolUuid,
+    ) -> LookupResult<Zpool> {
+        use nexus_db_schema::schema::zpool::dsl;
+
+        let conn = self.pool_connection_unauthorized().await?;
+
+        let zpool = dsl::zpool
+            .filter(dsl::id.eq(to_db_typed_uuid(id)))
+            .filter(dsl::time_deleted.is_null())
+            .select(Zpool::as_select())
+            .get_result_async::<Zpool>(&*conn)
+            .await
+            .map_err(|e| {
+                public_error_from_diesel(
+                    e,
+                    ErrorHandler::NotFoundByLookup(
+                        ResourceType::Zpool,
+                        LookupType::by_id(id),
+                    ),
+                )
+            })?;
+
+        Ok(zpool)
+    }
+
+    /// For a given sled id, return all zpools plus:
+    ///
+    /// - their total upper bound on usaged as reported by crucible and local
+    ///   storage datasets
+    /// - their most recent total_size as reported by inventory.
+    pub async fn zpool_get_for_sled(
+        &self,
+        opctx: &OpContext,
+        sled_id: SledUuid,
+    ) -> ListResultVec<(Zpool, Option<i64>, Option<i64>, Option<i64>)> {
+        opctx.authorize(authz::Action::ListChildren, &authz::FLEET).await?;
+
+        use nexus_db_schema::schema::zpool::dsl;
+        use nexus_db_schema::schema::physical_disk::dsl as physical_disk_dsl;
+        use nexus_db_schema::schema::inv_zpool;
+        use nexus_db_schema::schema::local_storage_dataset;
+        use nexus_db_schema::schema::crucible_dataset;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let values = dsl::zpool
+            .filter(dsl::sled_id.eq(to_db_typed_uuid(sled_id)))
+            .filter(dsl::time_deleted.is_null())
+            .inner_join(
+                physical_disk_dsl::physical_disk
+                    .on(dsl::physical_disk_id.eq(physical_disk_dsl::id)),
+            )
+            .filter(
+                physical_disk_dsl::disk_policy
+                    .eq(PhysicalDiskPolicy::InService),
+            )
+            .select((
+                Zpool::as_select(),
+                // upper bound on existing usages
+                crucible_dataset::table
+                    .select(diesel::dsl::sum(crucible_dataset::size_used))
+                    .filter(crucible_dataset::time_deleted.is_null())
+                    .filter(crucible_dataset::pool_id.eq(dsl::id))
+                    .single_value(),
+                local_storage_dataset::table
+                    .select(diesel::dsl::sum(local_storage_dataset::size_used))
+                    .filter(local_storage_dataset::time_deleted.is_null())
+                    .filter(local_storage_dataset::pool_id.eq(dsl::id))
+                    .single_value(),
+                // last reported total size from inventory
+                inv_zpool::table
+                    .select(inv_zpool::total_size)
+                    .filter(inv_zpool::id.eq(dsl::id))
+                    .order_by(inv_zpool::time_collected.desc())
+                    .limit(1)
+                    .single_value(),
+            ))
+            .load_async::<(
+                Zpool,
+                Option<diesel::pg::data_types::PgNumeric>,
+                Option<diesel::pg::data_types::PgNumeric>,
+                Option<i64>,
+            )>(&*conn)
+            .await
+            .map_err(|e| {
+                public_error_from_diesel(
+                    e,
+                    ErrorHandler::NotFoundByLookup( // XXX server?
+                        ResourceType::Sled,
+                        LookupType::by_id(sled_id),
+                    ),
+                )
+            })?;
+
+        let mut converted = Vec::with_capacity(values.len());
+
+        for (zpool, crucible_usage, local_storage_usage, total_size) in values {
+            let crucible_usage: Option<ByteCount> = if let Some(crucible_usage) = crucible_usage {
+                Some(crucible_usage.try_into().map_err(|e: anyhow::Error|
+                    Error::internal_error(&e.to_string())
+                )?)
+            } else {
+                None
+            };
+
+            let local_storage_usage: Option<ByteCount> = if let Some(local_storage_usage) = local_storage_usage {
+                Some(local_storage_usage.try_into().map_err(|e: anyhow::Error|
+                    Error::internal_error(&e.to_string())
+                )?)
+            } else {
+                None
+            };
+
+            converted.push((
+                zpool,
+                crucible_usage.map(|x| x.into()),
+                local_storage_usage.map(|x| x.into()),
+                total_size,
+            ));
+        }
+
+        Ok(converted)
     }
 }

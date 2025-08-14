@@ -393,6 +393,7 @@ mod test {
                     start: state == InstanceState::Vmm,
                     auto_restart_policy,
                     anti_affinity_groups: Vec::new(),
+                    local_storage: Vec::new(),
                 },
             )
             .await;

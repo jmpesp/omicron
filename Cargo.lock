@@ -12378,6 +12378,7 @@ dependencies = [
  "toml 0.8.23",
  "tufaceous-artifact",
  "uuid",
+ "zone 0.3.1",
 ]
 
 [[package]]

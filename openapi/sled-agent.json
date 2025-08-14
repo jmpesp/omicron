@@ -3901,6 +3901,33 @@
           "pool_name"
         ]
       },
+      "DelegatedDataset": {
+        "type": "object",
+        "properties": {
+          "block_size": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "dataset_name": {
+            "type": "string"
+          },
+          "pool_name": {
+            "type": "string"
+          },
+          "volume_size": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "block_size",
+          "dataset_name",
+          "pool_name",
+          "volume_size"
+        ]
+      },
       "DhcpConfig": {
         "description": "DHCP configuration for a port\n\nNot present here: Hostname (DHCPv4 option 12; used in DHCPv6 option 39); we use `InstanceRuntimeState::hostname` for this value.",
         "type": "object",
@@ -4890,6 +4917,12 @@
         "description": "Describes sled-local configuration that a sled-agent must establish to make the instance's virtual hardware fully functional.",
         "type": "object",
         "properties": {
+          "delegated_datasets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DelegatedDataset"
+            }
+          },
           "dhcp_config": {
             "$ref": "#/components/schemas/DhcpConfig"
           },
@@ -4926,6 +4959,7 @@
           }
         },
         "required": [
+          "delegated_datasets",
           "dhcp_config",
           "firewall_rules",
           "floating_ips",

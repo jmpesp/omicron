@@ -220,6 +220,15 @@ pub struct DestroySnapshotError {
     err: crate::ExecutionError,
 }
 
+/// Error returned by [`Zfs::ensure_dataset_volume`].
+#[derive(thiserror::Error, Debug)]
+#[error("Failed to ensure volume '{name}': {err}")]
+pub struct EnsureDatasetVolumeError {
+    name: String,
+    #[source]
+    err: crate::ExecutionError,
+}
+
 /// Wraps commands for interacting with ZFS.
 pub struct Zfs {}
 
@@ -1338,6 +1347,25 @@ impl Zfs {
             result[i] = value.to_string();
         }
         Ok(result)
+    }
+
+    pub async fn ensure_dataset_volume(
+        name: String,
+        size: ByteCount,
+    ) -> Result<(), EnsureDatasetVolumeError> {
+        let mut command = Command::new(PFEXEC);
+        let cmd = command.args(&[ZFS, "create"]);
+
+        cmd.args(&["-V", &size.to_bytes().to_string(), &name]);
+
+        execute_async(cmd)
+            .await
+            .map_err(|err| EnsureDatasetVolumeError {
+                name,
+                err,
+            })?;
+
+        Ok(())
     }
 }
 

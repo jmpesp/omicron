@@ -1114,6 +1114,9 @@ pub enum InstanceDiskAttachment {
 
     /// During instance creation, attach this disk
     Attach(InstanceDiskAttach),
+
+    // XXX comment required
+    //LocalStorage(InstanceLocalStorage),
 }
 
 impl InstanceDiskAttachment {
@@ -1130,6 +1133,14 @@ impl InstanceDiskAttachment {
 pub struct InstanceDiskAttach {
     /// A disk name to attach
     pub name: Name,
+}
+
+// XXX comment
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+pub struct InstanceLocalStorage {
+    pub size: ByteCount,
+
+    pub block_size: BlockSize,
 }
 
 /// Parameters for creating an external IP address for instances.
@@ -1263,6 +1274,9 @@ pub struct InstanceCreate {
     /// Anti-Affinity groups which this instance should be added.
     #[serde(default)]
     pub anti_affinity_groups: Vec<NameOrId>,
+
+    #[serde(default)]
+    pub local_storage: Vec<InstanceLocalStorage>,
 }
 
 /// Parameters of an `Instance` that can be reconfigured after creation.

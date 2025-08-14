@@ -161,6 +161,8 @@ impl From<AllocationQueryError> for external::Error {
     }
 }
 
+// XXX jwm fix for local storage too
+
 /// For a given volume, idempotently allocate enough regions (according to some
 /// allocation strategy) to meet some redundancy level. This should only be used
 /// for the region set that is in the top level of the Volume (not the deeper

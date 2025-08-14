@@ -168,7 +168,7 @@ async fn sis_alloc_server(
         propolis_id,
         u32::from(hardware_threads.0),
         reservoir_ram,
-        db::model::SledReservationConstraints::none(),
+        db::model::SledReservationConstraints::none()
     )
     .await?;
 
@@ -846,6 +846,7 @@ mod test {
                 start: false,
                 auto_restart_policy: Default::default(),
                 anti_affinity_groups: Vec::new(),
+                local_storage: Vec::new(),
             },
         )
         .await

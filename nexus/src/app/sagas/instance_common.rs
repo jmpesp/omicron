@@ -43,7 +43,7 @@ pub async fn reserve_vmm_resources(
     ncpus: u32,
     guest_memory: ByteCount,
     constraints: SledReservationConstraints,
-) -> Result<SledResourceVmm, ActionError> {
+) -> Result<SledResourceVmm, ActionError> { // XXX jwm return list of vmm local storage objects too?
     // ALLOCATION POLICY
     //
     // NOTE: This policy can - and should! - be changed.

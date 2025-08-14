@@ -15,7 +15,7 @@ use omicron_common::api::{
         nexus::{SledVmmState, VmmRuntimeState},
         shared::{
             DhcpConfig, NetworkInterface, ResolvedVpcFirewallRule,
-            SourceNatConfig,
+            SourceNatConfig, DelegatedDataset,
         },
     },
 };
@@ -63,6 +63,7 @@ pub struct InstanceEnsureBody {
 pub struct InstanceSledLocalConfig {
     pub hostname: Hostname,
     pub nics: Vec<NetworkInterface>,
+    pub delegated_datasets: Vec<DelegatedDataset>,
     pub source_nat: SourceNatConfig,
     /// Zero or more external IP addresses (either floating or ephemeral),
     /// provided to an instance to allow inbound connectivity.

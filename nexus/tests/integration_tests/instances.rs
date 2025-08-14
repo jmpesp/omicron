@@ -237,6 +237,7 @@ async fn test_create_instance_with_bad_hostname_impl(
         ssh_public_keys: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let mut body: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&params).unwrap()).unwrap();
@@ -344,6 +345,7 @@ async fn test_instances_create_reboot_halt(
                 start: true,
                 auto_restart_policy: Default::default(),
                 anti_affinity_groups: Vec::new(),
+                local_storage: Vec::new(),
             }))
             .expect_status(Some(StatusCode::BAD_REQUEST)),
     )
@@ -2018,6 +2020,7 @@ async fn test_instances_create_stopped_start(
             start: false,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
         },
     )
     .await;
@@ -2202,6 +2205,7 @@ async fn test_instance_using_image_from_other_project_fails(
                 start: true,
                 auto_restart_policy: Default::default(),
                 anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
             }))
             .expect_status(Some(StatusCode::BAD_REQUEST)),
     )
@@ -2268,6 +2272,7 @@ async fn test_instance_create_saga_removes_instance_database_record(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let response = NexusRequest::objects_post(
         client,
@@ -2299,6 +2304,7 @@ async fn test_instance_create_saga_removes_instance_database_record(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let _ = NexusRequest::objects_post(
         client,
@@ -2392,6 +2398,7 @@ async fn test_instance_with_single_explicit_ip_address(
 
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let response = NexusRequest::objects_post(
         client,
@@ -2510,6 +2517,7 @@ async fn test_instance_with_new_custom_network_interfaces(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let response = NexusRequest::objects_post(
         client,
@@ -2628,6 +2636,7 @@ async fn test_instance_create_delete_network_interface(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let response = NexusRequest::objects_post(
         client,
@@ -2875,6 +2884,7 @@ async fn test_instance_update_network_interfaces(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let response = NexusRequest::objects_post(
         client,
@@ -3506,6 +3516,7 @@ async fn test_instance_with_multiple_nics_unwinds_completely(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let builder =
         RequestBuilder::new(client, http::Method::POST, &get_instances_url())
@@ -3579,6 +3590,7 @@ async fn test_attach_one_disk_to_instance(cptestctx: &ControlPlaneTestContext) {
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -3670,6 +3682,7 @@ async fn test_instance_create_attach_disks(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -3768,6 +3781,7 @@ async fn test_instance_create_attach_disks_undo(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -3852,6 +3866,7 @@ async fn test_attach_eight_disks_to_instance(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -3940,6 +3955,7 @@ async fn test_cannot_attach_nine_disks_to_instance(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let url_instances = format!("/v1/instances?project={}", project_name);
@@ -4042,6 +4058,7 @@ async fn test_cannot_attach_faulted_disks(cptestctx: &ControlPlaneTestContext) {
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4133,6 +4150,7 @@ async fn test_disks_detached_when_instance_destroyed(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4231,6 +4249,7 @@ async fn test_disks_detached_when_instance_destroyed(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4315,6 +4334,7 @@ async fn test_duplicate_disk_attach_requests_ok(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4359,6 +4379,7 @@ async fn test_duplicate_disk_attach_requests_ok(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4416,6 +4437,7 @@ async fn test_cannot_detach_boot_disk(cptestctx: &ControlPlaneTestContext) {
         start: false,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4550,6 +4572,7 @@ async fn test_updating_running_instance_boot_disk_is_conflict(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4712,6 +4735,7 @@ async fn test_size_can_be_changed(cptestctx: &ControlPlaneTestContext) {
         // Start out with None
         auto_restart_policy: None,
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -4919,6 +4943,7 @@ async fn test_auto_restart_policy_can_be_changed(
         // Start out with None
         auto_restart_policy: None,
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5015,6 +5040,7 @@ async fn test_boot_disk_can_be_changed(cptestctx: &ControlPlaneTestContext) {
         start: false,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5085,6 +5111,7 @@ async fn test_boot_disk_must_be_attached(cptestctx: &ControlPlaneTestContext) {
         start: false,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5177,6 +5204,7 @@ async fn test_instances_memory_rejected_less_than_min_memory_size(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let error = NexusRequest::new(
@@ -5230,6 +5258,7 @@ async fn test_instances_memory_not_divisible_by_min_memory_size(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let error = NexusRequest::new(
@@ -5283,6 +5312,7 @@ async fn test_instances_memory_greater_than_max_size(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let error = NexusRequest::new(
@@ -5389,6 +5419,7 @@ async fn test_instance_create_with_anti_affinity_groups(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: anti_affinity_groups_param,
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5458,6 +5489,7 @@ async fn test_instance_create_with_duplicate_anti_affinity_groups(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: anti_affinity_groups_param,
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5528,6 +5560,7 @@ async fn test_instance_create_with_anti_affinity_groups_that_do_not_exist(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: anti_affinity_groups_param,
+        local_storage: Vec::new(),
     };
 
     let error = object_create_error(
@@ -5611,6 +5644,7 @@ async fn test_instance_create_with_ssh_keys(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5660,6 +5694,7 @@ async fn test_instance_create_with_ssh_keys(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5708,6 +5743,7 @@ async fn test_instance_create_with_ssh_keys(
         boot_disk: None,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let builder =
@@ -5832,6 +5868,7 @@ async fn test_cannot_provision_instance_beyond_cpu_capacity(
             start: false,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
         };
 
         let url_instances = get_instances_url();
@@ -5891,6 +5928,7 @@ async fn test_cannot_provision_instance_beyond_cpu_limit(
         start: false,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let url_instances = get_instances_url();
 
@@ -5947,6 +5985,7 @@ async fn test_cannot_provision_instance_beyond_ram_capacity(
             start: false,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
         };
 
         let url_instances = get_instances_url();
@@ -6247,6 +6286,7 @@ async fn test_instance_ephemeral_ip_from_correct_pool(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let error = object_create_error(
         client,
@@ -6317,6 +6357,7 @@ async fn test_instance_ephemeral_ip_from_orphan_pool(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     // instance create 404s
@@ -6381,6 +6422,7 @@ async fn test_instance_ephemeral_ip_no_default_pool_error(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
 
     let url = format!("/v1/instances?project={}", PROJECT_NAME);
@@ -6521,6 +6563,7 @@ async fn test_instance_allow_only_one_ephemeral_ip(
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let error = object_create_error(
         client,
@@ -6655,6 +6698,7 @@ async fn test_instance_create_in_silo(cptestctx: &ControlPlaneTestContext) {
         start: true,
         auto_restart_policy: Default::default(),
         anti_affinity_groups: Vec::new(),
+        local_storage: Vec::new(),
     };
     let url_instances = format!("/v1/instances?project={}", PROJECT_NAME);
     NexusRequest::objects_post(client, &url_instances, &instance_params)

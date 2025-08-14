@@ -1006,6 +1006,7 @@ mod tests {
                 start: false,
                 auto_restart_policy: Default::default(),
                 anti_affinity_groups: Vec::new(),
+                local_storage: Vec::new(),
             });
 
             let conn = self

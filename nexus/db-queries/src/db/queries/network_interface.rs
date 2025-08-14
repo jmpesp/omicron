@@ -1896,6 +1896,7 @@ mod tests {
             start: true,
             auto_restart_policy: Default::default(),
             anti_affinity_groups: Vec::new(),
+            local_storage: Vec::new(),
         };
 
         let instance = Instance::new(instance_id, project_id, &params);
