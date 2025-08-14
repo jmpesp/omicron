@@ -721,14 +721,14 @@ fn main() -> Result<()> {
                                 String::from("switch0"),
                                 omicron_gateway::SpIdentifier {
                                     typ: omicron_gateway::SpType::Sled,
-                                    slot: config.sled_number,
+                                    slot: config.sled_number as u16,
                                 },
                             ),
                             (
                                 String::from("switch1"),
                                 omicron_gateway::SpIdentifier {
                                     typ: omicron_gateway::SpType::Sled,
-                                    slot: config.sled_number,
+                                    slot: config.sled_number as u16,
                                 },
                             ),
                         ].into_iter().collect(),

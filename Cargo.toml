@@ -817,7 +817,7 @@ update-common = { path = "update-common" }
 update-engine = { path = "update-engine" }
 url = "2.5.4"
 usdt = "0.5.0"
-uuid = { version = "1.17.0", features = ["serde", "v4"] }
+uuid = { version = "1.18.0", features = ["serde", "v4"] }
 uzers = "0.12"
 vergen-gitcl = { version = "1.0.8" }
 walkdir = "2.5"

@@ -3096,11 +3096,11 @@ impl ServiceManager {
                     }
 
                     // XXX for debugging, esp with mg-ddm-verify
-                    mgd_config.add_property(
+                    mgd_config = mgd_config.add_property(
                         "admin_host",
                         "astring",
                         "::",
-                    )?;
+                    );
 
                     mgd_service = mgd_service.add_instance(
                         ServiceInstanceBuilder::new("default")
@@ -3112,7 +3112,9 @@ impl ServiceManager {
 
                     let mut mg_ddm_config = PropertyGroupBuilder::new("config")
                         .add_property("mode", "astring", mode)
-                        .add_property("dendrite", "astring", "true");
+                        // JWM canada region: need illumos routes
+                        //.add_property("dendrite", "astring", "true")
+                        ;
 
                     if let Some(i) = info {
                         mg_ddm_config = mg_ddm_config
