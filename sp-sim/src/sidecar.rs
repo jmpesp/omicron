@@ -540,7 +540,7 @@ impl Handler {
             leaked_component_description_strings,
             serial_number,
             ignition,
-            power_state: PowerState::A0,
+            power_state: PowerState::A2,
             power_state_changes,
             update_state: SimSpUpdate::new(
                 BaseboardKind::Sidecar,
