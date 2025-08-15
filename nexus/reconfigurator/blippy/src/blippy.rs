@@ -353,9 +353,12 @@ impl fmt::Display for SledKind {
                     | DatasetKind::ExternalDns
                     | DatasetKind::InternalDns
                     | DatasetKind::TransientZone { .. } => "zone",
+
                     DatasetKind::TransientZoneRoot | DatasetKind::Debug => {
                         "disk"
                     }
+
+                    DatasetKind::LocalStorage => "local_storage", // XXX jwm
                 };
                 write!(
                     f,

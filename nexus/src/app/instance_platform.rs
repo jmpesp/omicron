@@ -573,11 +573,9 @@ impl super::Nexus {
             let pool = format!("oxp_{}", disk.pool_id);
             let dataset = disk.id();
 
-            // XXX jwm use nested dataset like oxp_UUID/crypt/local_storage/UUID ?
-            // need to add to U2_EXPECTED_DATASETS
-            // need to inherit encryption?
+            // XXX jwm need to inherit encryption?
             let path = format!(
-                "/dev/zvol/rdsk/{}/{}/vol",
+                "/dev/zvol/rdsk/{}/crypt/local_storage/{}/vol",
                 pool,
                 dataset,
             );

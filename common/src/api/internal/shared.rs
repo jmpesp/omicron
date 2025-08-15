@@ -943,6 +943,8 @@ pub enum DatasetKind {
 
     // Other datasets
     Debug,
+
+    LocalStorage,
 }
 
 impl Serialize for DatasetKind {
@@ -1004,6 +1006,7 @@ impl DatasetKind {
             Cockroach | Crucible | Clickhouse | ClickhouseKeeper
             | ClickhouseServer | ExternalDns | InternalDns => true,
             TransientZoneRoot | TransientZone { .. } | Debug => false,
+            LocalStorage => false,
         }
     }
 
@@ -1041,6 +1044,7 @@ impl fmt::Display for DatasetKind {
                 return Ok(());
             }
             Debug => "debug",
+            LocalStorage => "local_storage",
         };
         write!(f, "{}", s)
     }
@@ -1067,6 +1071,7 @@ impl FromStr for DatasetKind {
             "internal_dns" => InternalDns,
             "zone" => TransientZoneRoot,
             "debug" => Debug,
+            "local_storage" => LocalStorage,
             other => {
                 if let Some(name) = other.strip_prefix("zone/") {
                     TransientZone { name: name.to_string() }

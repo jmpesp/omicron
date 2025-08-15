@@ -600,7 +600,13 @@ impl DataStore {
                 configs: Vec<PossibleConfig>,
             }
 
-            let local_storage_configs = if !instance_local_storage_requests.is_empty() {
+            error!(
+                self.log,
+                "jwm instance_local_storage_requests is {:?}",
+                instance_local_storage_requests,
+            );
+
+            if !instance_local_storage_requests.is_empty() {
                 // if anyone can figure out how to do this with a CTE, you're my
                 // hero.
 
@@ -643,7 +649,8 @@ impl DataStore {
                         .collect();
 
                     if candidate_zpools.is_empty() {
-                        // there's no zpools on this sled for this request
+                        // there's no zpools on this sled for this request's
+                        // size
                         sled_targets.remove(&sled_target);
                         banned.remove(&sled_target);
                         unpreferred.remove(&sled_target);
@@ -715,15 +722,9 @@ impl DataStore {
                     // else, there are no candidates for this request
                 }
 
-                Some(possible_configs)
-            } else {
-                None
-            };
-
-            if let Some(local_storage_configs) = local_storage_configs {
                 // XXX jwm loop required here: multiple mappings might satisfy
                 // local storage requirement, but will apply for a single sled.
-                for local_storage_config in local_storage_configs {
+                for local_storage_config in possible_configs {
                     let ValidatedConfigSet { configs } = local_storage_config;
 
                     let rows_inserted =

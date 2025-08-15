@@ -617,7 +617,8 @@ CREATE TYPE IF NOT EXISTS omicron.public.dataset_kind AS ENUM (
   'zone_root',
   'zone',
   'debug',
-  'update'
+  'update',
+  'local_storage'
 );
 
 /*
@@ -6509,17 +6510,14 @@ CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset (
 );
 
 /* Create an index on the size usage for any Crucible dataset */
-CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_size_used ON
-    omicron.public.crucible_dataset (size_used)
+CREATE INDEX IF NOT EXISTS lookup_local_storage_dataset_by_size_used ON
+    omicron.public.local_storage_dataset (size_used)
   WHERE time_deleted IS NULL;
 
 /* Create an index on the zpool id */
-CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_zpool ON
-    omicron.public.crucible_dataset (pool_id, id)
+CREATE INDEX IF NOT EXISTS lookup_local_storage_dataset_by_zpool ON
+    omicron.public.local_storage_dataset (pool_id, id)
   WHERE time_deleted IS NULL;
-
-CREATE INDEX IF NOT EXISTS lookup_crucible_dataset_by_ip ON
-  omicron.public.crucible_dataset (ip);
 
 CREATE TABLE IF NOT EXISTS omicron.public.vmm_local_storage (
     id UUID PRIMARY KEY,

@@ -344,47 +344,51 @@ pub fn sled_insert_resource_query(
     );
 
     if let Some(local_storage_configs) = &maybe_local_storage_configs {
-        query.sql("NEW_VMM_LOCAL_STORAGE_RECORDS AS (");
-        query.sql("    INSERT INTO vmm_local_storage VALUES");
+        if !local_storage_configs.is_empty() {
+            query.sql("NEW_VMM_LOCAL_STORAGE_RECORDS AS (");
+            query.sql("    INSERT INTO vmm_local_storage VALUES");
 
-        for (index, local_storage_config) in local_storage_configs.iter().enumerate() {
-            let PossibleConfig { request, pool } = local_storage_config;
-            let LocalStorageRequest { slot, size, block_size } = request;
-            let request_size: i64 = (*size).into();
+            for (index, local_storage_config) in local_storage_configs.iter().enumerate() {
+                let PossibleConfig { request, pool } = local_storage_config;
+                let LocalStorageRequest { slot, size, block_size } = request;
+                let request_size: i64 = (*size).into();
 
-            query.sql("(");
-            query.sql("gen_random_uuid(), ");
+                query.sql("(");
+                query.sql("gen_random_uuid(), ");
 
-            query.param().bind::<sql_types::Uuid, _>(resource.id.into_untyped_uuid());
-            query.sql(", ");
+                query.param().bind::<sql_types::Uuid, _>(resource.id.into_untyped_uuid());
+                query.sql(", ");
 
-            query.param().bind::<sql_types::SmallInt, SqlU8>((*slot).into());
-            query.sql(", ");
+                query.param().bind::<sql_types::SmallInt, SqlU8>((*slot).into());
+                query.sql(", ");
 
-            query.param().bind::<sql_types::BigInt, _>(request_size);
-            query.sql(", ");
+                query.param().bind::<sql_types::BigInt, _>(request_size);
+                query.sql(", ");
 
-            query.param().bind::<sql_types::Integer, _>(*block_size as i32); // XXX integer type, or block size type
-            query.sql(", ");
+                query.param().bind::<sql_types::Integer, _>(*block_size as i32); // XXX integer type, or block size type
+                query.sql(", ");
 
-            query.param().bind::<sql_types::Uuid, _>(*pool);
+                query.param().bind::<sql_types::Uuid, _>(*pool);
 
-            query.sql(")");
+                query.sql(")");
 
-            if index != (local_storage_configs.len() - 1) {
-                query.sql(",");
+                if index != (local_storage_configs.len() - 1) {
+                    query.sql(",");
+                }
             }
+
+            query.sql(" RETURNING *");
+            query.sql("),");
+
+            query.sql("UPDATE_LOCAL_STORAGE_RECORDS as (");
+            query.sql("  UPDATE local_storage_dataset SET size_used = size_used + (");
+            query.sql("    SELECT sum(size_bytes)
+                           FROM NEW_VMM_LOCAL_STORAGE_RECORDS
+                           WHERE NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id = local_storage_dataset.pool_id)");
+            query.sql("),");
+        } else {
+            // XXX this is an error!
         }
-
-        query.sql(" RETURNING *");
-        query.sql("),");
-
-        query.sql("UPDATE_LOCAL_STORAGE_RECORDS as (");
-        query.sql("  UPDATE local_storage_dataset SET size_used = size_used + (");
-        query.sql("    SELECT sum(size_bytes)
-                       FROM NEW_VMM_LOCAL_STORAGE_RECORDS
-                       WHERE NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id = local_storage_dataset.pool_id)");
-        query.sql("),");
     }
 
     // The insert is only valid if:
