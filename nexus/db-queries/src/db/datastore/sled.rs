@@ -536,6 +536,7 @@ impl DataStore {
             }
         }
 
+        // XXX just use InstanceLocalStorageRequest type from db?
         let instance_local_storage_requests: Vec<LocalStorageRequest> =
             self.get_instance_local_storage_requests(
                 &opctx,
@@ -580,7 +581,7 @@ impl DataStore {
             // If local storage is required, match the requests with all the
             // zpools of a sled with available space.
 
-            #[derive(Clone)]
+            #[derive(Clone, Debug)]
             struct LocalStorageRequest2 {
                 pub slot: u8,
                 pub size: ByteCount,
@@ -588,14 +589,14 @@ impl DataStore {
                 pub candidate_zpools: HashSet<Uuid>,
             }
 
-            #[derive(Clone)]
+            #[derive(Clone, Debug)]
             struct PossibleConfigSet {
                 configs: Vec<PossibleConfig>,
                 zpools_left: HashSet<Uuid>, // XXX jwm all these typed
                 request_index: usize,
             }
 
-            #[derive(Clone)] // XXX required?
+            #[derive(Clone, Debug)] // XXX required?
             struct ValidatedConfigSet {
                 configs: Vec<PossibleConfig>,
             }
@@ -613,6 +614,12 @@ impl DataStore {
                 let zpools_for_sled: Vec<(Zpool, Option<i64>, Option<i64>, Option<i64>)> =
                     self.zpool_get_for_sled(&opctx, sled_target).await?;
 
+                error!(
+                    self.log,
+                    "jwm zpools_for_sled is {:?}",
+                    zpools_for_sled,
+                );
+
                 // filter out all optional fields
 
                 let zpools_for_sled: Vec<(Zpool, i64, i64, i64)> =
@@ -628,9 +635,21 @@ impl DataStore {
                         })
                         .collect();
 
+                error!(
+                    self.log,
+                    "jwm filtered zpools_for_sled is {:?}",
+                    zpools_for_sled,
+                );
+
                 let mut requests: Vec<LocalStorageRequest2> = vec![];
 
                 for request in &instance_local_storage_requests {
+                    error!(
+                        self.log,
+                        "jwm request is {:?}",
+                        request,
+                    );
+
                     let candidate_zpools: HashSet<Uuid> = zpools_for_sled
                         .iter()
                         .filter(|(zpool, crucible_usage, local_usage, total)| {
@@ -647,6 +666,14 @@ impl DataStore {
                         })
                         .map(|(zpool, ..)| zpool.id())
                         .collect();
+
+                    // XXX no_provision flag?
+
+                    error!(
+                        self.log,
+                        "jwm candidate_zpools for request is {:?}",
+                        candidate_zpools,
+                    );
 
                     if candidate_zpools.is_empty() {
                         // there's no zpools on this sled for this request's
@@ -722,10 +749,22 @@ impl DataStore {
                     // else, there are no candidates for this request
                 }
 
+                error!(
+                    self.log,
+                    "jwm possible_configs is {:?}",
+                    possible_configs,
+                );
+
                 // XXX jwm loop required here: multiple mappings might satisfy
                 // local storage requirement, but will apply for a single sled.
                 for local_storage_config in possible_configs {
                     let ValidatedConfigSet { configs } = local_storage_config;
+
+                    error!(
+                        self.log,
+                        "jwm trying configs {:?}",
+                        configs,
+                    );
 
                     let rows_inserted =
                         sled_insert_resource_query(&resource, Some(configs))
@@ -733,6 +772,11 @@ impl DataStore {
                             .await?;
 
                     if rows_inserted > 0 {
+                        error!(
+                            self.log,
+                            "jwm chose configs!",
+                        );
+
                         return Ok(resource);
                     }
                 }

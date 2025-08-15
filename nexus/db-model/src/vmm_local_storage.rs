@@ -4,14 +4,17 @@
 
 use super::BlockSize;
 use super::ByteCount;
+use super::Generation;
 use crate::typed_uuid::DbTypedUuid;
 use crate::unsigned::SqlU8;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use nexus_db_schema::schema::vmm_local_storage;
 use nexus_db_schema::schema::instance_local_storage;
 use nexus_db_schema::schema::local_storage_dataset;
 use omicron_uuid_kinds::ExternalZpoolKind;
 use omicron_uuid_kinds::ExternalZpoolUuid;
+use omicron_uuid_kinds::DatasetUuid;
 use std::convert::TryFrom;
 use uuid::Uuid;
 use db_macros::Asset;
@@ -87,28 +90,31 @@ impl VmmLocalStorage {
 }
 
 /// XXX
-#[derive(
-    Queryable,
-    Insertable,
-    Debug,
-    Clone,
-    Selectable,
-    Asset,
-    PartialEq,
-)]
+#[derive(Queryable, Insertable, Debug, Clone, Selectable, Asset, PartialEq)]
 #[diesel(table_name = local_storage_dataset)]
-//#[asset(uuid_kind = DatasetKind)]
+#[asset(uuid_kind = DatasetKind)]
 pub struct LocalStorageDataset {
     #[diesel(embed)]
     identity: LocalStorageDatasetIdentity, // required?
     time_deleted: Option<DateTime<Utc>>, // required?
-    //rcgen: Generation,
+    rcgen: Generation,
 
     pub pool_id: Uuid,
 
     pub size_used: i64,
 }
 
+impl LocalStorageDataset {
+    pub fn new(id: DatasetUuid, pool_id: Uuid) -> Self {
+        Self {
+            identity: LocalStorageDatasetIdentity::new(id),
+            time_deleted: None,
+            rcgen: Generation::new(),
+            pool_id,
+            size_used: 0,
+        }
+    }
+}
 
 /// XXX comment required
 #[derive(

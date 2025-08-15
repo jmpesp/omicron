@@ -16,6 +16,7 @@ use nexus_types::internal_api::background::BlueprintRendezvousStats;
 use nexus_types::inventory::Collection;
 
 mod crucible_dataset;
+mod local_storage_dataset;
 mod debug_dataset;
 
 pub async fn reconcile_blueprint_rendezvous_tables(
@@ -51,7 +52,22 @@ pub async fn reconcile_blueprint_rendezvous_tables(
     )
     .await?;
 
-    Ok(BlueprintRendezvousStats { debug_dataset, crucible_dataset })
+    let local_storage_dataset =
+        local_storage_dataset::record_new_local_storage_datasets(
+            opctx,
+            datastore,
+            blueprint
+                .all_omicron_datasets(BlueprintDatasetDisposition::any)
+                .map(|(_sled_id, dataset)| dataset),
+            &inventory_dataset_ids,
+        )
+        .await?;
+
+    Ok(BlueprintRendezvousStats {
+        debug_dataset,
+        crucible_dataset,
+        local_storage_dataset,
+    })
 }
 
 #[cfg(test)]

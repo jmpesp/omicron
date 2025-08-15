@@ -6493,7 +6493,7 @@ CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset (
     time_created TIMESTAMPTZ NOT NULL,
     time_modified TIMESTAMPTZ NOT NULL,
     time_deleted TIMESTAMPTZ,
-    /*rcgen INT NOT NULL,*/
+    rcgen INT NOT NULL,
 
     /* FK into the Pool table */
     pool_id UUID NOT NULL,

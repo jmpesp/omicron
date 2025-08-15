@@ -178,6 +178,8 @@ mod test {
             .execute_async(&*conn)
             .await
             .unwrap();
+
+        // XXX insert local storage dataset
     }
 
     async fn get_pools(

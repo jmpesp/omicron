@@ -2,13 +2,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{CrucibleDataset, Generation};
+use super::CrucibleDataset;
+use super::LocalStorageDataset;
+use super::Generation;
 use crate::ByteCount;
 use crate::collection::DatastoreCollectionConfig;
 use crate::typed_uuid::DbTypedUuid;
 use chrono::{DateTime, Utc};
 use db_macros::Asset;
-use nexus_db_schema::schema::{crucible_dataset, zpool};
+use nexus_db_schema::schema::crucible_dataset;
+use nexus_db_schema::schema::local_storage_dataset;
+use nexus_db_schema::schema::zpool;
 use omicron_uuid_kinds::PhysicalDiskKind;
 use omicron_uuid_kinds::PhysicalDiskUuid;
 use uuid::Uuid;
@@ -31,6 +35,7 @@ pub struct Zpool {
     // The physical disk to which this Zpool is attached.
     pub physical_disk_id: DbTypedUuid<PhysicalDiskKind>,
 
+    // XXX this comment needs changing
     /// Currently, a single dataset is created per pool, and this dataset (and
     /// children of it) is used for all persistent data, both customer data (in
     /// the form of Crucible regions) and non-customer data (zone root datasets,
@@ -77,4 +82,11 @@ impl DatastoreCollectionConfig<CrucibleDataset> for Zpool {
     type GenerationNumberColumn = zpool::dsl::rcgen;
     type CollectionTimeDeletedColumn = zpool::dsl::time_deleted;
     type CollectionIdColumn = crucible_dataset::dsl::pool_id;
+}
+
+impl DatastoreCollectionConfig<LocalStorageDataset> for Zpool {
+    type CollectionId = Uuid;
+    type GenerationNumberColumn = zpool::dsl::rcgen;
+    type CollectionTimeDeletedColumn = zpool::dsl::time_deleted;
+    type CollectionIdColumn = local_storage_dataset::dsl::pool_id;
 }

@@ -332,7 +332,7 @@ pub struct LocalStorageRequest {
     pub block_size: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PossibleConfig {
     pub request: LocalStorageRequest,
     pub pool: Uuid, // XXX jwm typed

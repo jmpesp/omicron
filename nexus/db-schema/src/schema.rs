@@ -2739,7 +2739,8 @@ table! {
         time_created -> Timestamptz,
         time_modified -> Timestamptz,
         time_deleted -> Nullable<Timestamptz>,
-        //rcgen -> Int8,
+        // XXX may not be required unless this has children
+        rcgen -> Int8,
 
         pool_id -> Uuid,
 

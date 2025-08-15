@@ -2,13 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Recording Crucible datasets in their rendezvous table
+//! Recording Local storage datasets in their rendezvous table
 
 use anyhow::Context;
 use anyhow::anyhow;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
-use nexus_db_queries::db::model::CrucibleDataset;
+use nexus_db_queries::db::model::LocalStorageDataset;
 use nexus_types::deployment::BlueprintDatasetConfig;
 use nexus_types::deployment::BlueprintDatasetDisposition;
 use nexus_types::identity::Asset;
@@ -20,7 +20,7 @@ use slog::info;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-pub(crate) async fn record_new_crucible_datasets(
+pub(crate) async fn record_new_local_storage_datasets(
     opctx: &OpContext,
     datastore: &DataStore,
     blueprint_datasets: impl Iterator<Item = &BlueprintDatasetConfig>,
@@ -37,7 +37,7 @@ pub(crate) async fn record_new_crucible_datasets(
     // necessary in the very common case of "we don't need to do anything at
     // all".
     let existing_datasets = datastore
-        .crucible_dataset_list_all_batched(opctx)
+        .local_storage_dataset_list_all_batched(opctx)
         .await
         .context("failed to list all datasets")?
         .into_iter()
@@ -47,22 +47,12 @@ pub(crate) async fn record_new_crucible_datasets(
     let mut stats = DatasetsRendezvousStats::default();
 
     for bp_dataset in blueprint_datasets {
-        // Filter down to Crucible datasets...
+        // Filter down to LocalStorage datasets...
         let dataset = match (&bp_dataset.kind, bp_dataset.address) {
-            (DatasetKind::Crucible, Some(addr)) => CrucibleDataset::new(
+            (DatasetKind::LocalStorage, None) => LocalStorageDataset::new(
                 bp_dataset.id,
                 bp_dataset.pool.id().into_untyped_uuid(),
-                addr,
             ),
-            (DatasetKind::Crucible, None) => {
-                // This should be impossible! Ideally we'd prevent it
-                // statically, but for now just fail at runtime.
-                return Err(anyhow!(
-                    "invalid blueprint dataset: \
-                     {} has kind Crucible but no address",
-                    bp_dataset.id
-                ));
-            }
             _ => continue,
         };
         let id = dataset.id();
@@ -86,7 +76,7 @@ pub(crate) async fn record_new_crucible_datasets(
         }
 
         let did_insert = datastore
-            .crucible_dataset_insert_if_not_exists(dataset)
+            .local_storage_dataset_insert_if_not_exists(dataset)
             .await
             .with_context(|| {
                 format!("failed to upsert dataset record for dataset {id}")
@@ -98,7 +88,7 @@ pub(crate) async fn record_new_crucible_datasets(
 
             info!(
                 opctx.log,
-                "ensuring Crucible dataset record in database";
+                "ensuring LocalStorage dataset record in database";
                 "action" => "insert",
                 "id" => %id,
             );
@@ -112,7 +102,7 @@ pub(crate) async fn record_new_crucible_datasets(
 
     info!(
         opctx.log,
-        "ensured all Crucible datasets present in inventory have database \
+        "ensured all LocalStorage datasets present in inventory have database \
          records";
         &stats,
     );
@@ -157,7 +147,7 @@ mod tests {
 
         // Clean up from any previous proptest cases
         {
-            use nexus_db_schema::schema::crucible_dataset::dsl as dataset_dsl;
+            use nexus_db_schema::schema::local_storage_dataset::dsl as dataset_dsl;
             use nexus_db_schema::schema::sled::dsl as sled_dsl;
             use nexus_db_schema::schema::zpool::dsl as zpool_dsl;
             let conn = datastore.pool_connection_for_tests().await.unwrap();
@@ -169,7 +159,7 @@ mod tests {
                     diesel::delete(zpool_dsl::zpool)
                         .execute_async(&conn)
                         .await?;
-                    diesel::delete(dataset_dsl::crucible_dataset)
+                    diesel::delete(dataset_dsl::local_storage_dataset)
                         .execute_async(&conn)
                         .await?;
                     Ok::<_, diesel::result::Error>(())
@@ -226,8 +216,8 @@ mod tests {
                 disposition: prep.disposition.into(),
                 id: dataset_id,
                 pool: ZpoolName::new_external(zpool_id),
-                kind: DatasetKind::Crucible,
-                address: Some("[::1]:0".parse().unwrap()),
+                kind: DatasetKind::LocalStorage,
+                address: None,
                 quota: None,
                 reservation: None,
                 compression: CompressionAlgorithm::Off,
@@ -239,11 +229,10 @@ mod tests {
 
             if prep.in_database {
                 datastore
-                    .crucible_dataset_insert_if_not_exists(
-                        CrucibleDataset::new(
+                    .local_storage_dataset_insert_if_not_exists(
+                        LocalStorageDataset::new(
                             d.id,
                             d.pool.id().into_untyped_uuid(),
-                            d.address.unwrap(),
                         ),
                     )
                     .await
@@ -287,7 +276,7 @@ mod tests {
                     &prep,
                 ).await;
 
-                let result_stats = record_new_crucible_datasets(
+                let result_stats = record_new_local_storage_datasets(
                     opctx,
                     datastore,
                     blueprint_datasets.iter(),
@@ -297,7 +286,7 @@ mod tests {
                 .expect("reconciled debug dataset");
 
                  let datastore_datasets = datastore
-                    .crucible_dataset_list_all_batched(opctx)
+                    .local_storage_dataset_list_all_batched(opctx)
                     .await
                     .unwrap()
                     .into_iter()
