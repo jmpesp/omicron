@@ -10,6 +10,7 @@ use nexus_db_queries::authn::{USER_TEST_PRIVILEGED, USER_TEST_UNPRIVILEGED};
 use nexus_db_queries::authz::{self};
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
+use nexus_db_queries::db::datastore::SiloUserJit;
 use nexus_db_queries::db::fixed_data::silo::DEFAULT_SILO;
 use nexus_db_queries::db::identity::Asset;
 use nexus_test_utils::http_testing::{AuthnMode, NexusRequest, RequestBuilder};
@@ -918,12 +919,15 @@ async fn test_silo_users_list(cptestctx: &ControlPlaneTestContext) {
         vec![
             views::User {
                 id: USER_TEST_PRIVILEGED.id(),
-                display_name: USER_TEST_PRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_PRIVILEGED.external_id.clone().unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
             views::User {
                 id: USER_TEST_UNPRIVILEGED.id(),
-                display_name: USER_TEST_UNPRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_UNPRIVILEGED
+                    .external_id
+                    .clone()
+                    .unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
         ]
@@ -957,12 +961,15 @@ async fn test_silo_users_list(cptestctx: &ControlPlaneTestContext) {
             },
             views::User {
                 id: USER_TEST_PRIVILEGED.id(),
-                display_name: USER_TEST_PRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_PRIVILEGED.external_id.clone().unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
             views::User {
                 id: USER_TEST_UNPRIVILEGED.id(),
-                display_name: USER_TEST_UNPRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_UNPRIVILEGED
+                    .external_id
+                    .clone()
+                    .unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
         ]
@@ -1724,9 +1731,9 @@ async fn create_jit_user(
     let authz_silo =
         authz::Silo::new(authz::FLEET, silo_id, LookupType::ById(silo_id));
     let silo_user =
-        db::model::SiloUser::new(silo_id, silo_user_id, external_id.to_owned());
+        SiloUserJit::new(silo_id, silo_user_id, external_id.to_owned());
     datastore
-        .silo_user_create(&authz_silo, silo_user)
+        .silo_user_create(&authz_silo, silo_user.into())
         .await
         .expect("failed to create user in SamlJit Silo")
         .1

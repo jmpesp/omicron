@@ -138,6 +138,9 @@ pub use region::RegionAllocationParameters;
 pub use region_snapshot_replacement::NewRegionVolumeId;
 pub use region_snapshot_replacement::OldSnapshotVolumeId;
 pub use silo::Discoverability;
+pub use silo_user::SiloUser;
+pub use silo_user::SiloUserApiOnly;
+pub use silo_user::SiloUserJit;
 pub use sled::SledTransition;
 pub use sled::TransitionError;
 pub use support_bundle::SupportBundleExpungementReport;
@@ -480,7 +483,7 @@ mod test {
     use crate::db::model::{
         BlockSize, ConsoleSession, CrucibleDataset, ExternalIp, PhysicalDisk,
         PhysicalDiskKind, PhysicalDiskPolicy, PhysicalDiskState, Project, Rack,
-        Region, SiloUser, SshKey, Zpool,
+        Region, SshKey, Zpool,
     };
     use crate::db::pub_test_utils::TestDatabase;
     use crate::db::pub_test_utils::helpers::SledUpdateBuilder;
@@ -618,11 +621,12 @@ mod test {
         datastore
             .silo_user_create(
                 &authz_silo,
-                SiloUser::new(
+                SiloUserApiOnly::new(
                     authz_silo.id(),
                     silo_user_id,
                     "external_id".into(),
-                ),
+                )
+                .into(),
             )
             .await
             .unwrap();
@@ -1757,11 +1761,12 @@ mod test {
         datastore
             .silo_user_create(
                 &authz_silo,
-                SiloUser::new(
+                SiloUserApiOnly::new(
                     authz_silo.id(),
                     silo_user_id,
                     "external@id".into(),
-                ),
+                )
+                .into(),
             )
             .await
             .unwrap();
