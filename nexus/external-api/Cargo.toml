@@ -21,3 +21,5 @@ openapiv3.workspace = true
 openapi-manager-types.workspace = true
 oximeter-types.workspace = true
 oxql-types.workspace = true
+scim2-rs.workspace = true
+
