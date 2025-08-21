@@ -17,10 +17,13 @@ use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
 use nexus_db_queries::db::datastore::Discoverability;
 use nexus_db_queries::db::datastore::DnsVersionUpdateBuilder;
+use nexus_db_queries::db::datastore::SiloGroup;
+use nexus_db_queries::db::datastore::SiloGroupApiOnly;
+use nexus_db_queries::db::datastore::SiloGroupJit;
 use nexus_db_queries::db::datastore::SiloUser;
 use nexus_db_queries::db::datastore::SiloUserApiOnly;
 use nexus_db_queries::db::datastore::SiloUserJit;
-use nexus_db_queries::db::identity::{Asset, Resource};
+use nexus_db_queries::db::identity::Resource;
 use nexus_db_queries::{authn, authz};
 use nexus_types::deployment::execution::blueprint_nexus_external_ips;
 use nexus_types::internal_api::params::DnsRecord;
@@ -569,12 +572,13 @@ impl super::Nexus {
             Vec::with_capacity(authenticated_subject.groups.len());
 
         for group in &authenticated_subject.groups {
-            let silo_group = match db_silo.user_provision_type {
+            let silo_group = match &db_silo.user_provision_type {
                 db::model::UserProvisionType::ApiOnly => {
                     self.db_datastore
                         .silo_group_optional_lookup(
                             opctx,
                             &authz_silo,
+                            db_silo.user_provision_type,
                             group.clone(),
                         )
                         .await?
@@ -585,6 +589,9 @@ impl super::Nexus {
                         .silo_group_lookup_or_create_by_name(
                             opctx,
                             &authz_silo,
+                            // XXX this seems wrong, there's also a match in
+                            // that function
+                            db_silo.user_provision_type.into(),
                             &group,
                         )
                         .await?;
@@ -791,11 +798,18 @@ impl super::Nexus {
         &self,
         opctx: &OpContext,
         authz_silo: &authz::Silo,
+        user_provision_type: shared::UserProvisionType,
         external_id: &String,
-    ) -> LookupResult<db::model::SiloGroup> {
+    ) -> LookupResult<SiloGroup> {
+        // XXX depends on use provision type?
         match self
             .db_datastore
-            .silo_group_optional_lookup(opctx, authz_silo, external_id.clone())
+            .silo_group_optional_lookup(
+                opctx,
+                authz_silo,
+                user_provision_type.clone().into(),
+                external_id.clone(),
+            )
             .await?
         {
             Some(silo_group) => Ok(silo_group),
@@ -805,11 +819,25 @@ impl super::Nexus {
                     .silo_group_ensure(
                         opctx,
                         authz_silo,
-                        db::model::SiloGroup::new(
-                            SiloGroupUuid::new_v4(),
-                            authz_silo.id(),
-                            external_id.clone(),
-                        ),
+                        match user_provision_type {
+                            shared::UserProvisionType::ApiOnly => {
+                                SiloGroupApiOnly::new(
+                                    authz_silo.id(),
+                                    SiloGroupUuid::new_v4(),
+                                    external_id.clone(),
+                                )
+                                .into()
+                            }
+
+                            shared::UserProvisionType::Jit => {
+                                SiloGroupJit::new(
+                                    authz_silo.id(),
+                                    SiloGroupUuid::new_v4(),
+                                    external_id.clone(),
+                                )
+                                .into()
+                            }
+                        },
                     )
                     .await
             }
@@ -1053,11 +1081,16 @@ impl super::Nexus {
             .await
     }
 
-    pub fn silo_group_lookup<'a>(
-        &'a self,
-        opctx: &'a OpContext,
-        group_id: &'a SiloGroupUuid,
-    ) -> lookup::SiloGroup<'a> {
-        LookupPath::new(opctx, &self.db_datastore).silo_group_id(*group_id)
+    pub async fn silo_group_lookup(
+        &self,
+        opctx: &OpContext,
+        group_id: &SiloGroupUuid,
+    ) -> LookupResult<SiloGroup> {
+        let (.., db_silo_group) = LookupPath::new(opctx, &self.db_datastore)
+            .silo_group_id(*group_id)
+            .fetch()
+            .await?;
+
+        Ok(db_silo_group.into())
     }
 }

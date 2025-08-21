@@ -87,9 +87,8 @@ impl From<model::SiloUser> for SiloUser {
                 time_modified: record.time_modified(),
                 time_deleted: record.time_deleted,
                 silo_id: record.silo_id,
-                // SAFETY: there is a database constraint that prevents a
-                // user with provision type 'api_only' from having a null
-                // external id
+                // SAFETY: there is a database constraint that prevents a user
+                // with provision type 'api_only' from having a null external id
                 external_id: record.external_id.unwrap(),
             }),
 
@@ -99,9 +98,8 @@ impl From<model::SiloUser> for SiloUser {
                 time_modified: record.time_modified(),
                 time_deleted: record.time_deleted,
                 silo_id: record.silo_id,
-                // SAFETY: there is a database constraint that prevents a
-                // user with provision type 'jit' from having a null
-                // external id
+                // SAFETY: there is a database constraint that prevents a user
+                // with provision type 'jit' from having a null external id
                 external_id: record.external_id.unwrap(),
             }),
         }

@@ -313,6 +313,7 @@ async fn test_silo_admin_group(cptestctx: &ControlPlaneTestContext) {
             .silo_group_optional_lookup(
                 &authn_opctx,
                 &authz_silo,
+                shared::UserProvisionType::Jit.into(),
                 "administrator".into(),
             )
             .await
@@ -1092,7 +1093,8 @@ async fn test_silo_groups_jit(cptestctx: &ControlPlaneTestContext) {
             .await
             .unwrap();
 
-        group_names.push(db_group.external_id);
+        // expact groups to have non-None external ids for JIT silos
+        group_names.push(db_group.external_id.unwrap());
     }
 
     assert!(group_names.contains(&"a-group".to_string()));
@@ -1221,7 +1223,8 @@ async fn test_silo_groups_remove_from_one_group(
             .await
             .unwrap();
 
-        group_names.push(db_group.external_id);
+        // expact groups to have non-None external ids for JIT silos
+        group_names.push(db_group.external_id.unwrap());
     }
 
     assert!(group_names.contains(&"a-group".to_string()));
@@ -1262,7 +1265,8 @@ async fn test_silo_groups_remove_from_one_group(
             .await
             .unwrap();
 
-        group_names.push(db_group.external_id);
+        // expact groups to have non-None external ids for JIT silos
+        group_names.push(db_group.external_id.unwrap());
     }
 
     assert!(group_names.contains(&"b-group".to_string()));
@@ -1332,7 +1336,8 @@ async fn test_silo_groups_remove_from_both_groups(
             .await
             .unwrap();
 
-        group_names.push(db_group.external_id);
+        // expact groups to have non-None external ids for JIT silos
+        group_names.push(db_group.external_id.unwrap());
     }
 
     assert!(group_names.contains(&"a-group".to_string()));
@@ -1373,7 +1378,8 @@ async fn test_silo_groups_remove_from_both_groups(
             .await
             .unwrap();
 
-        group_names.push(db_group.external_id);
+        // expact groups to have non-None external ids for JIT silos
+        group_names.push(db_group.external_id.unwrap());
     }
 
     assert!(group_names.contains(&"c-group".to_string()));
@@ -1434,6 +1440,7 @@ async fn test_silo_delete_clean_up_groups(cptestctx: &ControlPlaneTestContext) {
             .silo_group_optional_lookup(
                 &opctx_external_authn,
                 &authz_silo,
+                shared::UserProvisionType::Jit.into(),
                 "a-group".into(),
             )
             .await
@@ -1516,7 +1523,7 @@ async fn test_ensure_same_silo_group(cptestctx: &ControlPlaneTestContext) {
         .await
         .expect("silo_user_from_authenticated_subject 2");
 
-    // TODO-coverage were we intending to verify something here?
+    // TODO-coverage were we intending to verify something here? XXX
 }
 
 /// Tests the behavior of the per-Silo "list users" and "fetch user" endpoints.

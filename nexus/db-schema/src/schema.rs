@@ -761,9 +761,7 @@ table! {
         time_deleted -> Nullable<Timestamptz>,
 
         silo_id -> Uuid,
-
         external_id -> Nullable<Text>,
-
         user_provision_type -> crate::enums::UserProvisionTypeEnum,
     }
 }
@@ -784,7 +782,8 @@ table! {
         time_deleted -> Nullable<Timestamptz>,
 
         silo_id -> Uuid,
-        external_id -> Text,
+        external_id -> Nullable<Text>,
+        user_provision_type -> crate::enums::UserProvisionTypeEnum,
     }
 }
 
