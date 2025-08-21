@@ -11,6 +11,7 @@ use nexus_db_lookup::lookup;
 use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
+use nexus_db_queries::db::datastore::SiloGroup;
 use nexus_db_queries::db::datastore::SiloUser;
 use nexus_db_queries::db::model::Name;
 use nexus_types::external_api::params;
@@ -132,7 +133,7 @@ impl super::Nexus {
         &self,
         opctx: &OpContext,
         pagparams: &DataPageParams<'_, Uuid>,
-    ) -> ListResultVec<db::model::SiloGroup> {
+    ) -> ListResultVec<SiloGroup> {
         self.db_datastore.silo_groups_for_self(opctx, pagparams).await
     }
 
@@ -142,7 +143,7 @@ impl super::Nexus {
         &self,
         opctx: &OpContext,
         pagparams: &DataPageParams<'_, Uuid>,
-    ) -> ListResultVec<db::model::SiloGroup> {
+    ) -> ListResultVec<SiloGroup> {
         let authz_silo = opctx
             .authn
             .silo_required()

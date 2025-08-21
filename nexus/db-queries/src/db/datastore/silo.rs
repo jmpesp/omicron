@@ -192,15 +192,30 @@ impl DataStore {
         let silo_admin_group_ensure_query = if let Some(ref admin_group_name) =
             new_silo_params.admin_group_name
         {
+            let silo_admin_group =
+                match new_silo_params.identity_mode.user_provision_type() {
+                    shared::UserProvisionType::ApiOnly => {
+                        db::model::SiloGroup::new_api_only_group(
+                            silo_group_id,
+                            silo_id,
+                            admin_group_name.clone(),
+                        )
+                    }
+
+                    shared::UserProvisionType::Jit => {
+                        db::model::SiloGroup::new_jit_group(
+                            silo_group_id,
+                            silo_id,
+                            admin_group_name.clone(),
+                        )
+                    }
+                };
+
             let silo_admin_group_ensure_query =
                 DataStore::silo_group_ensure_query(
                     &nexus_opctx,
                     &authz_silo,
-                    db::model::SiloGroup::new(
-                        silo_group_id,
-                        silo_id,
-                        admin_group_name.clone(),
-                    ),
+                    silo_admin_group,
                 )
                 .await?;
 
