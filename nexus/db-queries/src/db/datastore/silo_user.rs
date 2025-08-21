@@ -246,6 +246,8 @@ pub enum SiloUserLookup<'a> {
     ApiOnly { external_id: &'a str },
 
     Jit { external_id: &'a str },
+
+    Scim { user_name: &'a str },
 }
 
 impl<'a> SiloUserLookup<'a> {
@@ -501,6 +503,85 @@ impl DataStore {
                 );
 
                 Ok(Some((authz_silo_user, db_silo_user.into())))
+            }
+
+            SiloUserLookup::Scim { user_name } => {
+                let maybe_db_silo_user = dsl::silo_user
+                    .filter(dsl::silo_id.eq(authz_silo.id()))
+                    .filter(dsl::user_provision_type.eq(lookup_user_provision_type))
+                    .filter(dsl::user_name.eq(user_name.to_string()))
+                    .filter(dsl::time_deleted.is_null())
+                    .select(model::SiloUser::as_select())
+                    .get_result_async::<model::SiloUser>(&*conn)
+                    .await
+                    .optional()
+                    .map_err(|e|
+                        public_error_from_diesel(e, ErrorHandler::Server)
+                    )?;
+
+                let Some(db_silo_user) = maybe_db_silo_user else {
+                    return Ok(None);
+                };
+
+                let authz_silo_user = authz::SiloUser::new(
+                    authz_silo.clone(),
+                    db_silo_user.id(),
+                    LookupType::ByName(external_id.to_string()),
+                );
+
+                Ok(Some((authz_silo_user, db_silo_user.into())))
+            }
+        }
+    }
+
+    /// Given an user name for a SCIM user, return
+    /// - Ok(Some((authz::SiloUser, SiloUser))) if that user name refers to an
+    ///   existing silo user provisioned using SCIM
+    /// - Ok(None) if it does not
+    /// - Err(...) if there was an error doing this lookup.
+    pub async fn silo_user_fetch_scim_by_user_name(
+        &self,
+        opctx: &OpContext,
+        authz_silo: &authz::Silo,
+        user_name: &str,
+    ) -> Result<Option<(authz::SiloUser, SiloScimUser)>, Error> {
+        opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
+
+        use nexus_db_schema::schema::silo_user::dsl;
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let maybe_user = dsl::silo_user
+            .filter(dsl::silo_id.eq(authz_silo.id()))
+            .filter(dsl::time_deleted.is_null())
+            .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
+            .filter(dsl::user_name.eq(user_name.to_string()))
+            .select(model::SiloUser::as_select())
+            .first_async::<model::SiloUser>(&*conn)
+            .await
+            .optional()
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        let Some(db_silo_user) = maybe_user else {
+            return Ok(None);
+        };
+
+        let authz_silo_user = authz::SiloUser::new(
+            authz_silo.clone(),
+            db_silo_user.id(),
+            LookupType::ByName(user_name.to_owned()),
+        );
+
+        let silo_user: SiloUser = db_silo_user.into();
+        match silo_user {
+            SiloUser::Scim(silo_scim_user) => {
+                Ok(Some((authz_silo_user, silo_scim_user)))
+            }
+
+            _ => {
+                // XXX should be impossible to reach here based on dsl filter
+                // above
+                unreachable!();
             }
         }
     }

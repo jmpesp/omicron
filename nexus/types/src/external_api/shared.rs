@@ -207,6 +207,11 @@ pub enum SiloIdentityMode {
     // NOTE: authentication for these users is not supported yet at all.  It
     // will eventually be password-based.
     LocalOnly,
+
+    /// Users are authenticated with SAML using an external authentication
+    /// provider. Users and groups are managed with SCIM API calls, likely from
+    /// the same authentication provider.
+    SamlScim,
 }
 
 impl SiloIdentityMode {
@@ -214,6 +219,7 @@ impl SiloIdentityMode {
         match self {
             SiloIdentityMode::LocalOnly => AuthenticationMode::Local,
             SiloIdentityMode::SamlJit => AuthenticationMode::Saml,
+            SiloIdentityMode::SamlScim => AuthenticationMode::Saml,
         }
     }
 
@@ -221,6 +227,7 @@ impl SiloIdentityMode {
         match self {
             SiloIdentityMode::LocalOnly => UserProvisionType::ApiOnly,
             SiloIdentityMode::SamlJit => UserProvisionType::Jit,
+            SiloIdentityMode::SamlScim => UserProvisionType::Scim,
         }
     }
 }
@@ -248,6 +255,9 @@ pub enum UserProvisionType {
     /// Users and groups are created or updated during authentication using
     /// information provided by the authentication provider
     Jit,
+
+    /// Users and groups are managed by SCIM
+    Scim,
 }
 
 /// The service intended to use this certificate.

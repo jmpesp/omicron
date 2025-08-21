@@ -56,6 +56,7 @@ impl super::Nexus {
         let silo = self.silo_lookup(opctx, NameOrId::Id(silo.id()))?;
         Ok(silo)
     }
+
     pub fn silo_lookup<'a>(
         &'a self,
         opctx: &'a OpContext,
@@ -255,6 +256,7 @@ impl super::Nexus {
         // separate permission
         let (.., authz_silo) =
             silo_lookup.lookup_for(authz::Action::Modify).await?;
+
         self.db_datastore
             .silo_auth_settings_update(
                 opctx,
@@ -435,6 +437,7 @@ impl super::Nexus {
         silo_lookup: &lookup::Silo<'_>,
     ) -> LookupResult<(authz::Silo, db::model::Silo)> {
         let (authz_silo, db_silo) = silo_lookup.fetch().await?;
+
         if db_silo.user_provision_type != UserProvisionType::ApiOnly {
             return Err(Error::not_found_by_name(
                 ResourceType::IdentityProvider,
@@ -442,6 +445,7 @@ impl super::Nexus {
                     .unwrap(),
             ));
         }
+
         Ok((authz_silo, db_silo))
     }
 
@@ -510,7 +514,16 @@ impl super::Nexus {
         self.db_datastore.silo_user_delete(opctx, &authz_silo_user).await
     }
 
-    /// Based on an authenticated subject, fetch or create a silo user
+    /// Based on an authenticated subject, return a SiloUser based on an
+    /// AuthenticatedSubject. If the silo's provision type is JIT:
+    ///
+    /// - create a SiloUser from the AuthenticatedSubject
+    /// - create SiloGroups from the groups in AuthenticatedSubject 
+    /// - create SiloGroupMemberships for the SiloUser and those SiloGroups
+    /// - if the SiloUser already existed, then update the group memberships
+    ///   based on what is in the authenticated subject.
+    ///
+    /// Note groups created in this way are never deleted
     pub async fn silo_user_from_authenticated_subject(
         &self,
         opctx: &OpContext,
@@ -529,14 +542,30 @@ impl super::Nexus {
                 &authz_silo,
                 &match db_silo.user_provision_type {
                     db::model::UserProvisionType::ApiOnly => {
-                        SiloUserLookup::ApiOnly {
+                        // XXX rename this function to indicate it's for SAML
+                        // logins?
+                        return Err(Error::invalid_request(
+                            format!("cannot use SAML to login to ApiOnly silos")
+                        ));
+                    }
+
+                    // For JIT, silo users are created based on the SAML
+                    // assertion's Subject, and this is recorded into silo
+                    // user's external id.
+                    db::model::UserProvisionType::Jit => {
+                        SiloUserLookup::Jit {
                             external_id: &authenticated_subject.external_id,
                         }
                     }
 
-                    db::model::UserProvisionType::Jit => {
-                        SiloUserLookup::Jit {
-                            external_id: &authenticated_subject.external_id,
+                    // For SCIM, silo users have additional attributes, one of
+                    // which is userName, which seems to be the default used for
+                    // SAML assertion Subjects (though this is probably
+                    // configurable on the IDP side). Lookup here based on user
+                    // name.
+                    db::model::UserProvisionType::Scim => {
+                        SiloUserLookup::Scim {
+                            user_name: &authenticated_subject.external_id,
                         }
                     }
                 },
@@ -544,20 +573,23 @@ impl super::Nexus {
             .await?;
 
         let (authz_silo_user, silo_user) =
-            if let Some(existing_silo_user) = fetch_result {
+            if let Some(existing_silo_user) = maybe_silo_user {
                 existing_silo_user
             } else {
                 // In this branch, no user exists for the authenticated subject
                 // external id. The next action depends on the silo's user
                 // provision type.
-                match db_silo.user_provision_type {
-                    // If the user provision type is ApiOnly, do not create a
-                    // new user if one does not exist.
-                    db::model::UserProvisionType::ApiOnly => {
+                match &db_silo.user_provision_type {
+                    // If the user provision type is ApiOnly or SCIM, do not
+                    // create a new user if one does not exist.
+                    db::model::UserProvisionType::ApiOnly
+                    | db::model::UserProvisionType::Scim => {
                         return Err(Error::Unauthenticated {
-                            internal_message: "User must exist before login \
-                            when user provision type is ApiOnly"
-                                .to_string(),
+                            internal_message: format!(
+                                "User must exist before login when user \
+                                provision type is {:?}",
+                                db_silo.user_provision_type,
+                            ),
                         });
                     }
 
@@ -586,7 +618,8 @@ impl super::Nexus {
 
         for group in &authenticated_subject.groups {
             let silo_group = match &db_silo.user_provision_type {
-                db::model::UserProvisionType::ApiOnly => {
+                db::model::UserProvisionType::ApiOnly
+                | db::model::UserProvisionType::Scim => {
                     self.db_datastore
                         .silo_group_optional_lookup(
                             opctx,
@@ -618,15 +651,22 @@ impl super::Nexus {
             }
         }
 
-        // Update the user's group memberships
+        // Update the user's group memberships depending on provision type
 
-        self.db_datastore
-            .silo_group_membership_replace_for_user(
-                opctx,
-                &authz_silo_user,
-                silo_user_group_ids,
-            )
-            .await?;
+        match db_silo.user_provision_type {
+            db::model::UserProvisionType::ApiOnly
+            | db::model::UserProvisionType::Scim => {}
+
+            db::model::UserProvisionType::Jit => {
+                self.db_datastore
+                    .silo_group_membership_replace_for_user(
+                        opctx,
+                        &authz_silo_user,
+                        silo_user_group_ids,
+                    )
+                    .await?;
+            }
+        }
 
         Ok(silo_user)
     }
@@ -916,10 +956,16 @@ impl super::Nexus {
         let (authz_silo, db_silo) = silo_lookup.fetch().await?;
         let authz_idp_list = authz::SiloIdentityProviderList::new(authz_silo);
 
-        if db_silo.user_provision_type != UserProvisionType::Jit {
-            return Err(Error::invalid_request(
-                "cannot create identity providers in this kind of Silo",
-            ));
+        match &db_silo.user_provision_type {
+            UserProvisionType::Jit | UserProvisionType::Scim => {
+                // ok
+            }
+
+            UserProvisionType::ApiOnly => {
+                return Err(Error::invalid_request(
+                    "cannot create identity providers in api-only silos",
+                ));
+            }
         }
 
         // This check is not strictly necessary yet.  We'll check this
@@ -1102,4 +1148,6 @@ impl super::Nexus {
 
         Ok(db_silo_group.into())
     }
+
+    // XXX silo_scim_client CRUD
 }

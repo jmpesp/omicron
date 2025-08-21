@@ -856,7 +856,8 @@ CREATE TYPE IF NOT EXISTS omicron.public.authentication_mode AS ENUM (
 
 CREATE TYPE IF NOT EXISTS omicron.public.user_provision_type AS ENUM (
   'api_only',
-  'jit'
+  'jit',
+  'scim'
 );
 
 CREATE TABLE IF NOT EXISTS omicron.public.silo (
@@ -902,6 +903,9 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_user (
 
     user_provision_type omicron.public.user_provision_type,
 
+    user_name TEXT,
+    active BOOL,
+
     CONSTRAINT user_provision_type_required_for_non_deleted CHECK (
       (user_provision_type IS NOT NULL AND time_deleted IS NULL)
       OR (time_deleted IS NOT NULL)
@@ -912,6 +916,12 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_user (
           WHEN 'api_only' THEN external_id IS NOT NULL
           WHEN 'jit' THEN external_id IS NOT NULL
         END
+    ),
+
+    CONSTRAINT user_name_consistency CHECK (
+        CASE user_provision_type
+          WHEN 'scim' THEN user_name IS NOT NULL
+        END
     )
 );
 
@@ -919,12 +929,19 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_user (
    multiple users from having the same external id (for certain provision
    types). */
 CREATE UNIQUE INDEX IF NOT EXISTS
- lookup_silo_user_by_silo
+ lookup_silo_user_by_silo_and_external_id
 ON
  omicron.public.silo_user (silo_id, external_id)
 WHERE
  time_deleted IS NULL AND
  (user_provision_type = 'api_only' OR user_provision_type = 'jit');
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+ lookup_silo_user_by_silo_and_user_name
+ON
+ omicron.public.silo_user (silo_id, user_name)
+WHERE
+ time_deleted IS NULL AND user_provision_type = 'scim';
 
 CREATE TABLE IF NOT EXISTS omicron.public.silo_user_password_hash (
     silo_user_id UUID NOT NULL,
@@ -952,6 +969,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_group (
 
     user_provision_type omicron.public.user_provision_type,
 
+    display_name TEXT,
+
     CONSTRAINT user_provision_type_required_for_non_deleted CHECK (
       (user_provision_type IS NOT NULL AND time_deleted IS NULL)
       OR (time_deleted IS NOT NULL)
@@ -961,6 +980,12 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_group (
         CASE user_provision_type
           WHEN 'api_only' THEN external_id IS NOT NULL
           WHEN 'jit' THEN external_id IS NOT NULL
+        END
+    ),
+
+    CONSTRAINT display_name_consistency CHECK (
+        CASE user_provision_type
+          WHEN 'scim' THEN display_name IS NOT NULL
         END
     )
 );
@@ -6592,7 +6617,7 @@ INSERT INTO omicron.public.db_metadata (
     version,
     target_version
 ) VALUES
-    (TRUE, NOW(), NOW(), '183.0.0', NULL)
+    (TRUE, NOW(), NOW(), '184.0.0', NULL)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

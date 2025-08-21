@@ -783,6 +783,21 @@ async fn test_silo_user_provision_types(cptestctx: &ControlPlaneTestContext) {
             existing_silo_user: false,
             expect_user: true,
         },
+        // A silo configured with a "SCIM" user provision type should not do any
+        // user management at all.
+        TestSiloUserProvisionTypes {
+            identity_mode: shared::SiloIdentityMode::SamlScim,
+            existing_silo_user: false,
+            expect_user: false,
+        },
+        /*
+        // XXX
+        TestSiloUserProvisionTypes {
+            identity_mode: shared::SiloIdentityMode::SamlScim,
+            existing_silo_user: true,
+            expect_user: true,
+        },
+        */
     ];
 
     for test_case in test_cases {
@@ -803,6 +818,9 @@ async fn test_silo_user_provision_types(cptestctx: &ControlPlaneTestContext) {
                         test_params::UserPassword::LoginDisallowed,
                     )
                     .await;
+                }
+                shared::SiloIdentityMode::SamlScim => {
+                    // XXX create scim user using different auth header!
                 }
             };
         }
