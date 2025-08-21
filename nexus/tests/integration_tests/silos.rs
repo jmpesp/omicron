@@ -10,6 +10,7 @@ use nexus_db_queries::authn::{USER_TEST_PRIVILEGED, USER_TEST_UNPRIVILEGED};
 use nexus_db_queries::authz::{self};
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
+use nexus_db_queries::db::datastore::SiloUserJit;
 use nexus_db_queries::db::fixed_data::silo::DEFAULT_SILO;
 use nexus_db_queries::db::identity::Asset;
 use nexus_test_utils::http_testing::{AuthnMode, NexusRequest, RequestBuilder};
@@ -32,6 +33,7 @@ use omicron_common::api::external::{
 use omicron_common::api::external::{ObjectIdentity, UserId};
 use omicron_test_utils::certificates::CertificateChain;
 use omicron_test_utils::dev::poll::{CondCheckError, wait_for_condition};
+use omicron_uuid_kinds::SiloUserUuid;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write;
@@ -47,7 +49,6 @@ use nexus_types::external_api::shared::{FleetRole, SiloRole};
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::time::Duration;
-use uuid::Uuid;
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
@@ -918,12 +919,15 @@ async fn test_silo_users_list(cptestctx: &ControlPlaneTestContext) {
         vec![
             views::User {
                 id: USER_TEST_PRIVILEGED.id(),
-                display_name: USER_TEST_PRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_PRIVILEGED.external_id.clone().unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
             views::User {
                 id: USER_TEST_UNPRIVILEGED.id(),
-                display_name: USER_TEST_UNPRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_UNPRIVILEGED
+                    .external_id
+                    .clone()
+                    .unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
         ]
@@ -957,12 +961,15 @@ async fn test_silo_users_list(cptestctx: &ControlPlaneTestContext) {
             },
             views::User {
                 id: USER_TEST_PRIVILEGED.id(),
-                display_name: USER_TEST_PRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_PRIVILEGED.external_id.clone().unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
             views::User {
                 id: USER_TEST_UNPRIVILEGED.id(),
-                display_name: USER_TEST_UNPRIVILEGED.external_id.clone(),
+                display_name: USER_TEST_UNPRIVILEGED
+                    .external_id
+                    .clone()
+                    .unwrap(),
                 silo_id: DEFAULT_SILO_ID,
             },
         ]
@@ -1080,7 +1087,7 @@ async fn test_silo_groups_jit(cptestctx: &ControlPlaneTestContext) {
 
     for group_membership in &group_memberships {
         let (.., db_group) = LookupPath::new(&authn_opctx, nexus.datastore())
-            .silo_group_id(group_membership.silo_group_id)
+            .silo_group_id(group_membership.silo_group_id.into())
             .fetch()
             .await
             .unwrap();
@@ -1209,7 +1216,7 @@ async fn test_silo_groups_remove_from_one_group(
 
     for group_membership in &group_memberships {
         let (.., db_group) = LookupPath::new(&authn_opctx, nexus.datastore())
-            .silo_group_id(group_membership.silo_group_id)
+            .silo_group_id(group_membership.silo_group_id.into())
             .fetch()
             .await
             .unwrap();
@@ -1250,7 +1257,7 @@ async fn test_silo_groups_remove_from_one_group(
 
     for group_membership in &group_memberships {
         let (.., db_group) = LookupPath::new(&authn_opctx, nexus.datastore())
-            .silo_group_id(group_membership.silo_group_id)
+            .silo_group_id(group_membership.silo_group_id.into())
             .fetch()
             .await
             .unwrap();
@@ -1320,7 +1327,7 @@ async fn test_silo_groups_remove_from_both_groups(
 
     for group_membership in &group_memberships {
         let (.., db_group) = LookupPath::new(&authn_opctx, nexus.datastore())
-            .silo_group_id(group_membership.silo_group_id)
+            .silo_group_id(group_membership.silo_group_id.into())
             .fetch()
             .await
             .unwrap();
@@ -1361,7 +1368,7 @@ async fn test_silo_groups_remove_from_both_groups(
 
     for group_membership in &group_memberships {
         let (.., db_group) = LookupPath::new(&authn_opctx, nexus.datastore())
-            .silo_group_id(group_membership.silo_group_id)
+            .silo_group_id(group_membership.silo_group_id.into())
             .fetch()
             .await
             .unwrap();
@@ -1562,7 +1569,8 @@ async fn test_silo_user_views(cptestctx: &ControlPlaneTestContext) {
     silo2_expected_users.sort_by_key(|u| u.id);
 
     let users_by_id = {
-        let mut users_by_id: BTreeMap<Uuid, &views::User> = BTreeMap::new();
+        let mut users_by_id: BTreeMap<SiloUserUuid, &views::User> =
+            BTreeMap::new();
         assert_eq!(users_by_id.insert(silo1_user1_id, &silo1_user1), None);
         assert_eq!(users_by_id.insert(silo1_user2_id, &silo1_user2), None);
         assert_eq!(users_by_id.insert(silo2_user1_id, &silo2_user1), None);
@@ -1719,13 +1727,13 @@ async fn create_jit_user(
 ) -> views::User {
     assert_eq!(silo.identity_mode, shared::SiloIdentityMode::SamlJit);
     let silo_id = silo.identity.id;
-    let silo_user_id = Uuid::new_v4();
+    let silo_user_id = SiloUserUuid::new_v4();
     let authz_silo =
         authz::Silo::new(authz::FLEET, silo_id, LookupType::ById(silo_id));
     let silo_user =
-        db::model::SiloUser::new(silo_id, silo_user_id, external_id.to_owned());
+        SiloUserJit::new(silo_id, silo_user_id, external_id.to_owned());
     datastore
-        .silo_user_create(&authz_silo, silo_user)
+        .silo_user_create(&authz_silo, silo_user.into())
         .await
         .expect("failed to create user in SamlJit Silo")
         .1

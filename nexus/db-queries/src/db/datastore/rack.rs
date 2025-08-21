@@ -17,6 +17,7 @@ use crate::db::model::CrucibleDataset;
 use crate::db::model::IncompleteExternalIp;
 use crate::db::model::PhysicalDisk;
 use crate::db::model::Rack;
+use crate::db::model::UserProvisionType;
 use crate::db::model::Zpool;
 use crate::db::pagination::paginated;
 use async_bb8_diesel::AsyncRunQueryDsl;
@@ -51,7 +52,6 @@ use nexus_types::deployment::OmicronZoneExternalIp;
 use nexus_types::deployment::blueprint_zone_type;
 use nexus_types::external_api::params as external_params;
 use nexus_types::external_api::shared;
-use nexus_types::external_api::shared::IdentityType;
 use nexus_types::external_api::shared::IpRange;
 use nexus_types::external_api::shared::SiloRole;
 use nexus_types::identity::Resource;
@@ -67,6 +67,7 @@ use omicron_common::api::external::UpdateResult;
 use omicron_common::api::external::UserId;
 use omicron_common::bail_unless;
 use omicron_uuid_kinds::GenericUuid;
+use omicron_uuid_kinds::SiloUserUuid;
 use omicron_uuid_kinds::SledUuid;
 use slog_error_chain::InlineErrorChain;
 use std::sync::{Arc, OnceLock};
@@ -432,6 +433,18 @@ impl DataStore {
         recovery_user_password_hash: omicron_passwords::PasswordHashString,
         dns_update: DnsVersionUpdateBuilder,
     ) -> Result<(), RackInitError> {
+        match &recovery_silo.identity_mode {
+            shared::SiloIdentityMode::LocalOnly => {
+                // Ok
+            }
+
+            shared::SiloIdentityMode::SamlJit => {
+                return Err(RackInitError::Silo(Error::invalid_request(
+                    "recovery silo should only use identity mode LocalOnly",
+                )));
+            }
+        }
+
         let db_silo = self
             .silo_create_conn(
                 conn,
@@ -449,12 +462,20 @@ impl DataStore {
         info!(log, "Created recovery silo");
 
         // Create the first user in the initial Recovery Silo
-        let silo_user_id = Uuid::new_v4();
-        let silo_user = SiloUser::new(
-            db_silo.id(),
-            silo_user_id,
-            recovery_user_id.as_ref().to_owned(),
-        );
+        let silo_user_id = SiloUserUuid::new_v4();
+
+        let silo_user = match &db_silo.user_provision_type {
+            UserProvisionType::ApiOnly => SiloUser::new_api_only_user(
+                db_silo.id(),
+                silo_user_id,
+                recovery_user_id.as_ref().to_owned(),
+            ),
+
+            UserProvisionType::Jit => {
+                unreachable!("match at start of function should prevent this");
+            }
+        };
+
         {
             use nexus_db_schema::schema::silo_user::dsl;
             diesel::insert_into(dsl::silo_user)
@@ -492,11 +513,10 @@ impl DataStore {
         let (q1, q2) = Self::role_assignment_replace_visible_queries(
             opctx,
             &authz_silo,
-            &[shared::RoleAssignment {
-                identity_type: IdentityType::SiloUser,
-                identity_id: silo_user_id,
-                role_name: SiloRole::Admin,
-            }],
+            &[shared::RoleAssignment::for_silo_user(
+                silo_user_id,
+                SiloRole::Admin,
+            )],
         )
         .await
         .map_err(RackInitError::RoleAssignment)?;
@@ -1206,13 +1226,13 @@ mod test {
             .expect("failed to list users");
         assert_eq!(silo_users.len(), 1);
         assert_eq!(
-            silo_users[0].external_id,
+            silo_users[0].external_id(),
             rack_init.recovery_user_id.as_ref()
         );
         let authz_silo_user = authz::SiloUser::new(
             authz_silo,
             silo_users[0].id(),
-            LookupType::ById(silo_users[0].id()),
+            LookupType::by_id(silo_users[0].id()),
         );
         let hash = datastore
             .silo_user_password_hash_fetch(&opctx, &authz_silo_user)

@@ -3228,8 +3228,7 @@
             "description": "ID of the group",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloGroupKind"
             }
           }
         ],
@@ -8068,8 +8067,7 @@
             "description": "The user's internal ID",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           },
           {
@@ -8110,8 +8108,7 @@
             "description": "The user's internal ID",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           },
           {
@@ -11489,8 +11486,7 @@
             "description": "The user's internal ID",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           },
           {
@@ -11777,9 +11773,7 @@
             "in": "query",
             "name": "group",
             "schema": {
-              "nullable": true,
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloGroupKind"
             }
           },
           {
@@ -11847,8 +11841,7 @@
             "description": "ID of the user",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           }
         ],
@@ -11886,8 +11879,7 @@
             "description": "ID of the user",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           },
           {
@@ -11956,8 +11948,7 @@
             "description": "ID of the user",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           }
         ],
@@ -11988,8 +11979,7 @@
             "description": "ID of the user",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
             }
           },
           {
@@ -14889,8 +14879,7 @@
                 ]
               },
               "user_builtin_id": {
-                "type": "string",
-                "format": "uuid"
+                "$ref": "#/components/schemas/TypedUuidForBuiltInUserKind"
               }
             },
             "required": [
@@ -14912,8 +14901,7 @@
                 "format": "uuid"
               },
               "silo_user_id": {
-                "type": "string",
-                "format": "uuid"
+                "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
               }
             },
             "required": [
@@ -17007,8 +16995,7 @@
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
+            "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
           },
           "silo_id": {
             "description": "Uuid of the silo to which this user belongs",
@@ -19072,8 +19059,7 @@
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
+            "$ref": "#/components/schemas/TypedUuidForSiloGroupKind"
           },
           "silo_id": {
             "description": "Uuid of the silo to which this group belongs",
@@ -24713,8 +24699,11 @@
           },
           "silo_user_id": {
             "description": "The user to whom this key belongs",
-            "type": "string",
-            "format": "uuid"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
+              }
+            ]
           },
           "time_created": {
             "description": "timestamp when this resource was created",
@@ -26206,7 +26195,19 @@
         "type": "string",
         "format": "uuid"
       },
+      "TypedUuidForBuiltInUserKind": {
+        "type": "string",
+        "format": "uuid"
+      },
       "TypedUuidForInstanceKind": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "TypedUuidForSiloGroupKind": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "TypedUuidForSiloUserKind": {
         "type": "string",
         "format": "uuid"
       },
@@ -26360,8 +26361,7 @@
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
+            "$ref": "#/components/schemas/TypedUuidForSiloUserKind"
           },
           "silo_id": {
             "description": "Uuid of the silo to which this user belongs",

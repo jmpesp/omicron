@@ -138,6 +138,9 @@ pub use region::RegionAllocationParameters;
 pub use region_snapshot_replacement::NewRegionVolumeId;
 pub use region_snapshot_replacement::OldSnapshotVolumeId;
 pub use silo::Discoverability;
+pub use silo_user::SiloUser;
+pub use silo_user::SiloUserApiOnly;
+pub use silo_user::SiloUserJit;
 pub use sled::SledTransition;
 pub use sled::TransitionError;
 pub use support_bundle::SupportBundleExpungementReport;
@@ -480,7 +483,7 @@ mod test {
     use crate::db::model::{
         BlockSize, ConsoleSession, CrucibleDataset, ExternalIp, PhysicalDisk,
         PhysicalDiskKind, PhysicalDiskPolicy, PhysicalDiskState, Project, Rack,
-        Region, SiloUser, SshKey, Zpool,
+        Region, SshKey, Zpool,
     };
     use crate::db::pub_test_utils::TestDatabase;
     use crate::db::pub_test_utils::helpers::SledUpdateBuilder;
@@ -502,12 +505,13 @@ mod test {
         ByteCount, Error, IdentityMetadataCreateParams, LookupType, Name,
     };
     use omicron_test_utils::dev;
+    use omicron_uuid_kinds::CollectionUuid;
     use omicron_uuid_kinds::DatasetUuid;
     use omicron_uuid_kinds::GenericUuid;
     use omicron_uuid_kinds::PhysicalDiskUuid;
+    use omicron_uuid_kinds::SiloUserUuid;
     use omicron_uuid_kinds::SledUuid;
     use omicron_uuid_kinds::VolumeUuid;
-    use omicron_uuid_kinds::{CollectionUuid, TypedUuid};
     use std::collections::HashMap;
     use std::collections::HashSet;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddrV6};
@@ -592,15 +596,16 @@ mod test {
         );
 
         let token = "a_token".to_string();
-        let silo_user_id = Uuid::new_v4();
+        let silo_user_id = SiloUserUuid::new_v4();
 
-        let session = ConsoleSession {
-            id: TypedUuid::new_v4().into(),
-            token: token.clone(),
-            time_created: Utc::now() - Duration::minutes(5),
-            time_last_used: Utc::now() - Duration::minutes(5),
+        let both_times = Utc::now() - Duration::minutes(5);
+
+        let session = ConsoleSession::new_with_times(
+            token.clone(),
             silo_user_id,
-        };
+            both_times,
+            both_times,
+        );
 
         let _ = datastore
             .session_create(&authn_opctx, session.clone())
@@ -616,17 +621,18 @@ mod test {
         datastore
             .silo_user_create(
                 &authz_silo,
-                SiloUser::new(
+                SiloUserApiOnly::new(
                     authz_silo.id(),
                     silo_user_id,
                     "external_id".into(),
-                ),
+                )
+                .into(),
             )
             .await
             .unwrap();
 
         let (.., db_silo_user) = LookupPath::new(&opctx, datastore)
-            .silo_user_id(session.silo_user_id)
+            .silo_user_id(session.silo_user_id())
             .fetch()
             .await
             .unwrap();
@@ -637,7 +643,7 @@ mod test {
             .session_lookup_by_token(&authn_opctx, token.clone())
             .await
             .unwrap();
-        assert_eq!(session.silo_user_id, fetched.silo_user_id);
+        assert_eq!(session.silo_user_id(), fetched.silo_user_id());
         assert_eq!(session.id, fetched.id);
 
         // also try looking it up by ID
@@ -646,7 +652,7 @@ mod test {
             .fetch()
             .await
             .unwrap();
-        assert_eq!(session.silo_user_id, fetched.silo_user_id);
+        assert_eq!(session.silo_user_id(), fetched.silo_user_id());
         assert_eq!(session.token, fetched.token);
 
         // trying to insert the same one again fails
@@ -1751,15 +1757,16 @@ mod test {
             DEFAULT_SILO_ID,
             LookupType::ById(DEFAULT_SILO_ID),
         );
-        let silo_user_id = Uuid::new_v4();
+        let silo_user_id = SiloUserUuid::new_v4();
         datastore
             .silo_user_create(
                 &authz_silo,
-                SiloUser::new(
+                SiloUserApiOnly::new(
                     authz_silo.id(),
                     silo_user_id,
                     "external@id".into(),
-                ),
+                )
+                .into(),
             )
             .await
             .unwrap();
@@ -1788,7 +1795,7 @@ mod test {
             .ssh_key_create(&opctx, &authz_user, ssh_key.clone())
             .await
             .unwrap();
-        assert_eq!(created.silo_user_id, ssh_key.silo_user_id);
+        assert_eq!(created.silo_user_id(), ssh_key.silo_user_id());
         assert_eq!(created.public_key, ssh_key.public_key);
 
         // Lookup the key we just created.
@@ -1801,7 +1808,7 @@ mod test {
                 .unwrap();
         assert_eq!(authz_silo.id(), DEFAULT_SILO_ID);
         assert_eq!(authz_silo_user.id(), silo_user_id);
-        assert_eq!(found.silo_user_id, ssh_key.silo_user_id);
+        assert_eq!(found.silo_user_id(), ssh_key.silo_user_id());
         assert_eq!(found.public_key, ssh_key.public_key);
 
         // Trying to insert the same one again fails.
