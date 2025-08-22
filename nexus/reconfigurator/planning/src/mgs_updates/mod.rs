@@ -420,6 +420,7 @@ fn try_make_update_sp(
                     | KnownArtifactKind::PscRotBootloader
                     | KnownArtifactKind::SwitchRotBootloader,
                 ) => false,
+                Some(KnownArtifactKind::InstallinatorDocument) => todo!(),
             }
         })
         .collect();

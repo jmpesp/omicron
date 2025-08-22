@@ -139,6 +139,7 @@ pub(crate) async fn build_tuf_repo(
         manifest,
         keys,
         expiry,
+        false, // XXX
         output_dir.join("repo.zip"),
     )
     .build()

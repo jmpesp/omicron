@@ -262,6 +262,7 @@ impl<'a> UpdatePlanBuilder<'a> {
                 self.add_unknown_artifact(artifact_id, artifact_hash, stream)
                     .await
             }
+            KnownArtifactKind::InstallinatorDocument => todo!(),
         }
     }
 
@@ -287,6 +288,7 @@ impl<'a> UpdatePlanBuilder<'a> {
             | KnownArtifactKind::GimletRotBootloader
             | KnownArtifactKind::PscRotBootloader
             | KnownArtifactKind::SwitchRotBootloader => unreachable!(),
+            KnownArtifactKind::InstallinatorDocument => todo!(),
         };
 
         let mut stream = std::pin::pin!(stream);
@@ -380,6 +382,7 @@ impl<'a> UpdatePlanBuilder<'a> {
             | KnownArtifactKind::GimletSp
             | KnownArtifactKind::PscSp
             | KnownArtifactKind::SwitchSp => unreachable!(),
+            KnownArtifactKind::InstallinatorDocument => todo!(),
         };
 
         let mut stream = std::pin::pin!(stream);
@@ -475,6 +478,7 @@ impl<'a> UpdatePlanBuilder<'a> {
             | KnownArtifactKind::GimletRotBootloader
             | KnownArtifactKind::SwitchRotBootloader
             | KnownArtifactKind::PscRotBootloader => unreachable!(),
+            KnownArtifactKind::InstallinatorDocument => todo!(),
         };
 
         let (rot_a_data, rot_b_data) = Self::extract_nested_artifact_pair(
@@ -2076,6 +2080,8 @@ mod tests {
                 | KnownArtifactKind::SwitchRotBootloader
                 | KnownArtifactKind::GimletRotBootloader
                 | KnownArtifactKind::PscRotBootloader => {}
+
+                KnownArtifactKind::InstallinatorDocument => todo!(),
             }
         }
 
