@@ -6540,6 +6540,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.vmm_local_storage (
 
 CREATE INDEX IF NOT EXISTS lookup_local_storage_by_vmm
     ON omicron.public.vmm_local_storage (vmm_id);
+CREATE INDEX IF NOT EXISTS lookup_local_storage_by_pool
+    ON omicron.public.vmm_local_storage (pool_id);
 
 CREATE TABLE IF NOT EXISTS omicron.public.instance_local_storage (
     id UUID PRIMARY KEY,
