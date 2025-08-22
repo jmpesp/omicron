@@ -101,16 +101,14 @@ WITH
       UPDATE
         local_storage_dataset
       SET
-        size_used
-          = size_used
-          + (
-              SELECT
-                sum(size_bytes)
-              FROM
-                new_vmm_local_storage_records
-              WHERE
-                new_vmm_local_storage_records.pool_id = local_storage_dataset.pool_id
-            )
+        size_used = size_used + new_vmm_local_storage_records.size_bytes
+      FROM
+        new_vmm_local_storage_records
+      WHERE
+        new_vmm_local_storage_records.pool_id = local_storage_dataset.pool_id
+        AND local_storage_dataset.time_deleted IS NULL
+      RETURNING
+        *
     ),
   insert_valid
     AS (
@@ -129,7 +127,7 @@ WITH
                 sum(
                   crucible_dataset.size_used
                   + local_storage_dataset.size_used
-                  + new_vmm_local_storage_records.size_used
+                  + new_vmm_local_storage_records.size_bytes
                 )
               FROM
                 crucible_dataset
@@ -141,7 +139,6 @@ WITH
                 (crucible_dataset.size_used IS NOT NULL)
                 AND (crucible_dataset.time_deleted IS NULL)
                 AND (local_storage_dataset.time_deleted IS NULL)
-                AND (new_vmm_local_storage_records.time_deleted IS NULL)
                 AND crucible_dataset.pool_id = $21
               GROUP BY
                 crucible_dataset.pool_id
@@ -179,7 +176,7 @@ WITH
                   sum(
                     crucible_dataset.size_used
                     + local_storage_dataset.size_used
-                    + new_vmm_local_storage_records.size_used
+                    + new_vmm_local_storage_records.size_bytes
                   )
                 FROM
                   crucible_dataset
@@ -191,7 +188,6 @@ WITH
                   (crucible_dataset.size_used IS NOT NULL)
                   AND (crucible_dataset.time_deleted IS NULL)
                   AND (local_storage_dataset.time_deleted IS NULL)
-                  AND (new_vmm_local_storage_records.time_deleted IS NULL)
                   AND crucible_dataset.pool_id = $25
                 GROUP BY
                   crucible_dataset.pool_id

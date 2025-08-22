@@ -4,6 +4,8 @@
 
 //! Implementation of queries for affinity groups
 
+use crate::db::model::BlockSize;
+use nexus_db_schema::enums::BlockSizeEnum;
 use crate::db::model::Resources;
 use crate::db::model::SledResourceVmm;
 use crate::db::model::PossibleConfig;
@@ -346,7 +348,7 @@ pub fn sled_insert_resource_query(
     if let Some(local_storage_configs) = &maybe_local_storage_configs {
         if !local_storage_configs.is_empty() {
             query.sql("NEW_VMM_LOCAL_STORAGE_RECORDS AS (");
-            query.sql("    INSERT INTO vmm_local_storage VALUES");
+            query.sql("    INSERT INTO vmm_local_storage VALUES ");
 
             for (index, local_storage_config) in local_storage_configs.iter().enumerate() {
                 let PossibleConfig { request, pool } = local_storage_config;
@@ -365,7 +367,12 @@ pub fn sled_insert_resource_query(
                 query.param().bind::<sql_types::BigInt, _>(request_size);
                 query.sql(", ");
 
-                query.param().bind::<sql_types::Integer, _>(*block_size as i32); // XXX integer type, or block size type
+                query.param().bind::<sql_types::Text, _>(match block_size {
+                    512 => "512", // BlockSize::Traditional,
+                    2048 => "2048", // BlockSize::Iso,
+                    4096 => "4096", // BlockSize::AdvancedFormat,
+                    _ => panic!("invalid block size {block_size}"),
+                }); // XXX integer type, or block size type?
                 query.sql(", ");
 
                 query.param().bind::<sql_types::Uuid, _>(*pool);
@@ -381,11 +388,15 @@ pub fn sled_insert_resource_query(
             query.sql("),");
 
             query.sql("UPDATE_LOCAL_STORAGE_RECORDS as (");
-            query.sql("  UPDATE local_storage_dataset SET size_used = size_used + (");
-            query.sql("    SELECT sum(size_bytes)
-                           FROM NEW_VMM_LOCAL_STORAGE_RECORDS
-                           WHERE NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id = local_storage_dataset.pool_id)");
-            query.sql("),");
+            query.sql("
+            UPDATE local_storage_dataset
+            SET size_used = size_used + NEW_VMM_LOCAL_STORAGE_RECORDS.size_bytes
+            FROM NEW_VMM_LOCAL_STORAGE_RECORDS
+            WHERE
+              NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id = local_storage_dataset.pool_id AND
+              local_storage_dataset.time_deleted is null
+            RETURNING *");
+            query.sql("), ");
         } else {
             // XXX this is an error!
         }
@@ -423,101 +434,110 @@ pub fn sled_insert_resource_query(
                 )");
 
     if let Some(local_storage_configs) = &maybe_local_storage_configs {
-        query.sql("AND (");
+        if !local_storage_configs.is_empty() {
+            query.sql("AND (");
 
-        for (index, local_storage_config) in local_storage_configs.iter().enumerate() {
-            // First, make sure that the additional usage fits in the zpool
+            for (index, local_storage_config) in local_storage_configs.iter().enumerate() {
+                query.sql("(");
 
-            query.sql("(");
+                // First, make sure that the additional usage fits in the zpool
 
-            // add up crucible and local dataset usage
+                query.sql("(");
 
-            query.sql("(SELECT
-              SUM(
-                crucible_dataset.size_used +
-                local_storage_dataset.size_used +
-                NEW_VMM_LOCAL_STORAGE_RECORDS.size_used
-              )
-            FROM
-              crucible_dataset
-            JOIN
-              local_storage_dataset
-            ON
-              crucible_dataset.pool_id = local_storage_dataset.pool_id
-            JOIN
-              NEW_VMM_LOCAL_STORAGE_RECORDS
-            ON
-              crucible_dataset.pool_id = NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id
-            WHERE
-              (crucible_dataset.size_used IS NOT NULL) AND
-              (crucible_dataset.time_deleted IS NULL) AND
-              (local_storage_dataset.time_deleted IS NULL) AND
-              (NEW_VMM_LOCAL_STORAGE_RECORDS.time_deleted IS NULL) AND
-              (crucible_dataset.pool_id = ")
-            .param()
-            .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/)
-            .sql(")
-            GROUP BY
-              crucible_dataset.pool_id");
+                // add up crucible and local dataset usage
 
-            query.sql(") < (");
+                query.sql("(");
 
-            // and compare that to the zpool's available space (minus the
-            // control plane storage buffer)
-
-            query.sql("(SELECT
-              total_size
-             FROM
-              omicron.public.inv_zpool
-             WHERE
-              inv_zpool.id = ")
+                query.sql("SELECT
+                  SUM(
+                    crucible_dataset.size_used +
+                    local_storage_dataset.size_used +
+                    NEW_VMM_LOCAL_STORAGE_RECORDS.size_bytes
+                  )
+                FROM
+                  crucible_dataset
+                JOIN
+                  local_storage_dataset
+                ON
+                  crucible_dataset.pool_id = local_storage_dataset.pool_id
+                JOIN
+                  NEW_VMM_LOCAL_STORAGE_RECORDS
+                ON
+                  crucible_dataset.pool_id = NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id
+                WHERE
+                  (crucible_dataset.size_used IS NOT NULL) AND
+                  (crucible_dataset.time_deleted IS NULL) AND
+                  (local_storage_dataset.time_deleted IS NULL) AND
+                  (crucible_dataset.pool_id = ")
                 .param()
                 .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/)
-                .sql("ORDER BY inv_zpool.time_collected DESC LIMIT 1)");
+                .sql(")
+                GROUP BY
+                  crucible_dataset.pool_id");
 
-            query.sql(" - ");
+                // XXX (NEW_VMM_LOCAL_STORAGE_RECORDS.time_deleted IS NULL) AND
 
-            query.sql("(SELECT
-              control_plane_storage_buffer
-             FROM
-              zpool
-             WHERE id = ")
-                .param()
-                .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/)
-                .sql(")");
+                query.sql(") < (");
 
-            query.sql("))");
+                // and compare that to the zpool's available space (minus the
+                // control plane storage buffer)
 
-            query.sql(" AND ");
+                query.sql("(SELECT
+                  total_size
+                 FROM
+                  omicron.public.inv_zpool
+                 WHERE
+                  inv_zpool.id = ")
+                    .param()
+                    .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/)
+                    .sql(" ORDER BY inv_zpool.time_collected DESC LIMIT 1)");
 
-            // and, the zpool must be available
+                query.sql(" - ");
 
-            query.sql("(");
+                query.sql("(SELECT
+                  control_plane_storage_buffer
+                 FROM
+                  zpool
+                 WHERE id = ")
+                    .param()
+                    .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/)
+                    .sql(")");
 
-            query.sql("SELECT
-              sled.sled_policy = 'in_service'
-              AND sled.sled_state = 'active'
-              AND physical_disk.disk_policy = 'in_service'
-              AND physical_disk.disk_state = 'active'
-            FROM
-              zpool
-            JOIN
-              sled ON (zpool.sled_id = sled.id)
-            JOIN
-              physical_disk ON (zpool.physical_disk_id = physical_disk.id)
-            WHERE
-              zpool.id = ")
-                .param()
-                .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/);
+                query.sql(")");
+
+                query.sql(")");
+
+                query.sql(") AND ");
+
+                // and, the zpool must be available
+
+                query.sql("(");
+
+                query.sql("SELECT
+                  sled.sled_policy = 'in_service'
+                  AND sled.sled_state = 'active'
+                  AND physical_disk.disk_policy = 'in_service'
+                  AND physical_disk.disk_state = 'active'
+                FROM
+                  zpool
+                JOIN
+                  sled ON (zpool.sled_id = sled.id)
+                JOIN
+                  physical_disk ON (zpool.physical_disk_id = physical_disk.id)
+                WHERE
+                  zpool.id = ")
+                    .param()
+                    .bind::<sql_types::Uuid, _>(local_storage_config.pool/*.into_untyped_uuid()*/);
+
+                query.sql(")");
+
+                if index != (local_storage_configs.len() - 1) {
+                    query.sql(" AND ");
+                }
+            }
 
             query.sql(")");
-
-            if index != (local_storage_configs.len() - 1) {
-                query.sql(" AND ");
-            }
         }
-
-        query.sql(")");
     }
 
     query.sql(")");
