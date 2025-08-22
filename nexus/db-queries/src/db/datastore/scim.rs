@@ -4,6 +4,7 @@
 
 //! [`DataStore`] methods related to SCIM
 
+use iddqd::IdOrdMap;
 use nexus_auth::authz::ApiResource;
 use anyhow::anyhow;
 use async_bb8_diesel::AsyncRunQueryDsl;
@@ -37,6 +38,7 @@ use omicron_common::api::external::LookupType;
 use nexus_auth::authz::ApiResourceWithRoles;
 use nexus_db_model::DatabaseString;
 
+use scim2_rs::ProviderStoreDeleteResult;
 use scim2_rs::CreateGroupRequest;
 use scim2_rs::CreateUserRequest;
 use scim2_rs::FilterOp;
@@ -302,7 +304,7 @@ impl CrdbScimProviderStore {
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         group_id: Uuid,
-    ) -> Result<Option<Vec<GroupMember>>, diesel::result::Error> {
+    ) -> Result<Option<IdOrdMap<GroupMember>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group_membership::dsl;
 
         let users: Vec<Uuid> = dsl::silo_group_membership
@@ -688,7 +690,7 @@ impl CrdbScimProviderStore {
             return Ok(None);
         };
 
-        let members: Option<Vec<GroupMember>> =
+        let members: Option<IdOrdMap<GroupMember>> =
             self.get_group_members_for_group_in_txn(conn, group_id).await?;
 
         Ok(Some(convert_to_scim_group(group, attributes, members)))
@@ -871,18 +873,25 @@ impl CrdbScimProviderStore {
             .await?;
 
         let members = if let Some(members) = &members {
-            let mut returned_members = Vec::with_capacity(members.len());
+            let mut returned_members = IdOrdMap::with_capacity(members.len());
             let mut memberships = Vec::with_capacity(members.len());
 
             // Validate the members arg, and insert silo group membership
             // records.
             for member in members {
-                let err = err.clone();
                 let (user_id, returned_member) = self
-                    .validate_group_member_in_txn(conn, err, member)
+                    .validate_group_member_in_txn(conn, err.clone(), member)
                     .await?;
 
-                returned_members.push(returned_member);
+                match returned_members.insert_unique(returned_member) {
+                    Ok(_) => {},
+
+                    Err(e) => {
+                        return Err(err.bail(ProviderStoreError::Scim(
+                            scim2_rs::Error::conflict(format!("{:?}", e.new_item()))
+                        )));
+                    }
+                }
 
                 memberships.push(SiloGroupMembership {
                     silo_group_id: group_id,
@@ -1124,18 +1133,25 @@ impl CrdbScimProviderStore {
         // Validate the members arg, and insert silo group membership records.
 
         let members = if let Some(members) = &members {
-            let mut returned_members = Vec::with_capacity(members.len());
+            let mut returned_members = IdOrdMap::with_capacity(members.len());
             let mut memberships = Vec::with_capacity(members.len());
 
             // Validate the members arg, and insert silo group membership
             // records.
             for member in members {
-                let err = err.clone();
                 let (user_id, returned_member) = self
-                    .validate_group_member_in_txn(conn, err, member)
+                    .validate_group_member_in_txn(conn, err.clone(), member)
                     .await?;
 
-                returned_members.push(returned_member);
+                match returned_members.insert_unique(returned_member) {
+                    Ok(_) => {},
+
+                    Err(e) => {
+                        return Err(err.bail(ProviderStoreError::Scim(
+                            scim2_rs::Error::conflict(format!("{:?}", e.new_item()))
+                        )));
+                    }
+                }
 
                 memberships.push(SiloGroupMembership {
                     silo_group_id: group_id,
@@ -1243,7 +1259,7 @@ fn convert_to_scim_user(
 fn convert_to_scim_group(
     silo_group: SiloGroup,
     attributes: SiloGroupScimAttributes,
-    members: Option<Vec<GroupMember>>,
+    members: Option<IdOrdMap<GroupMember>>,
 ) -> StoredParts<Group> {
     StoredParts {
         resource: Group {
@@ -1265,7 +1281,7 @@ fn convert_to_scim_group(
 impl ProviderStore for CrdbScimProviderStore {
     async fn get_user_by_id(
         &self,
-        user_id: String,
+        user_id: &str,
     ) -> Result<Option<StoredParts<User>>, ProviderStoreError> {
         let user_id: Uuid = match user_id.parse() {
             Ok(v) => v,
@@ -1400,7 +1416,7 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn replace_user(
         &self,
-        user_id: String,
+        user_id: &str,
         user_request: CreateUserRequest,
     ) -> Result<StoredParts<User>, ProviderStoreError> {
         let user_id: Uuid = match user_id.parse() {
@@ -1453,8 +1469,8 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn delete_user_by_id(
         &self,
-        user_id: String,
-    ) -> Result<bool, ProviderStoreError> {
+        user_id: &str,
+    ) -> Result<ProviderStoreDeleteResult, ProviderStoreError> {
         let user_id: Uuid = match user_id.parse() {
             Ok(v) => v,
             Err(_) => {
@@ -1499,12 +1515,16 @@ impl ProviderStore for CrdbScimProviderStore {
                     }
                 })?;
 
-        Ok(deleted_user)
+        if deleted_user {
+            Ok(ProviderStoreDeleteResult::Deleted)
+        } else {
+            Ok(ProviderStoreDeleteResult::NotFound)
+        }
     }
 
     async fn get_group_by_id(
         &self,
-        group_id: String,
+        group_id: &str,
     ) -> Result<Option<StoredParts<Group>>, ProviderStoreError> {
         let group_id: Uuid = match group_id.parse() {
             Ok(v) => v,
@@ -1640,7 +1660,7 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn replace_group(
         &self,
-        group_id: String,
+        group_id: &str,
         group_request: CreateGroupRequest,
     ) -> Result<StoredParts<Group>, ProviderStoreError> {
         let group_id: Uuid = match group_id.parse() {
@@ -1697,8 +1717,8 @@ impl ProviderStore for CrdbScimProviderStore {
     // false is returned.
     async fn delete_group_by_id(
         &self,
-        group_id: String,
-    ) -> Result<bool, ProviderStoreError> {
+        group_id: &str,
+    ) -> Result<ProviderStoreDeleteResult, ProviderStoreError> {
         let group_id: Uuid = match group_id.parse() {
             Ok(v) => v,
             Err(_) => {
@@ -1743,6 +1763,10 @@ impl ProviderStore for CrdbScimProviderStore {
                 }
             })?;
 
-        Ok(deleted_group)
+        if deleted_group {
+            Ok(ProviderStoreDeleteResult::Deleted)
+        } else {
+            Ok(ProviderStoreDeleteResult::NotFound)
+        }
     }
 }
