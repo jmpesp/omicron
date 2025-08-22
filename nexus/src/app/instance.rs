@@ -1325,7 +1325,7 @@ impl super::Nexus {
                 vmm_local_storage
                     .iter()
                     .map(|record| DelegatedDataset {
-                        pool_name: format!("oxp_{}", record.pool_id),
+                        pool_name: format!("oxp_{}", record.pool_id), // oxp_ only happens once here!
                         dataset_name: format!("{}", record.id),
                         volume_size: record.size.to_bytes(),
                         block_size: record.block_size.to_bytes(),

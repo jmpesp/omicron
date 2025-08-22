@@ -2006,7 +2006,7 @@ impl InstanceRunner {
             .iter()
             .map(|delegated_dataset| {
                 let name = format!(
-                    "oxp_{}/crypt/local_storage/{}",
+                    "{}/crypt/local_storage/{}",
                     delegated_dataset.pool_name,
                     delegated_dataset.dataset_name,
                 );
@@ -2030,7 +2030,7 @@ impl InstanceRunner {
 
                 // XXX duped code
                 let name = format!(
-                    "oxp_{}/crypt/local_storage/{}",
+                    "{}/crypt/local_storage/{}",
                     delegated_dataset.pool_name,
                     delegated_dataset.dataset_name,
                 );
@@ -2040,8 +2040,8 @@ impl InstanceRunner {
                 let size = ByteCount::try_from(delegated_dataset.volume_size)
                     .map_err(|e| Error::DelegatedDataset(e.into()))?;
 
-                // XXX fudge factor for overhead
-                let byte_count = ByteCount::try_from(delegated_dataset.volume_size + 64 * 1024 * 1024)
+                // XXX fudge factor for overhead is 16G?!
+                let byte_count = ByteCount::try_from(delegated_dataset.volume_size + 16 * 1024 * 1024 * 1024)
                     .map_err(|e| Error::DelegatedDataset(e.into()))?;
 
                 Zfs::ensure_dataset(DatasetEnsureArgs {
