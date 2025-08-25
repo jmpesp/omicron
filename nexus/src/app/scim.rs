@@ -40,7 +40,7 @@ impl super::Nexus {
         &self,
         opctx: &OpContext,
         silo_lookup: &lookup::Silo<'_>,
-    ) -> CreateResult<views::ScimBearerToken> {
+    ) -> CreateResult<views::ScimBearerTokenCreateResponse> {
         let (.., authz_silo, _) =
             silo_lookup.fetch_for(authz::Action::ListChildren).await?;
         let token =

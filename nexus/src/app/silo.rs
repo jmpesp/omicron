@@ -573,7 +573,7 @@ impl super::Nexus {
             .await?;
 
         let (authz_silo_user, silo_user) =
-            if let Some(existing_silo_user) = maybe_silo_user {
+            if let Some(existing_silo_user) = fetch_result {
                 existing_silo_user
             } else {
                 // In this branch, no user exists for the authenticated subject
@@ -699,7 +699,7 @@ impl super::Nexus {
 
         let silo_user = match &silo_user {
             SiloUser::ApiOnly(user) => user,
-            SiloUser::Jit(_) => {
+            SiloUser::Jit(_) | SiloUser::Scim(_) => {
                 return Err(Error::invalid_request(
                     "invalid user type for password set",
                 ));

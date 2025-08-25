@@ -5,7 +5,7 @@
 use chrono::DateTime;
 use chrono::Utc;
 use nexus_db_schema::schema::silo_scim_client_bearer_token;
-//use nexus_types::external_api::views;
+use nexus_types::external_api::views;
 use uuid::Uuid;
 
 /// A SCIM client sends requests to a SCIM provider (in this case, Nexus) using
@@ -26,14 +26,21 @@ pub struct SiloScimClientBearerToken {
     pub bearer_token: String,
 }
 
-/*
 impl From<SiloScimClientBearerToken> for views::ScimBearerToken {
     fn from(t: SiloScimClientBearerToken) -> views::ScimBearerToken {
         views::ScimBearerToken {
             id: t.id,
-            // XXX more fields?
+            time_created: t.time_created,
+        }
+    }
+}
+
+impl From<SiloScimClientBearerToken> for views::ScimBearerTokenCreateResponse {
+    fn from(t: SiloScimClientBearerToken) -> views::ScimBearerTokenCreateResponse {
+        views::ScimBearerTokenCreateResponse {
+            id: t.id,
+            time_created: t.time_created,
             bearer_token: t.bearer_token,
         }
     }
 }
-*/
