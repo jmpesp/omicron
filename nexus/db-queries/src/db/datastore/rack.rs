@@ -438,7 +438,8 @@ impl DataStore {
                 // Ok
             }
 
-            shared::SiloIdentityMode::SamlJit => {
+            shared::SiloIdentityMode::SamlJit |
+            shared::SiloIdentityMode::SamlScim => {
                 return Err(RackInitError::Silo(Error::invalid_request(
                     "recovery silo should only use identity mode LocalOnly",
                 )));
@@ -471,7 +472,7 @@ impl DataStore {
                 recovery_user_id.as_ref().to_owned(),
             ),
 
-            UserProvisionType::Jit => {
+            UserProvisionType::Jit | UserProvisionType::Scim => {
                 unreachable!("match at start of function should prevent this");
             }
         };

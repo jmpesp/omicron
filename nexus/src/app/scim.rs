@@ -158,6 +158,7 @@ impl super::Nexus {
         }
 
         let provider = scim2_rs::Provider::new(
+            self.log.clone(), // XXX not this
             self.datastore()
                 .scim_idp_provider_store_for_silo(bearer_token.silo_id)
                 .await,
@@ -189,7 +190,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.get_user_by_id(query, user_id).await {
+        let result = match provider.get_user_by_id(query, &user_id).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -220,7 +221,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.replace_user(user_id, body).await {
+        let result = match provider.replace_user(&user_id, body).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -236,7 +237,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.patch_user(user_id, body).await {
+        let result = match provider.patch_user(&user_id, body).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -251,7 +252,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.delete_user(user_id).await {
+        let result = match provider.delete_user(&user_id).await {
             Ok(response) => Ok(response),
             Err(error) => error.to_http_response(),
         };
@@ -282,7 +283,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.get_group_by_id(query, group_id).await {
+        let result = match provider.get_group_by_id(query, &group_id).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -313,7 +314,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.replace_group(group_id, body).await {
+        let result = match provider.replace_group(&group_id, body).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -329,7 +330,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.patch_group(group_id, body).await {
+        let result = match provider.patch_group(&group_id, body).await {
             Ok(response) => response.to_http_response(StatusCode::OK),
             Err(error) => error.to_http_response(),
         };
@@ -344,7 +345,7 @@ impl super::Nexus {
     ) -> Result<Response<Body>, HttpError> {
         let provider = self.scim_idp_get_provider(&request).await?;
 
-        let result = match provider.delete_group(group_id).await {
+        let result = match provider.delete_group(&group_id).await {
             Ok(response) => Ok(response),
             Err(error) => error.to_http_response(),
         };

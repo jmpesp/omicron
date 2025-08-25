@@ -53,6 +53,9 @@ pub enum SiloUser {
 
     /// A User created during an authenticated SAML login
     Jit(SiloUserJit),
+
+    /// A User created by a SCIM provisioning client
+    Scim(SiloUserScim),
 }
 
 impl SiloUser {
@@ -60,6 +63,7 @@ impl SiloUser {
         match &self {
             SiloUser::ApiOnly(u) => u.id,
             SiloUser::Jit(u) => u.id,
+            SiloUser::Scim(u) => u.id,
         }
     }
 
@@ -67,13 +71,16 @@ impl SiloUser {
         match &self {
             SiloUser::ApiOnly(u) => u.silo_id,
             SiloUser::Jit(u) => u.silo_id,
+            SiloUser::Scim(u) => u.silo_id,
         }
     }
 
-    pub fn external_id(&self) -> &str {
+    /// Return what field is guaranteed to be unique for this type
+    pub fn conflict_field(&self) -> &str {
         match &self {
             SiloUser::ApiOnly(u) => &u.external_id,
             SiloUser::Jit(u) => &u.external_id,
+            SiloUser::Scim(u) => &u.user_name,
         }
     }
 }
@@ -102,6 +109,19 @@ impl From<model::SiloUser> for SiloUser {
                 // with provision type 'jit' from having a null external id
                 external_id: record.external_id.unwrap(),
             }),
+
+            UserProvisionType::Scim => SiloUser::Scim(SiloUserScim {
+                id: record.id(),
+                time_created: record.time_created(),
+                time_modified: record.time_modified(),
+                time_deleted: record.time_deleted,
+                silo_id: record.silo_id,
+                // SAFETY: there is a database constraint that prevents a user
+                // with provision type 'scim' from having a null user_name
+                user_name: record.user_name.unwrap(),
+                active: record.active,
+                external_id: record.external_id,
+            })
         }
     }
 }
@@ -111,6 +131,7 @@ impl From<SiloUser> for model::SiloUser {
         match u {
             SiloUser::ApiOnly(u) => u.into(),
             SiloUser::Jit(u) => u.into(),
+            SiloUser::Scim(u) => u.into(),
         }
     }
 }
@@ -120,6 +141,7 @@ impl From<SiloUser> for views::User {
         match u {
             SiloUser::ApiOnly(u) => u.into(),
             SiloUser::Jit(u) => u.into(),
+            SiloUser::Scim(u) => u.into(),
         }
     }
 }
@@ -161,6 +183,8 @@ impl From<SiloUserApiOnly> for model::SiloUser {
             silo_id: u.silo_id,
             external_id: Some(u.external_id),
             user_provision_type: UserProvisionType::ApiOnly,
+            user_name: None,
+            active: None,
         }
     }
 }
@@ -219,6 +243,8 @@ impl From<SiloUserJit> for model::SiloUser {
             silo_id: u.silo_id,
             external_id: Some(u.external_id),
             user_provision_type: UserProvisionType::Jit,
+            user_name: None,
+            active: None,
         }
     }
 }
@@ -240,6 +266,77 @@ impl From<SiloUserJit> for views::User {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SiloUserScim {
+    pub id: SiloUserUuid,
+    pub time_created: chrono::DateTime<chrono::Utc>,
+    pub time_modified: chrono::DateTime<chrono::Utc>,
+    pub time_deleted: Option<chrono::DateTime<chrono::Utc>>,
+    pub silo_id: Uuid,
+
+    /// The identity provider's ID for this user.
+    pub user_name: String,
+
+    pub active: Option<bool>,
+    pub external_id: Option<String>,
+}
+
+impl SiloUserScim {
+    pub fn new(
+        silo_id: Uuid,
+        id: SiloUserUuid,
+        user_name: String,
+        active: Option<bool>,
+        external_id: Option<String>,
+    ) -> Self {
+        Self {
+            id,
+            time_created: chrono::Utc::now(),
+            time_modified: chrono::Utc::now(),
+            time_deleted: None,
+            silo_id,
+            user_name,
+            active,
+            external_id,
+        }
+    }
+}
+
+impl From<SiloUserScim> for model::SiloUser {
+    fn from(u: SiloUserScim) -> model::SiloUser {
+        model::SiloUser {
+            identity: model::SiloUserIdentity {
+                id: u.id.into(),
+                time_created: u.time_created,
+                time_modified: u.time_modified,
+            },
+            time_deleted: u.time_deleted,
+            silo_id: u.silo_id,
+            external_id: u.external_id,
+            user_provision_type: UserProvisionType::Scim,
+            user_name: Some(u.user_name),
+            active: u.active,
+        }
+    }
+}
+
+impl From<SiloUserScim> for SiloUser {
+    fn from(u: SiloUserScim) -> SiloUser {
+        SiloUser::Scim(u)
+    }
+}
+
+impl From<SiloUserScim> for views::User {
+    fn from(u: SiloUserScim) -> views::User {
+        views::User {
+            id: u.id,
+            // TODO the use of user_name as display_name is temporary
+            display_name: u.user_name,
+            silo_id: u.silo_id,
+        }
+    }
+}
+
 /// TODO comment please
 #[derive(Debug)]
 pub enum SiloUserLookup<'a> {
@@ -255,6 +352,7 @@ impl<'a> SiloUserLookup<'a> {
         match &self {
             SiloUserLookup::ApiOnly { .. } => UserProvisionType::ApiOnly,
             SiloUserLookup::Jit { .. } => UserProvisionType::Jit,
+            SiloUserLookup::Scim { .. } => UserProvisionType::Scim,
         }
     }
 }
@@ -270,7 +368,7 @@ impl DataStore {
     ) -> CreateResult<(authz::SiloUser, SiloUser)> {
         // TODO-security This needs an authz check.
 
-        let silo_user_external_id = silo_user.external_id().to_string();
+        let silo_user_conflict_field = silo_user.conflict_field().to_string();
         let model: model::SiloUser = silo_user.into();
 
         let conn = self.pool_connection_unauthorized().await?;
@@ -319,7 +417,7 @@ impl DataStore {
                     e,
                     ErrorHandler::Conflict(
                         ResourceType::SiloUser,
-                        &silo_user_external_id,
+                        &silo_user_conflict_field,
                     ),
                 )
             })
@@ -526,62 +624,10 @@ impl DataStore {
                 let authz_silo_user = authz::SiloUser::new(
                     authz_silo.clone(),
                     db_silo_user.id(),
-                    LookupType::ByName(external_id.to_string()),
+                    LookupType::ByName(user_name.to_string()),
                 );
 
                 Ok(Some((authz_silo_user, db_silo_user.into())))
-            }
-        }
-    }
-
-    /// Given an user name for a SCIM user, return
-    /// - Ok(Some((authz::SiloUser, SiloUser))) if that user name refers to an
-    ///   existing silo user provisioned using SCIM
-    /// - Ok(None) if it does not
-    /// - Err(...) if there was an error doing this lookup.
-    pub async fn silo_user_fetch_scim_by_user_name(
-        &self,
-        opctx: &OpContext,
-        authz_silo: &authz::Silo,
-        user_name: &str,
-    ) -> Result<Option<(authz::SiloUser, SiloScimUser)>, Error> {
-        opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
-
-        use nexus_db_schema::schema::silo_user::dsl;
-
-        let conn = self.pool_connection_authorized(opctx).await?;
-
-        let maybe_user = dsl::silo_user
-            .filter(dsl::silo_id.eq(authz_silo.id()))
-            .filter(dsl::time_deleted.is_null())
-            .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
-            .filter(dsl::user_name.eq(user_name.to_string()))
-            .select(model::SiloUser::as_select())
-            .first_async::<model::SiloUser>(&*conn)
-            .await
-            .optional()
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
-
-        let Some(db_silo_user) = maybe_user else {
-            return Ok(None);
-        };
-
-        let authz_silo_user = authz::SiloUser::new(
-            authz_silo.clone(),
-            db_silo_user.id(),
-            LookupType::ByName(user_name.to_owned()),
-        );
-
-        let silo_user: SiloUser = db_silo_user.into();
-        match silo_user {
-            SiloUser::Scim(silo_scim_user) => {
-                Ok(Some((authz_silo_user, silo_scim_user)))
-            }
-
-            _ => {
-                // XXX should be impossible to reach here based on dsl filter
-                // above
-                unreachable!();
             }
         }
     }

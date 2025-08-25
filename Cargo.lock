@@ -488,9 +488,9 @@ checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
 
 [[package]]
 name = "async-trait"
-version = "0.1.88"
+version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e539d3fca749fcee5236ab05e93a52867dd549cc157c8cb7f99595f3cedffdb5"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -931,7 +931,7 @@ dependencies = [
  "slog-term",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
  "vsss-rs",
  "zeroize",
 ]
@@ -967,7 +967,7 @@ dependencies = [
  "serde_json",
  "sled-hardware-types",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2086,7 +2086,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2114,7 +2114,7 @@ dependencies = [
  "tokio-rustls 0.24.1",
  "toml 0.8.23",
  "twox-hash",
- "uuid 1.17.0",
+ "uuid",
  "vergen",
 ]
 
@@ -2132,7 +2132,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2260,7 +2260,7 @@ dependencies = [
  "newtype-uuid",
  "oxnet",
  "paste",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2412,7 +2412,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2653,7 +2653,7 @@ dependencies = [
  "pq-sys",
  "r2d2",
  "serde_json",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2665,7 +2665,7 @@ dependencies = [
  "diesel",
  "serde",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "version_check",
 ]
 
@@ -2808,7 +2808,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2891,7 +2891,7 @@ dependencies = [
  "slog",
  "tokio",
  "transceiver-controller 0.1.1 (git+https://github.com/oxidecomputer/transceiver-control?branch=main)",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2915,7 +2915,7 @@ dependencies = [
  "slog",
  "tokio",
  "transceiver-controller 0.1.1 (git+https://github.com/oxidecomputer/transceiver-control?branch=main)",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -2964,7 +2964,7 @@ dependencies = [
  "tokio-rustls 0.25.0",
  "toml 0.9.5",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "version_check",
  "waitgroup",
 ]
@@ -3166,7 +3166,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3670,7 +3670,7 @@ dependencies = [
  "omicron-workspace-hack",
  "schemars",
  "serde",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3696,7 +3696,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.23.1",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3720,7 +3720,7 @@ dependencies = [
  "slog",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3746,7 +3746,7 @@ dependencies = [
  "static_assertions",
  "strum 0.27.2",
  "strum_macros 0.27.1",
- "uuid 1.17.0",
+ "uuid",
  "zerocopy 0.8.26",
 ]
 
@@ -3783,7 +3783,7 @@ dependencies = [
  "tlvc 0.3.1 (git+https://github.com/oxidecomputer/tlvc.git?branch=main)",
  "tokio",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "version_check",
  "zerocopy 0.8.26",
  "zip 0.6.6",
@@ -3805,7 +3805,7 @@ dependencies = [
  "slog",
  "sp-sim",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3823,7 +3823,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.12",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -4818,9 +4818,9 @@ dependencies = [
 
 [[package]]
 name = "iddqd"
-version = "0.3.9"
+version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a90e534df930073905afbe06d0b1017c8791507a6063890c7643079377ac7f8"
+checksum = "32fdf1948b8b266e6159b301497280248f0399d2769611a7b75b4621812327b5"
 dependencies = [
  "allocator-api2",
  "daft",
@@ -4933,7 +4933,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
  "whoami",
  "zone 0.3.1",
 ]
@@ -5143,7 +5143,7 @@ dependencies = [
  "serde",
  "slog",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -5580,7 +5580,7 @@ dependencies = [
  "libc",
  "libefi-sys",
  "thiserror 1.0.69",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -5620,7 +5620,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.21.0",
  "toml 0.7.8",
- "uuid 1.17.0",
+ "uuid",
  "xz2",
  "zone 0.1.8",
 ]
@@ -5848,7 +5848,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6148,7 +6148,7 @@ dependencies = [
  "smallvec 1.15.1",
  "tagptr",
  "thiserror 1.0.69",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6233,7 +6233,7 @@ dependencies = [
  "proptest",
  "schemars",
  "serde",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6280,7 +6280,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6313,7 +6313,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6335,7 +6335,7 @@ dependencies = [
  "serde_with",
  "tokio-postgres",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6361,7 +6361,7 @@ dependencies = [
  "omicron-workspace-hack",
  "pq-sys",
  "strum 0.27.2",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6389,7 +6389,7 @@ dependencies = [
  "qorb",
  "slog",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6441,7 +6441,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6467,6 +6467,7 @@ dependencies = [
  "futures",
  "gateway-client",
  "gateway-types",
+ "hex",
  "hyper-rustls",
  "id-map",
  "iddqd",
@@ -6513,6 +6514,7 @@ dependencies = [
  "regex",
  "rustls 0.22.4",
  "schemars",
+ "scim2-rs",
  "semver 1.0.26",
  "serde",
  "serde_json",
@@ -6531,7 +6533,7 @@ dependencies = [
  "tufaceous-artifact",
  "url",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6588,7 +6590,7 @@ dependencies = [
  "omicron-workspace-hack",
  "schemars",
  "serde",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6635,7 +6637,7 @@ dependencies = [
  "tokio",
  "tufaceous-artifact",
  "typed-rng",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6673,7 +6675,7 @@ dependencies = [
  "slog-error-chain",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6720,7 +6722,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6737,7 +6739,7 @@ dependencies = [
  "reqwest",
  "sled-agent-client",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6834,7 +6836,7 @@ dependencies = [
  "slog-error-chain",
  "tokio",
  "update-engine",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6884,7 +6886,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tufaceous-artifact",
  "typed-rng",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6925,7 +6927,7 @@ dependencies = [
  "slog",
  "test-strategy",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6952,7 +6954,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tufaceous-artifact",
  "typed-rng",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6979,7 +6981,7 @@ dependencies = [
  "slog-error-chain",
  "steno",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7004,7 +7006,7 @@ dependencies = [
  "strum 0.27.2",
  "thiserror 2.0.12",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7022,7 +7024,7 @@ dependencies = [
  "omicron-workspace-hack",
  "pq-sys",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7077,7 +7079,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-util",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7151,7 +7153,7 @@ dependencies = [
  "unicode-width 0.1.14",
  "update-engine",
  "url",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7672,7 +7674,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7691,7 +7693,7 @@ dependencies = [
  "slog",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7780,7 +7782,7 @@ dependencies = [
  "tokio-tungstenite 0.23.1",
  "toml 0.8.23",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
  "zip 4.2.0",
 ]
 
@@ -7816,7 +7818,7 @@ dependencies = [
  "slog-error-chain",
  "textwrap",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -7999,7 +8001,7 @@ dependencies = [
  "update-common",
  "update-engine",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "zip 4.2.0",
 ]
 
@@ -8128,7 +8130,7 @@ dependencies = [
  "unicode-width 0.1.14",
  "update-engine",
  "url",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -8229,7 +8231,7 @@ dependencies = [
  "supports-color",
  "tokio",
  "update-engine",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -8424,7 +8426,7 @@ dependencies = [
  "tufaceous-artifact",
  "tufaceous-brand-metadata",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "walkdir",
  "zeroize",
  "zip 4.2.0",
@@ -8469,7 +8471,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
  "walkdir",
 ]
 
@@ -8630,7 +8632,7 @@ dependencies = [
  "url",
  "usdt",
  "usdt-impl",
- "uuid 1.17.0",
+ "uuid",
  "winnow 0.6.26",
  "winnow 0.7.10",
  "x509-cert",
@@ -8931,7 +8933,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -8955,7 +8957,7 @@ dependencies = [
  "opte",
  "serde",
  "tabwriter",
- "uuid 1.17.0",
+ "uuid",
  "zerocopy 0.8.26",
 ]
 
@@ -8974,7 +8976,7 @@ dependencies = [
  "prettyplease",
  "syn 2.0.104",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -8993,7 +8995,7 @@ dependencies = [
  "prettyplease",
  "syn 2.0.104",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9008,7 +9010,7 @@ dependencies = [
  "schemars",
  "semver 1.0.26",
  "serde",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9023,7 +9025,7 @@ dependencies = [
  "reqwest",
  "serde",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9071,7 +9073,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9139,7 +9141,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "usdt",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9164,7 +9166,7 @@ dependencies = [
  "slog-term",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9211,7 +9213,7 @@ dependencies = [
  "slog-term",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9268,7 +9270,7 @@ dependencies = [
  "oximeter-macro-impl 0.1.0",
  "oximeter-types 0.1.0",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9320,7 +9322,7 @@ dependencies = [
  "strum 0.27.2",
  "thiserror 2.0.12",
  "trybuild",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9340,7 +9342,7 @@ dependencies = [
  "serde",
  "strum 0.26.3",
  "thiserror 1.0.69",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -9356,7 +9358,7 @@ dependencies = [
  "omicron-workspace-hack",
  "rayon",
  "sigpipe",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10049,7 +10051,7 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10455,7 +10457,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.21.0",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10476,7 +10478,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.21.0",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10508,7 +10510,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-tungstenite 0.21.0",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10533,7 +10535,7 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror 1.0.69",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -10923,7 +10925,7 @@ dependencies = [
  "tufaceous-artifact",
  "tufaceous-lib",
  "update-common",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -11670,7 +11672,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.12",
  "url",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -11714,8 +11716,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid 0.8.2",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -11739,11 +11740,13 @@ dependencies = [
  "chrono",
  "dropshot",
  "http",
+ "iddqd",
  "schemars",
  "serde",
  "serde_json",
  "slog",
- "uuid 1.17.0",
+ "unicase",
+ "uuid",
 ]
 
 [[package]]
@@ -12313,7 +12316,7 @@ dependencies = [
  "sled-diagnostics",
  "sled-hardware-types",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -12337,7 +12340,7 @@ dependencies = [
  "serde_json",
  "sled-agent-types",
  "slog",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -12422,7 +12425,7 @@ dependencies = [
  "thiserror 2.0.12",
  "toml 0.8.23",
  "tufaceous-artifact",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -12529,7 +12532,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tofino",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -12574,7 +12577,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
- "uuid 1.17.0",
+ "uuid",
  "xshell",
 ]
 
@@ -12841,7 +12844,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.23",
- "uuid 1.17.0",
+ "uuid",
  "zerocopy 0.8.26",
 ]
 
@@ -13007,7 +13010,7 @@ dependencies = [
  "slog",
  "thiserror 1.0.69",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -14204,7 +14207,7 @@ dependencies = [
  "test-strategy",
  "thiserror 2.0.12",
  "tokio",
- "uuid 1.17.0",
+ "uuid",
  "zeroize",
 ]
 
@@ -14392,7 +14395,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_core 0.6.4",
  "rand_seeder",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -14562,12 +14565,9 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicase"
-version = "2.7.0"
+version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7d2d4dafb69621809a81864c9c1b864479e1235c0dd4e199924b9742439ed89"
-dependencies = [
- "version_check",
-]
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"
 
 [[package]]
 name = "unicode-bidi"
@@ -14749,7 +14749,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "unicode-width 0.1.14",
- "uuid 1.17.0",
+ "uuid",
 ]
 
 [[package]]
@@ -14854,15 +14854,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "0.8.2"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-
-[[package]]
-name = "uuid"
-version = "1.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cf4199d1e5d15ddd86a694e4d0dffa9c323ce759fea589f00fef9d81cc1931d"
+checksum = "f33196643e165781c20a5ead5582283a7dacbb87855d867fbc2df3f81eddc1be"
 dependencies = [
  "getrandom 0.3.1",
  "js-sys",
@@ -15341,7 +15335,7 @@ dependencies = [
  "tufaceous-lib",
  "update-common",
  "update-engine",
- "uuid 1.17.0",
+ "uuid",
  "wicket",
  "wicket-common",
  "wicketd-api",
@@ -15388,7 +15382,7 @@ dependencies = [
  "sled-hardware-types",
  "slog",
  "update-engine",
- "uuid 1.17.0",
+ "uuid",
  "wicket-common",
 ]
 

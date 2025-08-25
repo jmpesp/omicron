@@ -4,38 +4,45 @@
 
 //! [`DataStore`] methods related to SCIM
 
-use nexus_auth::authz::ApiResource;
 use anyhow::anyhow;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use chrono::Utc;
 use crate::authz;
 use crate::context::OpContext;
-use crate::db;
+use crate::db::model::to_db_typed_uuid;
 use crate::db::model::Silo;
-use crate::db::model::SiloGroup;
-use crate::db::model::SiloGroupScimAttributes;
-use crate::db::model::SiloScimClientBearerToken;
 use crate::db::model::SiloGroupMembership;
-use crate::db::model::SiloUser;
-use crate::db::model::SiloUserScimAttributes;
+use crate::db::model::SiloScimClientBearerToken;
+use crate::db::model::UserProvisionType;
+use crate::db::datastore::silo_user::SiloUser;
+use crate::db::datastore::silo_user::SiloUserScim;
+use crate::db::datastore::silo_group::SiloGroup;
+use crate::db::datastore::silo_group::SiloGroupScim;
+use crate::db;
+use crate::db::model;
 use diesel::prelude::*;
+use iddqd::IdOrdMap;
+use nexus_auth::authz::ApiResource;
+use nexus_auth::authz::ApiResourceWithRoles;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::OptionalError;
 use nexus_db_errors::public_error_from_diesel;
 use nexus_db_lookup::DbConnection;
+use nexus_db_model::DatabaseString;
+use nexus_types::external_api::shared::SiloRole;
 use omicron_common::api::external::CreateResult;
 use omicron_common::api::external::DeleteResult;
 use omicron_common::api::external::ListResultVec;
 use omicron_common::api::external::LookupResult;
+use omicron_common::api::external::LookupType;
+use omicron_uuid_kinds::GenericUuid;
+use omicron_uuid_kinds::SiloGroupUuid;
+use omicron_uuid_kinds::SiloUserUuid;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-use std::sync::Arc;
 use std::str::FromStr;
+use std::sync::Arc;
 use super::DataStore;
 use uuid::Uuid;
-use nexus_types::external_api::shared::SiloRole;
-use omicron_common::api::external::LookupType;
-use nexus_auth::authz::ApiResourceWithRoles;
-use nexus_db_model::DatabaseString;
 
 use scim2_rs::CreateGroupRequest;
 use scim2_rs::CreateUserRequest;
@@ -43,6 +50,7 @@ use scim2_rs::FilterOp;
 use scim2_rs::Group;
 use scim2_rs::GroupMember;
 use scim2_rs::ProviderStore;
+use scim2_rs::ProviderStoreDeleteResult;
 use scim2_rs::ProviderStoreError;
 use scim2_rs::ResourceType;
 use scim2_rs::StoredMeta;
@@ -218,13 +226,13 @@ impl CrdbScimProviderStore {
     async fn on_user_active_to_false_in_txn(
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        user_id: Uuid,
+        user_id: SiloUserUuid,
     ) -> Result<(), diesel::result::Error> {
         // Delete console sessions.
         {
             use nexus_db_schema::schema::console_session::dsl;
             diesel::delete(dsl::console_session)
-                .filter(dsl::silo_user_id.eq(user_id))
+                .filter(dsl::silo_user_id.eq(to_db_typed_uuid(user_id)))
                 .execute_async(conn)
                 .await?;
         }
@@ -233,7 +241,7 @@ impl CrdbScimProviderStore {
         {
             use nexus_db_schema::schema::device_access_token::dsl;
             diesel::delete(dsl::device_access_token)
-                .filter(dsl::silo_user_id.eq(user_id))
+                .filter(dsl::silo_user_id.eq(to_db_typed_uuid(user_id)))
                 .execute_async(conn)
                 .await?;
         }
@@ -243,15 +251,13 @@ impl CrdbScimProviderStore {
     async fn get_user_groups_for_user_in_txn(
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        user_id: Uuid,
+        user_id: SiloUserUuid,
     ) -> Result<Option<Vec<UserGroup>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group_membership::dsl;
         use nexus_db_schema::schema::silo_group::dsl as group_dsl;
-        use nexus_db_schema::schema::silo_group_scim_attributes::dsl as
-            attributes_dsl;
 
         struct Columns {
-            group_id: Uuid,
+            group_id: SiloGroupUuid,
             display_name: String,
         }
 
@@ -259,22 +265,20 @@ impl CrdbScimProviderStore {
             .inner_join(group_dsl::silo_group
                 .on(dsl::silo_group_id.eq(group_dsl::id))
             )
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(group_dsl::id))
-            )
             .filter(group_dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::silo_user_id.eq(user_id))
+            .filter(group_dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::silo_user_id.eq(to_db_typed_uuid(user_id)))
             .filter(group_dsl::time_deleted.is_null())
-            .select((
-                group_dsl::id,
-                attributes_dsl::display_name,
-            ))
+            .select((group_dsl::id, group_dsl::display_name))
             .load_async(conn)
             .await?
             .into_iter()
             // XXX without the into_iter?
-            .map(|(group_id, display_name)| Columns {
-                group_id, display_name
+            .map(|(group_id, display_name): (Uuid, Option<String>)| Columns {
+                // SAFETY: if the user provision type is SCIM, then there is a
+                // DB constraint preventing display_name from being null.
+                group_id: SiloGroupUuid::from_untyped_uuid(group_id),
+                display_name: display_name.unwrap(),
             })
             .collect();
 
@@ -301,12 +305,12 @@ impl CrdbScimProviderStore {
     async fn get_group_members_for_group_in_txn(
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        group_id: Uuid,
-    ) -> Result<Option<Vec<GroupMember>>, diesel::result::Error> {
+        group_id: SiloGroupUuid,
+    ) -> Result<Option<IdOrdMap<GroupMember>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group_membership::dsl;
 
         let users: Vec<Uuid> = dsl::silo_group_membership
-            .filter(dsl::silo_group_id.eq(group_id))
+            .filter(dsl::silo_group_id.eq(to_db_typed_uuid(group_id)))
             .select(dsl::silo_user_id)
             .load_async(conn)
             .await?;
@@ -332,38 +336,36 @@ impl CrdbScimProviderStore {
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         _err: OptionalError<ProviderStoreError>,
-        user_id: Uuid,
+        user_id: SiloUserUuid,
     ) -> Result<Option<StoredParts<User>>, diesel::result::Error> {
         let maybe_user = {
             use nexus_db_schema::schema::silo_user::dsl;
-            use nexus_db_schema::schema::silo_user_scim_attributes::dsl as
-                attributes_dsl;
 
             dsl::silo_user
-                .inner_join(attributes_dsl::silo_user_scim_attributes
-                    .on(attributes_dsl::silo_user_id.eq(dsl::id))
-                )
                 .filter(dsl::silo_id.eq(self.silo_id))
-                .filter(dsl::id.eq(user_id))
+                .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+                .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
                 .filter(dsl::time_deleted.is_null())
-                .select((
-                    SiloUser::as_returning(),
-                    SiloUserScimAttributes::as_returning(),
-                ))
+                .select(model::SiloUser::as_returning())
                 .first_async(conn)
                 .await
                 .optional()?
         };
 
-        let Some((user, attributes)) = maybe_user else {
+        let Some(user) = maybe_user else {
             return Ok(None);
         };
 
-        let groups: Option<Vec<UserGroup>> = self.get_user_groups_for_user_in_txn(
-            conn, user_id,
-        ).await?;
+        let groups: Option<Vec<UserGroup>> =
+            self.get_user_groups_for_user_in_txn(conn, user_id).await?;
 
-        Ok(Some(convert_to_scim_user(user, attributes, groups)))
+        let SiloUser::Scim(user) = user.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
+        Ok(Some(convert_to_scim_user(user, groups)))
     }
 
     async fn create_user_in_txn(
@@ -373,52 +375,42 @@ impl CrdbScimProviderStore {
         user_request: CreateUserRequest,
     ) -> Result<StoredParts<User>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_user::dsl;
-        use nexus_db_schema::schema::silo_user_scim_attributes::dsl as
-            attributes_dsl;
 
         // userName is meant to be unique: If the user request is adding a
         // userName that already exists, reject it
 
         let maybe_other_user = dsl::silo_user
-            .inner_join(attributes_dsl::silo_user_scim_attributes
-                .on(attributes_dsl::silo_user_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(attributes_dsl::user_name.eq(user_request.name.clone()))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::user_name.eq(user_request.name.clone()))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloUser::as_returning())
+            .select(model::SiloUser::as_returning())
             .first_async(conn)
             .await
             .optional()?;
 
         if maybe_other_user.is_some() {
-            return Err(err.bail(
-                scim2_rs::Error::conflict(format!("username {}", user_request.name)).into()
-            ));
+            return Err(err.bail(scim2_rs::Error::conflict(
+                format!("username {}", user_request.name)
+            ).into()));
         }
 
-        let user_id = Uuid::new_v4();
-        let new_user = SiloUser::new(self.silo_id, user_id, user_id.to_string());
+        let new_user = SiloUserScim::new(
+            self.silo_id,
+            SiloUserUuid::new_v4(),
+            user_request.name,
+            user_request.active,
+            user_request.external_id,
+        );
 
-        let new_attributes = SiloUserScimAttributes {
-            silo_user_id: user_id,
-
-            user_name: user_request.name,
-            external_id: user_request.external_id,
-            active: user_request.active,
-        };
+        let model: db::model::SiloUser = new_user.clone().into();
 
         diesel::insert_into(dsl::silo_user)
-            .values(new_user.clone())
+            .values(model)
             .execute_async(&*conn)
             .await?;
 
-        diesel::insert_into(attributes_dsl::silo_user_scim_attributes)
-            .values(new_attributes.clone())
-            .execute_async(&*conn)
-            .await?;
-
-        Ok(convert_to_scim_user(new_user, new_attributes, None))
+        Ok(convert_to_scim_user(new_user, None))
     }
 
     async fn list_users_in_txn(
@@ -428,14 +420,10 @@ impl CrdbScimProviderStore {
         filter: Option<FilterOp>,
     ) -> Result<Vec<StoredParts<User>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_user::dsl;
-        use nexus_db_schema::schema::silo_user_scim_attributes::dsl as
-            attributes_dsl;
 
         let mut query = dsl::silo_user
-            .inner_join(attributes_dsl::silo_user_scim_attributes
-                .on(attributes_dsl::silo_user_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
             .filter(dsl::time_deleted.is_null())
             .into_boxed();
 
@@ -443,8 +431,7 @@ impl CrdbScimProviderStore {
             Some(FilterOp::UserNameEq(username)) => {
                 // XXX case sensitive?
                 // define_sql_function!(fn lower(a: diesel::sql_types::VarChar) -> diesel::sql_types::VarChar);
-                query = query
-                    .filter(attributes_dsl::user_name.eq(username.clone()));
+                query = query.filter(dsl::user_name.eq(username.clone()));
             }
 
             None => {
@@ -459,22 +446,25 @@ impl CrdbScimProviderStore {
         }
 
         let users = query
-            .select((
-                SiloUser::as_returning(),
-                SiloUserScimAttributes::as_returning(),
-            ))
+            .select(model::SiloUser::as_returning())
             .load_async(conn)
             .await?;
 
         let mut returned_users = Vec::with_capacity(users.len());
 
-        for (user, attributes) in users {
+        for user in users {
             let groups = self.get_user_groups_for_user_in_txn(
                 conn,
-                user.identity.id,
+                user.identity.id.into(),
             ).await?;
 
-            returned_users.push(convert_to_scim_user(user, attributes, groups));
+            let SiloUser::Scim(user) = user.into() else {
+                // SAFETY: with the user provision type filter, this should
+                // never be another type.
+                unreachable!();
+            };
+
+            returned_users.push(convert_to_scim_user(user, groups));
         }
 
         Ok(returned_users)
@@ -484,18 +474,17 @@ impl CrdbScimProviderStore {
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ProviderStoreError>,
-        user_id: Uuid,
+        user_id: SiloUserUuid,
         user_request: CreateUserRequest,
     ) -> Result<StoredParts<User>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_user::dsl;
-        use nexus_db_schema::schema::silo_user_scim_attributes::dsl as
-            attributes_dsl;
 
         let maybe_user = dsl::silo_user
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloUser::as_returning())
+            .select(model::SiloUser::as_returning())
             .first_async(conn)
             .await
             .optional()?;
@@ -517,14 +506,12 @@ impl CrdbScimProviderStore {
         // userName to one that already exists, reject it
 
         let maybe_other_user = dsl::silo_user
-            .inner_join(attributes_dsl::silo_user_scim_attributes
-                .on(attributes_dsl::silo_user_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(attributes_dsl::user_name.eq(name.clone()))
-            .filter(dsl::id.ne(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::user_name.eq(name.clone()))
+            .filter(dsl::id.ne(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloUser::as_returning())
+            .select(model::SiloUser::as_returning())
             .first_async(conn)
             .await
             .optional()?;
@@ -546,10 +533,14 @@ impl CrdbScimProviderStore {
 
         let updated = diesel::update(dsl::silo_user)
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
             .set((
                 dsl::time_modified.eq(Utc::now()),
+                dsl::user_name.eq(name),
+                dsl::active.eq(active),
+                dsl::external_id.eq(external_id),
             ))
             .execute_async(conn)
             .await?;
@@ -561,34 +552,12 @@ impl CrdbScimProviderStore {
             ))));
         }
 
-        let updated = diesel::update(attributes_dsl::silo_user_scim_attributes)
-            .filter(attributes_dsl::silo_user_id.eq(user_id))
-            .set((
-                attributes_dsl::user_name.eq(name),
-                attributes_dsl::active.eq(active),
-                attributes_dsl::external_id.eq(external_id),
-            ))
-            .execute_async(conn)
-            .await?;
-
-        if updated != 1 {
-            return Err(err.bail(ProviderStoreError::StoreError(
-            anyhow!(
-                "expected 1 row to be updated, not {updated}"
-            ))));
-        }
-
-        let (user, attributes) = dsl::silo_user
-            .inner_join(attributes_dsl::silo_user_scim_attributes
-                .on(attributes_dsl::silo_user_id.eq(dsl::id))
-            )
+        let user = dsl::silo_user
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
-            .select((
-                SiloUser::as_select(),
-                SiloUserScimAttributes::as_returning(),
-            ))
+            .select(model::SiloUser::as_select())
             .first_async(conn)
             .await?;
 
@@ -596,25 +565,32 @@ impl CrdbScimProviderStore {
 
         let groups = self.get_user_groups_for_user_in_txn(
             conn,
-            user.identity.id,
+            user.identity.id.into(),
         ).await?;
 
-        Ok(convert_to_scim_user(user, attributes, groups))
+        let SiloUser::Scim(user) = user.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
+        Ok(convert_to_scim_user(user, groups))
     }
 
     async fn delete_user_by_id_in_txn(
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ProviderStoreError>,
-        user_id: Uuid,
+        user_id: SiloUserUuid,
     ) -> Result<bool, diesel::result::Error> {
         use nexus_db_schema::schema::silo_user::dsl;
 
         let maybe_user = dsl::silo_user
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloUser::as_select())
+            .select(model::SiloUser::as_select())
             .first_async(conn)
             .await
             .optional()?;
@@ -625,7 +601,8 @@ impl CrdbScimProviderStore {
 
         let updated = diesel::update(dsl::silo_user)
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(user_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
             .set(dsl::time_deleted.eq(Utc::now()))
             .execute_async(conn)
@@ -639,19 +616,10 @@ impl CrdbScimProviderStore {
         }
 
         {
-            use nexus_db_schema::schema::silo_user_scim_attributes::dsl;
-
-            diesel::delete(dsl::silo_user_scim_attributes)
-                .filter(dsl::silo_user_id.eq(user_id))
-                .execute_async(conn)
-                .await?;
-        }
-
-        {
             use nexus_db_schema::schema::silo_group_membership::dsl;
 
             diesel::delete(dsl::silo_group_membership)
-                .filter(dsl::silo_user_id.eq(user_id))
+                .filter(dsl::silo_user_id.eq(to_db_typed_uuid(user_id)))
                 .execute_async(conn)
                 .await?;
         }
@@ -663,35 +631,34 @@ impl CrdbScimProviderStore {
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         _err: OptionalError<ProviderStoreError>,
-        group_id: Uuid,
+        group_id: SiloGroupUuid,
     ) -> Result<Option<StoredParts<Group>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group::dsl;
-        use nexus_db_schema::schema::silo_group_scim_attributes::dsl as
-            attributes_dsl;
 
         let maybe_group = dsl::silo_group
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
-            .select((
-                SiloGroup::as_returning(),
-                SiloGroupScimAttributes::as_returning(),
-            ))
+            .select(model::SiloGroup::as_returning())
             .first_async(conn)
             .await
             .optional()?;
 
-        let Some((group, attributes)) = maybe_group else {
+        let Some(group) = maybe_group else {
             return Ok(None);
         };
 
-        let members: Option<Vec<GroupMember>> =
+        let members: Option<IdOrdMap<GroupMember>> =
             self.get_group_members_for_group_in_txn(conn, group_id).await?;
 
-        Ok(Some(convert_to_scim_group(group, attributes, members)))
+        let SiloGroup::Scim(group) = group.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
+        Ok(Some(convert_to_scim_group(group, members)))
     }
 
     /// Returns User id, and the GroupMember object, if this member is valid
@@ -700,7 +667,7 @@ impl CrdbScimProviderStore {
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ProviderStoreError>,
         member: &GroupMember,
-    ) -> Result<(Uuid, GroupMember), diesel::result::Error> {
+    ) -> Result<(SiloUserUuid, GroupMember), diesel::result::Error> {
         let GroupMember { resource_type, value } = member;
 
         let Some(value) = value else {
@@ -736,6 +703,7 @@ impl CrdbScimProviderStore {
 
                     let maybe_user: Option<Uuid> = dsl::silo_user
                         .filter(dsl::silo_id.eq(self.silo_id))
+                        .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
                         .filter(dsl::id.eq(id))
                         .filter(dsl::time_deleted.is_null())
                         .select(dsl::id)
@@ -765,6 +733,7 @@ impl CrdbScimProviderStore {
 
                 dsl::silo_user
                     .filter(dsl::silo_id.eq(self.silo_id))
+                    .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
                     .filter(dsl::id.eq(id))
                     .filter(dsl::time_deleted.is_null())
                     .select(dsl::id)
@@ -778,6 +747,7 @@ impl CrdbScimProviderStore {
 
                 dsl::silo_group
                     .filter(dsl::silo_id.eq(self.silo_id))
+                    .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
                     .filter(dsl::id.eq(id))
                     .filter(dsl::time_deleted.is_null())
                     .select(dsl::id)
@@ -810,7 +780,7 @@ impl CrdbScimProviderStore {
             }
         };
 
-        Ok((id, GroupMember {
+        Ok((SiloUserUuid::from_untyped_uuid(id), GroupMember {
             resource_type: Some(resource_type.to_string()),
             value: Some(value.to_string()),
         }))
@@ -822,6 +792,8 @@ impl CrdbScimProviderStore {
         err: OptionalError<ProviderStoreError>,
         group_request: CreateGroupRequest,
     ) -> Result<StoredParts<Group>, diesel::result::Error> {
+        use nexus_db_schema::schema::silo_group::dsl;
+
         let CreateGroupRequest { display_name, external_id, members } =
             group_request;
 
@@ -829,13 +801,11 @@ impl CrdbScimProviderStore {
         // the displayName to one that already exists, reject it.
 
         let maybe_group = dsl::silo_group
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(attributes_dsl::display_name.eq(display_name.clone()))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::display_name.eq(display_name.clone()))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloGroup::as_returning())
+            .select(model::SiloGroup::as_returning())
             .first_async(conn)
             .await
             .optional()?;
@@ -846,47 +816,46 @@ impl CrdbScimProviderStore {
             ).into()));
         }
 
-        let group_id = Uuid::new_v4();
+        let group_id = SiloGroupUuid::new_v4();
 
-        let new_group = SiloGroup::new(group_id, self.silo_id, group_id.to_string());
-
-        let new_attributes = SiloGroupScimAttributes {
-            silo_group_id: group_id,
-            display_name: display_name.clone(),
+        let new_group = SiloGroupScim::new(
+            self.silo_id,
+            group_id,
+            display_name.clone(),
             external_id,
-        };
+        );
 
-        use nexus_db_schema::schema::silo_group::dsl;
-        use nexus_db_schema::schema::silo_group_scim_attributes::dsl as
-            attributes_dsl;
+        let model: db::model::SiloGroup = new_group.clone().into();
 
         diesel::insert_into(dsl::silo_group)
-            .values(new_group.clone())
-            .execute_async(conn)
-            .await?;
-
-        diesel::insert_into(attributes_dsl::silo_group_scim_attributes)
-            .values(new_attributes.clone())
+            .values(model)
             .execute_async(conn)
             .await?;
 
         let members = if let Some(members) = &members {
-            let mut returned_members = Vec::with_capacity(members.len());
+            let mut returned_members = IdOrdMap::with_capacity(members.len());
             let mut memberships = Vec::with_capacity(members.len());
 
             // Validate the members arg, and insert silo group membership
             // records.
             for member in members {
-                let err = err.clone();
                 let (user_id, returned_member) = self
-                    .validate_group_member_in_txn(conn, err, member)
+                    .validate_group_member_in_txn(conn, err.clone(), member)
                     .await?;
 
-                returned_members.push(returned_member);
+                match returned_members.insert_unique(returned_member) {
+                    Ok(_) => {},
+
+                    Err(e) => {
+                        return Err(err.bail(ProviderStoreError::Scim(
+                            scim2_rs::Error::conflict(format!("{:?}", e.new_item()))
+                        )));
+                    }
+                }
 
                 memberships.push(SiloGroupMembership {
-                    silo_group_id: group_id,
-                    silo_user_id: user_id,
+                    silo_group_id: group_id.into(),
+                    silo_user_id: user_id.into(),
                 });
             }
 
@@ -932,7 +901,7 @@ impl CrdbScimProviderStore {
 
                     let new_assignment = db::model::RoleAssignment::new(
                         db::model::IdentityType::SiloGroup,
-                        group_id,
+                        group_id.into_untyped_uuid(),
                         authz_silo.resource_type(),
                         authz_silo.resource_id(),
                         &SiloRole::Admin.to_database_string(),
@@ -946,7 +915,7 @@ impl CrdbScimProviderStore {
             }
         }
 
-        Ok(convert_to_scim_group(new_group, new_attributes, members))
+        Ok(convert_to_scim_group(new_group, members))
     }
 
     async fn list_groups_in_txn(
@@ -956,14 +925,10 @@ impl CrdbScimProviderStore {
         filter: Option<FilterOp>,
     ) -> Result<Vec<StoredParts<Group>>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group::dsl;
-        use nexus_db_schema::schema::silo_group_scim_attributes::dsl as
-            attributes_dsl;
 
         let mut query = dsl::silo_group
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
             .filter(dsl::time_deleted.is_null())
             .into_boxed();
 
@@ -972,8 +937,7 @@ impl CrdbScimProviderStore {
                 // XXX case sensitive?
                 // define_sql_function!(fn lower(a: diesel::sql_types::VarChar) -> diesel::sql_types::VarChar);
 
-                query = query
-                    .filter(attributes_dsl::display_name.eq(display_name.clone()));
+                query = query.filter(dsl::display_name.eq(display_name.clone()));
             }
 
             None => {
@@ -988,22 +952,25 @@ impl CrdbScimProviderStore {
         }
 
         let groups = query
-            .select((
-                SiloGroup::as_returning(),
-                SiloGroupScimAttributes::as_returning(),
-            ))
+            .select(model::SiloGroup::as_returning())
             .load_async(&*conn)
             .await?;
 
         let mut returned_groups = Vec::with_capacity(groups.len());
 
-        for (group, attributes) in groups {
+        for group in groups {
             let members = self.get_group_members_for_group_in_txn(
                 conn,
-                group.identity.id,
+                group.identity.id.into(),
             ).await?;
 
-            returned_groups.push(convert_to_scim_group(group, attributes, members));
+            let SiloGroup::Scim(group) = group.into() else {
+                // SAFETY: with the user provision type filter, this should
+                // never be another type.
+                unreachable!();
+            };
+
+            returned_groups.push(convert_to_scim_group(group, members));
         }
 
         Ok(returned_groups)
@@ -1013,18 +980,17 @@ impl CrdbScimProviderStore {
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ProviderStoreError>,
-        group_id: Uuid,
+        group_id: SiloGroupUuid,
         group_request: CreateGroupRequest,
     ) -> Result<StoredParts<Group>, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group::dsl;
-        use nexus_db_schema::schema::silo_group_scim_attributes::dsl as
-            attributes_dsl;
 
         let maybe_group = dsl::silo_group
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloGroup::as_returning())
+            .select(model::SiloGroup::as_returning())
             .first_async(conn)
             .await
             .optional()?;
@@ -1043,14 +1009,12 @@ impl CrdbScimProviderStore {
         // the displayName to one that already exists, reject it.
 
         let maybe_group = dsl::silo_group
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(dsl::id))
-            )
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(attributes_dsl::display_name.eq(display_name.clone()))
-            .filter(dsl::id.ne(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::display_name.eq(display_name.clone()))
+            .filter(dsl::id.ne(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloGroup::as_returning())
+            .select(model::SiloGroup::as_returning())
             .first_async(conn)
             .await
             .optional()?;
@@ -1065,10 +1029,13 @@ impl CrdbScimProviderStore {
 
         let updated = diesel::update(dsl::silo_group)
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
             .set((
                 dsl::time_modified.eq(Utc::now()),
+                dsl::display_name.eq(display_name),
+                dsl::external_id.eq(external_id),
             ))
             .execute_async(conn)
             .await?;
@@ -1080,33 +1047,12 @@ impl CrdbScimProviderStore {
             ))));
         }
 
-        let updated = diesel::update(attributes_dsl::silo_group_scim_attributes)
-            .filter(attributes_dsl::silo_group_id.eq(group_id))
-            .set((
-                attributes_dsl::display_name.eq(display_name),
-                attributes_dsl::external_id.eq(external_id),
-            ))
-            .execute_async(conn)
-            .await?;
-
-        if updated != 1 {
-            return Err(err.bail(ProviderStoreError::StoreError(
-            anyhow!(
-                "expected 1 row to be updated, not {updated}"
-            ))));
-        }
-
-        let (group, attributes) = dsl::silo_group
-            .inner_join(attributes_dsl::silo_group_scim_attributes
-                .on(attributes_dsl::silo_group_id.eq(dsl::id))
-            )
+        let group = dsl::silo_group
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
-            .select((
-                SiloGroup::as_select(),
-                SiloGroupScimAttributes::as_select(),
-            ))
+            .select(model::SiloGroup::as_select())
             .first_async(conn)
             .await?;
 
@@ -1116,7 +1062,7 @@ impl CrdbScimProviderStore {
             use nexus_db_schema::schema::silo_group_membership::dsl;
 
             diesel::delete(dsl::silo_group_membership)
-                .filter(dsl::silo_group_id.eq(group_id))
+                .filter(dsl::silo_group_id.eq(to_db_typed_uuid(group_id)))
                 .execute_async(conn)
                 .await?;
         }
@@ -1124,22 +1070,29 @@ impl CrdbScimProviderStore {
         // Validate the members arg, and insert silo group membership records.
 
         let members = if let Some(members) = &members {
-            let mut returned_members = Vec::with_capacity(members.len());
+            let mut returned_members = IdOrdMap::with_capacity(members.len());
             let mut memberships = Vec::with_capacity(members.len());
 
             // Validate the members arg, and insert silo group membership
             // records.
             for member in members {
-                let err = err.clone();
                 let (user_id, returned_member) = self
-                    .validate_group_member_in_txn(conn, err, member)
+                    .validate_group_member_in_txn(conn, err.clone(), member)
                     .await?;
 
-                returned_members.push(returned_member);
+                match returned_members.insert_unique(returned_member) {
+                    Ok(_) => {},
+
+                    Err(e) => {
+                        return Err(err.bail(ProviderStoreError::Scim(
+                            scim2_rs::Error::conflict(format!("{:?}", e.new_item()))
+                        )));
+                    }
+                }
 
                 memberships.push(SiloGroupMembership {
-                    silo_group_id: group_id,
-                    silo_user_id: user_id,
+                    silo_group_id: group_id.into(),
+                    silo_user_id: user_id.into(),
                 });
             }
 
@@ -1157,22 +1110,29 @@ impl CrdbScimProviderStore {
         // XXX if displayName changes, invalidate role assignments, or delete
         // them all then re-check name?
 
-        Ok(convert_to_scim_group(group, attributes, members))
+        let SiloGroup::Scim(group) = group.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
+        Ok(convert_to_scim_group(group, members))
     }
 
     async fn delete_group_by_id_in_txn(
         &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ProviderStoreError>,
-        group_id: Uuid,
+        group_id: SiloGroupUuid,
     ) -> Result<bool, diesel::result::Error> {
         use nexus_db_schema::schema::silo_group::dsl;
 
         let maybe_group = dsl::silo_group
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
-            .select(SiloGroup::as_select())
+            .select(model::SiloGroup::as_select())
             .first_async(conn)
             .await
             .optional()?;
@@ -1183,7 +1143,8 @@ impl CrdbScimProviderStore {
 
         let updated = diesel::update(dsl::silo_group)
             .filter(dsl::silo_id.eq(self.silo_id))
-            .filter(dsl::id.eq(group_id))
+            .filter(dsl::user_provision_type.eq(UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
             .set(dsl::time_deleted.eq(Utc::now()))
             .execute_async(conn)
@@ -1197,19 +1158,10 @@ impl CrdbScimProviderStore {
         }
 
         {
-            use nexus_db_schema::schema::silo_group_scim_attributes::dsl;
-
-            diesel::delete(dsl::silo_group_scim_attributes)
-                .filter(dsl::silo_group_id.eq(group_id))
-                .execute_async(conn)
-                .await?;
-        }
-
-        {
             use nexus_db_schema::schema::silo_group_membership::dsl;
 
             diesel::delete(dsl::silo_group_membership)
-                .filter(dsl::silo_group_id.eq(group_id))
+                .filter(dsl::silo_group_id.eq(to_db_typed_uuid(group_id)))
                 .execute_async(conn)
                 .await?;
         }
@@ -1219,43 +1171,41 @@ impl CrdbScimProviderStore {
 }
 
 fn convert_to_scim_user(
-    silo_user: SiloUser,
-    attributes: SiloUserScimAttributes,
+    silo_user: SiloUserScim,
     groups: Option<Vec<UserGroup>>,
 ) -> StoredParts<User> {
     StoredParts {
         resource: User {
-            id: silo_user.identity.id.to_string(),
-            name: attributes.user_name,
-            active: attributes.active,
-            external_id: attributes.external_id,
+            id: silo_user.id.to_string(),
+            name: silo_user.user_name,
+            active: silo_user.active,
+            external_id: silo_user.external_id,
             groups,
         },
 
         meta: StoredMeta {
-            created: silo_user.identity.time_created,
-            last_modified: silo_user.identity.time_modified,
+            created: silo_user.time_created,
+            last_modified: silo_user.time_modified,
             version: "W/unimplemented".to_string(),
         },
     }
 }
 
 fn convert_to_scim_group(
-    silo_group: SiloGroup,
-    attributes: SiloGroupScimAttributes,
-    members: Option<Vec<GroupMember>>,
+    silo_group: SiloGroupScim,
+    members: Option<IdOrdMap<GroupMember>>,
 ) -> StoredParts<Group> {
     StoredParts {
         resource: Group {
-            id: silo_group.identity.id.to_string(),
-            display_name: attributes.display_name,
-            external_id: attributes.external_id,
+            id: silo_group.id.to_string(),
+            display_name: silo_group.display_name,
+            external_id: silo_group.external_id,
             members,
         },
 
         meta: StoredMeta {
-            created: silo_group.identity.time_created,
-            last_modified: silo_group.identity.time_modified,
+            created: silo_group.time_created,
+            last_modified: silo_group.time_modified,
             version: "W/unimplemented".to_string(),
         },
     }
@@ -1265,9 +1215,9 @@ fn convert_to_scim_group(
 impl ProviderStore for CrdbScimProviderStore {
     async fn get_user_by_id(
         &self,
-        user_id: String,
+        user_id: &str,
     ) -> Result<Option<StoredParts<User>>, ProviderStoreError> {
-        let user_id: Uuid = match user_id.parse() {
+        let user_id: SiloUserUuid = match user_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1400,10 +1350,10 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn replace_user(
         &self,
-        user_id: String,
+        user_id: &str,
         user_request: CreateUserRequest,
     ) -> Result<StoredParts<User>, ProviderStoreError> {
-        let user_id: Uuid = match user_id.parse() {
+        let user_id: SiloUserUuid = match user_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1453,9 +1403,9 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn delete_user_by_id(
         &self,
-        user_id: String,
-    ) -> Result<bool, ProviderStoreError> {
-        let user_id: Uuid = match user_id.parse() {
+        user_id: &str,
+    ) -> Result<ProviderStoreDeleteResult, ProviderStoreError> {
+        let user_id: SiloUserUuid = match user_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1499,14 +1449,18 @@ impl ProviderStore for CrdbScimProviderStore {
                     }
                 })?;
 
-        Ok(deleted_user)
+        if deleted_user {
+            Ok(ProviderStoreDeleteResult::Deleted)
+        } else {
+            Ok(ProviderStoreDeleteResult::NotFound)
+        }
     }
 
     async fn get_group_by_id(
         &self,
-        group_id: String,
+        group_id: &str,
     ) -> Result<Option<StoredParts<Group>>, ProviderStoreError> {
-        let group_id: Uuid = match group_id.parse() {
+        let group_id: SiloGroupUuid = match group_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1640,10 +1594,10 @@ impl ProviderStore for CrdbScimProviderStore {
 
     async fn replace_group(
         &self,
-        group_id: String,
+        group_id: &str,
         group_request: CreateGroupRequest,
     ) -> Result<StoredParts<Group>, ProviderStoreError> {
-        let group_id: Uuid = match group_id.parse() {
+        let group_id: SiloGroupUuid = match group_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1697,9 +1651,9 @@ impl ProviderStore for CrdbScimProviderStore {
     // false is returned.
     async fn delete_group_by_id(
         &self,
-        group_id: String,
-    ) -> Result<bool, ProviderStoreError> {
-        let group_id: Uuid = match group_id.parse() {
+        group_id: &str,
+    ) -> Result<ProviderStoreDeleteResult, ProviderStoreError> {
+        let group_id: SiloGroupUuid = match group_id.parse() {
             Ok(v) => v,
             Err(_) => {
                 return Err(ProviderStoreError::StoreError(
@@ -1743,6 +1697,10 @@ impl ProviderStore for CrdbScimProviderStore {
                 }
             })?;
 
-        Ok(deleted_group)
+        if deleted_group {
+            Ok(ProviderStoreDeleteResult::Deleted)
+        } else {
+            Ok(ProviderStoreDeleteResult::NotFound)
+        }
     }
 }

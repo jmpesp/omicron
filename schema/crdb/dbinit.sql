@@ -913,8 +913,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_user (
 
     CONSTRAINT external_id_consistency CHECK (
         CASE user_provision_type
-          WHEN 'api_only' THEN external_id IS NOT NULL
-          WHEN 'jit' THEN external_id IS NOT NULL
+          WHEN 'api_only' THEN (external_id IS NOT NULL) OR (time_deleted IS NOT NULL)
+          WHEN 'jit' THEN (external_id IS NOT NULL) OR (time_deleted IS NOT NULL)
         END
     ),
 
@@ -924,6 +924,11 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_user (
         END
     )
 );
+
+CREATE INDEX IF NOT EXISTS lookup_silo_user_by_silo_only ON omicron.public.silo_user (
+    silo_id
+) WHERE
+    time_deleted IS NULL;
 
 /* This index lets us quickly find users for a given silo, and prevents
    multiple users from having the same external id (for certain provision
@@ -978,8 +983,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.silo_group (
 
     CONSTRAINT external_id_consistency CHECK (
         CASE user_provision_type
-          WHEN 'api_only' THEN external_id IS NOT NULL
-          WHEN 'jit' THEN external_id IS NOT NULL
+          WHEN 'api_only' THEN (external_id IS NOT NULL) OR (time_deleted IS NOT NULL)
+          WHEN 'jit' THEN (external_id IS NOT NULL) OR (time_deleted IS NOT NULL)
         END
     ),
 
@@ -6604,6 +6609,32 @@ CREATE INDEX IF NOT EXISTS lookup_host_ereports_by_serial
 ON omicron.public.host_ereport (
     sled_serial
 ) WHERE
+    time_deleted IS NULL;
+
+CREATE TABLE IF NOT EXISTS omicron.public.silo_scim_client_bearer_token (
+    /* Identity metadata */
+    id UUID PRIMARY KEY,
+
+    time_created TIMESTAMPTZ NOT NULL,
+    time_deleted TIMESTAMPTZ,
+
+    silo_id UUID NOT NULL,
+
+    bearer_token TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    lookup_scim_client_by_silo_id
+ON
+    omicron.public.silo_scim_client_bearer_token (silo_id, id)
+WHERE
+    time_deleted IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    bearer_token_unique_for_scim_client
+ON
+    omicron.public.silo_scim_client_bearer_token (bearer_token)
+WHERE
     time_deleted IS NULL;
 
 /*

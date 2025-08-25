@@ -2758,3 +2758,16 @@ table! {
         result_kind -> crate::enums::AuditLogResultKindEnum,
     }
 }
+
+table! {
+    silo_scim_client_bearer_token (id) {
+        id -> Uuid,
+
+        time_created -> Timestamptz,
+        time_deleted -> Nullable<Timestamptz>,
+
+        silo_id -> Uuid,
+
+        bearer_token -> Text,
+    }
+}
