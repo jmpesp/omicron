@@ -2064,6 +2064,7 @@ impl InstanceRunner {
                 Zfs::ensure_dataset_volume(
                     format!("{}/vol", name),
                     size,
+                    delegated_dataset.block_size,
                 )
                 .await
                 .map_err(|e| Error::DelegatedDataset(e.into()))?;

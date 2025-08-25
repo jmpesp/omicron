@@ -1352,11 +1352,18 @@ impl Zfs {
     pub async fn ensure_dataset_volume(
         name: String,
         size: ByteCount,
+        block_size: u32,
     ) -> Result<(), EnsureDatasetVolumeError> {
         let mut command = Command::new(PFEXEC);
         let cmd = command.args(&[ZFS, "create"]);
 
-        cmd.args(&["-V", &size.to_bytes().to_string(), &name]);
+        cmd.args(&[
+            "-V",
+            &size.to_bytes().to_string(),
+            "-volbocksize",
+            &block_size.to_string(),
+            &name,
+        ]);
 
         execute_async(cmd)
             .await
