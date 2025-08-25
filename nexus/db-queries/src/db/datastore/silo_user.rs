@@ -240,6 +240,23 @@ impl From<SiloUserJit> for views::User {
     }
 }
 
+/// TODO comment please
+#[derive(Debug)]
+pub enum SiloUserLookup<'a> {
+    ApiOnly { external_id: &'a str },
+
+    Jit { external_id: &'a str },
+}
+
+impl<'a> SiloUserLookup<'a> {
+    pub fn user_provision_type(&self) -> UserProvisionType {
+        match &self {
+            SiloUserLookup::ApiOnly { .. } => UserProvisionType::ApiOnly,
+            SiloUserLookup::Jit { .. } => UserProvisionType::Jit,
+        }
+    }
+}
+
 impl DataStore {
     /// Create a silo user
     // TODO-security This function should take an OpContext and do an authz
@@ -410,16 +427,16 @@ impl DataStore {
             })
     }
 
-    /// Given an external ID, return
-    /// - Ok(Some((authz::SiloUser, SiloUser))) if that external id refers to an
+    /// Given a silo user lookup, return
+    /// - Ok(Some((authz::SiloUser, SiloUser))) if that lookup refers to an
     ///   existing silo user
     /// - Ok(None) if it does not
     /// - Err(...) if there was an error doing this lookup.
-    pub async fn silo_user_fetch_by_external_id(
-        &self,
+    pub async fn silo_user_fetch<'a>(
+        &'a self,
         opctx: &OpContext,
         authz_silo: &authz::Silo,
-        external_id: &str,
+        silo_user_lookup: &'a SiloUserLookup<'a>,
     ) -> Result<Option<(authz::SiloUser, SiloUser)>, Error> {
         opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
 
@@ -445,29 +462,47 @@ impl DataStore {
                 })?
         };
 
-        match &silo.user_provision_type {
-            UserProvisionType::ApiOnly | UserProvisionType::Jit => {
-                // Ok
-            }
+        let lookup_user_provision_type = silo_user_lookup.user_provision_type();
+
+        if silo.user_provision_type != lookup_user_provision_type {
+            return Err(Error::invalid_request(
+                format!(
+                    "silo provision type {:?} does not match lookup {:?}",
+                    silo.user_provision_type,
+                    lookup_user_provision_type,
+                )
+            ));
         }
 
-        Ok(dsl::silo_user
-            .filter(dsl::silo_id.eq(authz_silo.id()))
-            .filter(dsl::external_id.eq(external_id.to_string()))
-            .filter(dsl::time_deleted.is_null())
-            .select(model::SiloUser::as_select())
-            .load_async::<model::SiloUser>(&*conn)
-            .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
-            .pop()
-            .map(|db_silo_user| {
+        match silo_user_lookup {
+            SiloUserLookup::ApiOnly { external_id } |
+            SiloUserLookup::Jit { external_id } => {
+                let maybe_db_silo_user = dsl::silo_user
+                    .filter(dsl::silo_id.eq(authz_silo.id()))
+                    .filter(dsl::user_provision_type.eq(lookup_user_provision_type))
+                    .filter(dsl::external_id.eq(external_id.to_string()))
+                    .filter(dsl::time_deleted.is_null())
+                    .select(model::SiloUser::as_select())
+                    .get_result_async::<model::SiloUser>(&*conn)
+                    .await
+                    .optional()
+                    .map_err(|e|
+                        public_error_from_diesel(e, ErrorHandler::Server)
+                    )?;
+
+                let Some(db_silo_user) = maybe_db_silo_user else {
+                    return Ok(None);
+                };
+
                 let authz_silo_user = authz::SiloUser::new(
                     authz_silo.clone(),
                     db_silo_user.id(),
-                    LookupType::ByName(external_id.to_owned()),
+                    LookupType::ByName(external_id.to_string()),
                 );
-                (authz_silo_user, db_silo_user.into())
-            }))
+
+                Ok(Some((authz_silo_user, db_silo_user.into())))
+            }
+        }
     }
 
     pub async fn silo_users_list(
