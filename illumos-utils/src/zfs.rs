@@ -1360,8 +1360,8 @@ impl Zfs {
         cmd.args(&[
             "-V",
             &size.to_bytes().to_string(),
-            "-volbocksize",
-            &block_size.to_string(),
+            "-o",
+            &format!("volblocksize={}", block_size),
             &name,
         ]);
 
