@@ -10,6 +10,7 @@ use crate::context::OpContext;
 use crate::db::IncompleteOnConflictExt;
 use crate::db::datastore::RunnableQueryNoReturn;
 use crate::db::model;
+use crate::db::model::Silo;
 use crate::db::model::SiloGroupMembership;
 use crate::db::model::UserProvisionType;
 use crate::db::model::to_db_typed_uuid;
@@ -234,6 +235,23 @@ impl From<SiloGroupJit> for views::Group {
     }
 }
 
+/// TODO comment please
+#[derive(Debug)]
+pub enum SiloGroupLookup<'a> {
+    ApiOnly { external_id: &'a str },
+
+    Jit { external_id: &'a str },
+}
+
+impl<'a> SiloGroupLookup<'a> {
+    pub fn user_provision_type(&self) -> UserProvisionType {
+        match &self {
+            SiloGroupLookup::ApiOnly { .. } => UserProvisionType::ApiOnly,
+            SiloGroupLookup::Jit { .. } => UserProvisionType::Jit,
+        }
+    }
+}
+
 impl DataStore {
     pub(super) async fn silo_group_ensure_query(
         opctx: &OpContext,
@@ -318,29 +336,65 @@ impl DataStore {
         Ok(silo_group.into())
     }
 
-    pub async fn silo_group_optional_lookup(
+    pub async fn silo_group_optional_lookup<'a>(
         &self,
         opctx: &OpContext,
         authz_silo: &authz::Silo,
-        user_provision_type: model::UserProvisionType,
-        external_id: String,
+        silo_group_lookup: &'a SiloGroupLookup<'a>,
     ) -> LookupResult<Option<SiloGroup>> {
         opctx.authorize(authz::Action::ListChildren, authz_silo).await?;
 
+        // Check the silo's provision type makes sense: ApiOnly and Jit silos
+        // have groups that will always have a non-null external id.
+
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let silo = {
+            use nexus_db_schema::schema::silo::dsl;
+            dsl::silo
+                .filter(dsl::id.eq(authz_silo.id()))
+                .select(Silo::as_select())
+                .get_result_async::<Silo>(&*conn)
+                .await
+                .map_err(|e| {
+                    public_error_from_diesel(
+                        e,
+                        ErrorHandler::NotFoundByResource(authz_silo),
+                    )
+                })?
+        };
+
+        let lookup_user_provision_type = silo_group_lookup.user_provision_type();
+
+        if silo.user_provision_type != lookup_user_provision_type {
+            return Err(Error::invalid_request(
+                format!(
+                    "silo provision type {:?} does not match lookup {:?}",
+                    silo.user_provision_type,
+                    lookup_user_provision_type,
+                )
+            ));
+        }
+
         use nexus_db_schema::schema::silo_group::dsl;
 
-        let silo_group = dsl::silo_group
-            .filter(dsl::silo_id.eq(authz_silo.id()))
-            .filter(dsl::user_provision_type.eq(user_provision_type))
-            .filter(dsl::external_id.eq(external_id))
-            .filter(dsl::time_deleted.is_null())
-            .select(model::SiloGroup::as_select())
-            .first_async(&*self.pool_connection_authorized(opctx).await?)
-            .await
-            .optional()
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+        let maybe_silo_group = match silo_group_lookup {
+            SiloGroupLookup::ApiOnly { external_id } |
+            SiloGroupLookup::Jit { external_id } => {
+                dsl::silo_group
+                    .filter(dsl::silo_id.eq(authz_silo.id()))
+                    .filter(dsl::user_provision_type.eq(lookup_user_provision_type))
+                    .filter(dsl::external_id.eq(external_id.to_string()))
+                    .filter(dsl::time_deleted.is_null())
+                    .select(model::SiloGroup::as_select())
+                    .first_async(&*conn)
+                    .await
+                    .optional()
+                    .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
+            }
+        };
 
-        Ok(silo_group.map(|group| group.into()))
+        Ok(maybe_silo_group.map(|group| group.into()))
     }
 
     pub async fn silo_group_membership_for_user(

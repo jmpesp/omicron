@@ -18,9 +18,10 @@ use nexus_db_queries::db;
 use nexus_db_queries::db::datastore::Discoverability;
 use nexus_db_queries::db::datastore::DnsVersionUpdateBuilder;
 use nexus_db_queries::db::datastore::SiloGroup;
-use nexus_db_queries::db::datastore::SiloGroupApiOnly;
+use nexus_db_queries::db::datastore::SiloGroupLookup;
 use nexus_db_queries::db::datastore::SiloGroupJit;
 use nexus_db_queries::db::datastore::SiloUser;
+use nexus_db_queries::db::datastore::SiloUserLookup;
 use nexus_db_queries::db::datastore::SiloUserApiOnly;
 use nexus_db_queries::db::datastore::SiloUserJit;
 use nexus_db_queries::db::identity::Resource;
@@ -523,10 +524,22 @@ impl super::Nexus {
 
         let fetch_result = self
             .datastore()
-            .silo_user_fetch_by_external_id(
+            .silo_user_fetch(
                 opctx,
                 &authz_silo,
-                &authenticated_subject.external_id,
+                &match db_silo.user_provision_type {
+                    db::model::UserProvisionType::ApiOnly => {
+                        SiloUserLookup::ApiOnly {
+                            external_id: &authenticated_subject.external_id,
+                        }
+                    }
+
+                    db::model::UserProvisionType::Jit => {
+                        SiloUserLookup::Jit {
+                            external_id: &authenticated_subject.external_id,
+                        }
+                    }
+                },
             )
             .await?;
 
@@ -548,8 +561,8 @@ impl super::Nexus {
                         });
                     }
 
-                    // If the user provision type is JIT, then create the user if
-                    // one does not exist
+                    // If the user provision type is JIT, then create the user
+                    // if one does not exist
                     db::model::UserProvisionType::Jit => {
                         let silo_user = SiloUserJit::new(
                             authz_silo.id(),
@@ -578,8 +591,9 @@ impl super::Nexus {
                         .silo_group_optional_lookup(
                             opctx,
                             &authz_silo,
-                            db_silo.user_provision_type,
-                            group.clone(),
+                            &SiloGroupLookup::ApiOnly {
+                                external_id: &group,
+                            },
                         )
                         .await?
                 }
@@ -589,10 +603,9 @@ impl super::Nexus {
                         .silo_group_lookup_or_create_by_name(
                             opctx,
                             &authz_silo,
-                            // XXX this seems wrong, there's also a match in
-                            // that function
-                            db_silo.user_provision_type.into(),
-                            &group,
+                            &SiloGroupLookup::Jit {
+                                external_id: &group,
+                            },
                         )
                         .await?;
 
@@ -764,10 +777,12 @@ impl super::Nexus {
         // exist.  Rate limiting might help.  See omicron#2184.
         let fetch_user = self
             .datastore()
-            .silo_user_fetch_by_external_id(
+            .silo_user_fetch(
                 opctx,
                 &authz_silo,
-                credentials.username.as_ref(),
+                &SiloUserLookup::ApiOnly {
+                    external_id: credentials.username.as_ref(),
+                },
             )
             .await?;
         let verified = self
@@ -794,50 +809,44 @@ impl super::Nexus {
 
     // Silo groups
 
-    pub async fn silo_group_lookup_or_create_by_name(
+    pub async fn silo_group_lookup_or_create_by_name<'a>(
         &self,
         opctx: &OpContext,
         authz_silo: &authz::Silo,
-        user_provision_type: shared::UserProvisionType,
-        external_id: &String,
+        silo_group_lookup: &'a SiloGroupLookup<'a>,
     ) -> LookupResult<SiloGroup> {
-        // XXX depends on use provision type?
+        let SiloGroupLookup::Jit { external_id } = silo_group_lookup else {
+            return Err(Error::invalid_request(
+                format!(
+                    "cannot create group by name for {:?} provision type",
+                    silo_group_lookup.user_provision_type(),
+                )
+            ));
+        };
+
         match self
             .db_datastore
             .silo_group_optional_lookup(
                 opctx,
                 authz_silo,
-                user_provision_type.clone().into(),
-                external_id.clone(),
+                &SiloGroupLookup::Jit { external_id },
             )
             .await?
         {
             Some(silo_group) => Ok(silo_group),
 
             None => {
+
                 self.db_datastore
                     .silo_group_ensure(
                         opctx,
                         authz_silo,
-                        match user_provision_type {
-                            shared::UserProvisionType::ApiOnly => {
-                                SiloGroupApiOnly::new(
-                                    authz_silo.id(),
-                                    SiloGroupUuid::new_v4(),
-                                    external_id.clone(),
-                                )
-                                .into()
-                            }
-
-                            shared::UserProvisionType::Jit => {
-                                SiloGroupJit::new(
-                                    authz_silo.id(),
-                                    SiloGroupUuid::new_v4(),
-                                    external_id.clone(),
-                                )
-                                .into()
-                            }
-                        },
+                        SiloGroupJit::new(
+                            authz_silo.id(),
+                            SiloGroupUuid::new_v4(),
+                            external_id.to_string(),
+                        )
+                        .into()
                     )
                     .await
             }

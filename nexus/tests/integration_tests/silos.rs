@@ -881,10 +881,10 @@ async fn test_silo_user_fetch_by_external_id(
     // Fetching by external id that's not in the db should be Ok(None)
     let result = nexus
         .datastore()
-        .silo_user_fetch_by_external_id(
+        .silo_user_fetch(
             &opctx_external_authn,
             &authz_silo,
-            "123",
+            SiloUserLookup::ApiOnly { external_id: "123" },
         )
         .await;
     assert!(result.is_ok());
@@ -893,10 +893,12 @@ async fn test_silo_user_fetch_by_external_id(
     // Fetching by external id that is should be Ok(Some)
     let result = nexus
         .datastore()
-        .silo_user_fetch_by_external_id(
+        .silo_user_fetch(
             &opctx_external_authn,
             &authz_silo,
-            "f5513e049dac9468de5bdff36ab17d04f",
+            SiloUserLookup::ApiOnly {
+                external_id: "f5513e049dac9468de5bdff36ab17d04f",
+            },
         )
         .await;
     assert!(result.is_ok());
