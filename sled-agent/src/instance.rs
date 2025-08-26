@@ -1309,6 +1309,8 @@ impl InstanceRunner {
 
         // Remove any OPTE ports from the port manager.
         running_state.running_zone.release_opte_ports();
+
+        // XXX tear down delegated dataset + zvol here
     }
 
     async fn add_external_ip_inner(
