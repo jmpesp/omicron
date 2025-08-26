@@ -57,12 +57,11 @@ pub const ARTIFACT_DATASET_QUOTA: ByteCount = ByteCount::from_gibibytes_u32(20);
 pub const ZONE_DATASET: &'static str = "crypt/zone";
 pub const DUMP_DATASET: &'static str = "crypt/debug";
 pub const U2_DEBUG_DATASET: &'static str = "crypt/debug";
-pub const U2_LOCAL_STORAGE_DATASET: &'static str = "crypt/local_storage";
 
 // This is the root dataset for all U.2 drives. Encryption is inherited.
 pub const CRYPT_DATASET: &'static str = "crypt";
 
-pub const U2_EXPECTED_DATASET_COUNT: usize = 3;
+pub const U2_EXPECTED_DATASET_COUNT: usize = 2;
 pub const U2_EXPECTED_DATASETS: [ExpectedDataset; U2_EXPECTED_DATASET_COUNT] = [
     // Stores filesystems for zones
     ExpectedDataset::new(ZONE_DATASET).wipe(),
@@ -70,7 +69,6 @@ pub const U2_EXPECTED_DATASETS: [ExpectedDataset; U2_EXPECTED_DATASET_COUNT] = [
     ExpectedDataset::new(DUMP_DATASET)
         .quota(DUMP_DATASET_QUOTA)
         .compression(DUMP_DATASET_COMPRESSION),
-    ExpectedDataset::new(U2_LOCAL_STORAGE_DATASET),
 ];
 
 const M2_EXPECTED_DATASET_COUNT: usize = 7;

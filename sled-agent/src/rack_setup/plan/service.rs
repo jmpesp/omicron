@@ -369,9 +369,6 @@ impl Plan {
                         sled_storage::dataset::U2_DEBUG_DATASET => {
                             DatasetKind::Debug
                         }
-                        sled_storage::dataset::U2_LOCAL_STORAGE_DATASET => {
-                            DatasetKind::LocalStorage
-                        }
                         _ => {
                             return Err(PlanError::UnexpectedDataset(
                                 name.to_string(),
