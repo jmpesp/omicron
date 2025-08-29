@@ -695,13 +695,29 @@ impl DataStore {
 
         opctx.authorize(authz::Action::Read, authz_silo).await?;
 
+        let conn = self.pool_connection_authorized(opctx).await?;
+
+        let silo = {
+            use nexus_db_schema::schema::silo::dsl;
+            dsl::silo
+                .filter(dsl::id.eq(authz_silo.id()))
+                .select(model::Silo::as_select())
+                .get_result_async::<model::Silo>(&*conn)
+                .await
+                .map_err(|e| {
+                    public_error_from_diesel(
+                        e,
+                        ErrorHandler::NotFoundByResource(authz_silo),
+                    )
+                })?
+        };
+
         let page = paginated(dsl::silo_group, dsl::id, pagparams)
             .filter(dsl::silo_id.eq(authz_silo.id()))
+            .filter(dsl::user_provision_type.eq(silo.user_provision_type))
             .filter(dsl::time_deleted.is_null())
             .select(model::SiloGroup::as_select())
-            .load_async::<model::SiloGroup>(
-                &*self.pool_connection_authorized(opctx).await?,
-            )
+            .load_async::<model::SiloGroup>(&*conn)
             .await
             .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?
             .into_iter()
