@@ -10,6 +10,7 @@ use crate::authz;
 use crate::context::OpContext;
 use crate::db;
 use crate::db::datastore::ValidateTransition;
+use crate::db::datastore::ZpoolGetResult;
 use crate::db::model::AffinityPolicy;
 use crate::db::model::Sled;
 use crate::db::model::SledResourceVmm;
@@ -611,33 +612,12 @@ impl DataStore {
                 // if anyone can figure out how to do this with a CTE, you're my
                 // hero.
 
-                let zpools_for_sled: Vec<(Zpool, Option<i64>, Option<i64>, Option<i64>)> =
-                    self.zpool_get_for_sled(&opctx, sled_target).await?;
+                let zpools_for_sled: Vec<ZpoolGetResult> =
+                    self.zpool_get_for_sled_reservation(&opctx, sled_target).await?;
 
                 error!(
                     self.log,
                     "jwm zpools_for_sled is {:?}",
-                    zpools_for_sled,
-                );
-
-                // filter out all optional fields
-
-                let zpools_for_sled: Vec<(Zpool, i64, i64, i64)> =
-                    zpools_for_sled
-                        .into_iter()
-                        .filter(|(zpool, maybe_usage_1, maybe_usage_2, maybe_total)| {
-                            maybe_usage_1.is_some() &&
-                                maybe_usage_2.is_some() &&
-                                maybe_total.is_some()
-                        })
-                        .map(|(zpool, maybe_usage_1, maybe_usage_2, maybe_total)| {
-                            (zpool, maybe_usage_1.unwrap(), maybe_usage_2.unwrap(), maybe_total.unwrap())
-                        })
-                        .collect();
-
-                error!(
-                    self.log,
-                    "jwm filtered zpools_for_sled is {:?}",
                     zpools_for_sled,
                 );
 
@@ -652,22 +632,27 @@ impl DataStore {
 
                     let candidate_zpools: HashSet<Uuid> = zpools_for_sled
                         .iter()
-                        .filter(|(zpool, crucible_usage, local_usage, total)| {
+                        .filter(|zpool_get_result| {
+                            let ZpoolGetResult {
+                                pool,
+                                crucible_dataset_usage,
+                                local_storage_usage,
+                                last_inv_total_size,
+                            } = zpool_get_result;
+
                             let request_size: i64 = request.size.into();
                             let new_size_used: i64 =
-                                crucible_usage + local_usage + request_size;
+                                crucible_dataset_usage + local_storage_usage + request_size;
 
                             let control_plane_storage_buffer: i64 =
-                                zpool.control_plane_storage_buffer().into();
-                            let adjusted_total: i64 = total
+                                pool.control_plane_storage_buffer().into();
+                            let adjusted_total: i64 = last_inv_total_size
                                 - control_plane_storage_buffer;
 
                             new_size_used < adjusted_total
                         })
-                        .map(|(zpool, ..)| zpool.id())
+                        .map(|zpool_get_result| zpool_get_result.pool.id())
                         .collect();
-
-                    // XXX no_provision flag?
 
                     error!(
                         self.log,
@@ -701,7 +686,7 @@ impl DataStore {
                     configs: vec![],
                     zpools_left: zpools_for_sled
                         .iter()
-                        .map(|(zpool, ..)| zpool.id())
+                        .map(|zpool_get_result| zpool_get_result.pool.id())
                         .collect(),
                     request_index: 0,
                 });
@@ -754,6 +739,8 @@ impl DataStore {
                     "jwm possible_configs is {:?}",
                     possible_configs,
                 );
+
+                // XXX comment about if possible_configs.is_empty() 
 
                 // XXX jwm loop required here: multiple mappings might satisfy
                 // local storage requirement, but will apply for a single sled.

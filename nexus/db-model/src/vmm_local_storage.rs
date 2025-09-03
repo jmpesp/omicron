@@ -102,6 +102,10 @@ pub struct LocalStorageDataset {
     pub pool_id: Uuid,
 
     pub size_used: i64,
+
+    /// Do not consider this dataset as a candidate during local storage
+    /// allocation
+    no_provision: bool,
 }
 
 impl LocalStorageDataset {
@@ -112,6 +116,7 @@ impl LocalStorageDataset {
             rcgen: Generation::new(),
             pool_id,
             size_used: 0,
+            no_provision: false,
         }
     }
 }

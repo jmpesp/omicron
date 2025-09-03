@@ -6506,7 +6506,10 @@ CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset (
      * otherwise ignores this field. It's updated by Nexus as vmm allocations
      * and deletions are performed using this dataset.
      */
-    size_used INT NOT NULL
+    size_used INT NOT NULL,
+
+    /* Do not consider this dataset during local storage allocation */
+    no_provision BOOL NOT NULL
 );
 
 /* Create an index on the size usage for any Crucible dataset */

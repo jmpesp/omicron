@@ -2745,6 +2745,8 @@ table! {
         pool_id -> Uuid,
 
         size_used -> Int8,
+
+        no_provision -> Bool,
     }
 }
 
