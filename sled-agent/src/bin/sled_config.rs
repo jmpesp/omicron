@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::Context;
+use anyhow::bail;
 use camino::Utf8PathBuf;
 use dropshot::ConfigDropshot;
 use dropshot::ConfigLogging;
@@ -282,18 +283,20 @@ fn main() -> Result<()> {
         }),
 
         nongimlet_observed_disks: Some({
-            // U2
+            // Eat the output of nvmeadm to map device instance to (model,
+            // serial).
+
             let cmd = Command::new("pfexec")
                 .arg("nvmeadm")
                 .arg("list")
                 .arg("-p")
                 .arg("-o")
-                .arg("model,serial,disk")
+                .arg("model,serial,instance")
                 .output()?;
 
             let text = String::from_utf8_lossy(&cmd.stdout);
-            let mut slot = 0;
-            let mut unparsed_disks = vec![];
+
+            let mut instance_map: HashMap<&str, (&str, &str)> = HashMap::new();
 
             for line in text.split("\n") {
                 if line.len() == 0 {
@@ -303,37 +306,82 @@ fn main() -> Result<()> {
                 let parts: Vec<&str> = line.split(':').collect();
                 let model = parts[0];
                 let serial = parts[1];
-                let disk = parts[2];
+                let instance = parts[2];
 
-                // `devfs_path` should not end with `:partition_letter`
-                let path = std::fs::canonicalize(format!("/dev/dsk/{disk}"))?;
-                let path_str = path.to_string_lossy();
-                let path_parts: Vec<&str> = path_str.split(':').collect();
-                let devfs_path = path_parts[0];
+                instance_map.insert(instance, (model, serial));
+            }
 
-                println!("> found nvme {model} {serial} {disk} {devfs_path} for U2");
+            // Pass _all_ nvme disks as U2: walk all "nvme" nodes, then find the
+            // underlying "blkdev", then use that devfs path.
 
-                unparsed_disks.push(UnparsedDisk::new(
-                    Utf8PathBuf::from(devfs_path),
-                    None, // XXX Some(Utf8PathBuf::from(disk)) ? or /dev/dsk/{disk} ?
-                    slot,
-                    DiskVariant::U2,
-                    omicron_common::disk::DiskIdentity {
-                        vendor: String::from("Synthetic"),
-                        serial: String::from(serial),
-                        model: String::from(model),
-                    },
-                    false, // is_boot_disk
-                    DiskFirmware::new(
-                        /*active_slot*/ 1, // NVMe spec has slots 1-7
-                        /*next_active_slot*/ None,
-                        /*slot1_read_only*/ true,
-                        /*number of slots*/1,
-                        /*slots*/ vec![Some(String::from("firmware"))],
-                    ),
-                ));
+            let mut slot = 0;
+            let mut unparsed_disks = vec![];
 
-                slot += 1;
+            {
+                let mut di = devinfo::DevInfo::new()?;
+
+                let mut w = di.walk_driver("nvme");
+                while let Some(n) = w.next().transpose()? {
+                    let instance = format!(
+                        "{}{}",
+                        n.driver_name().unwrap(),
+                        n.instance().unwrap(),
+                    );
+
+                    let (model, serial) = instance_map.get(instance.as_str()).unwrap();
+                    let devfs_path = format!("/devices{}", n.devfs_path()?);
+
+                    println!(
+                        "> found {} / {} / {} / {}",
+                        instance,
+                        model,
+                        serial,
+                        devfs_path,
+                    );
+
+                    let mut bdi = devinfo::DevInfo::new_path(n.devfs_path()?)?;
+                    let mut bw = bdi.walk_driver("blkdev");
+                    let mut times = 0;
+
+                    while let Some(bn) = bw.next().transpose()? {
+                        if times != 0 {
+                            bail!("multiple blkdev?!");
+                        }
+
+                        let devfs_path = format!("/devices{}", bn.devfs_path()?);
+
+                        println!(
+                            ">> using {}{}: {}",
+                            bn.driver_name().unwrap(),
+                            bn.instance().unwrap(),
+                            devfs_path,
+                        );
+
+                        unparsed_disks.push(UnparsedDisk::new(
+                            Utf8PathBuf::from(devfs_path),
+                            None, // XXX Some(Utf8PathBuf::from(disk)) ? or /dev/dsk/{disk} ?
+                            slot,
+                            DiskVariant::U2,
+                            omicron_common::disk::DiskIdentity {
+                                // sled-hardware/src/illumos/mod.rs, find_properties
+                                vendor: String::from("Synthetic"),
+                                serial: String::from(*serial),
+                                model: String::from(*model),
+                            },
+                            false, // is_boot_disk
+                            DiskFirmware::new(
+                                /*active_slot*/ 1, // NVMe spec has slots 1-7
+                                /*next_active_slot*/ None,
+                                /*slot1_read_only*/ true,
+                                /*number of slots*/1,
+                                /*slots*/ vec![Some(String::from("firmware"))],
+                            ),
+                        ));
+
+                        slot += 1;
+                        times += 1;
+                    }
+                }
             }
 
             unparsed_disks
