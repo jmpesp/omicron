@@ -125,6 +125,8 @@ sp-sim.workspace = true
 
 [target.'cfg(target_os = "illumos")'.dependencies]
 opte-ioctl.workspace = true
+# use illumos-devinfo ?
+devinfo = { git = "https://github.com/illumos/devinfo-rs", branch = "main" }
 
 [dev-dependencies]
 assert_matches.workspace = true
