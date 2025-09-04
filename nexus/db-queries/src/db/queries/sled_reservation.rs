@@ -364,6 +364,17 @@ pub fn sled_insert_resource_query(
                 query.param().bind::<sql_types::SmallInt, SqlU8>((*slot).into());
                 query.sql(", ");
 
+                // When assigning a quota and reservation for the dataset that
+                // will be the parent of the volume, there's an overhead that
+                // must be accounted for, and it empirically seems to be 34M per
+                // 1G.
+
+                let overhead = 34 * 1048576 * (request_size / 1073741824);
+                let dataset_size = request_size + overhead;
+
+                query.param().bind::<sql_types::BigInt, _>(dataset_size);
+                query.sql(", ");
+
                 query.param().bind::<sql_types::BigInt, _>(request_size);
                 query.sql(", ");
 
@@ -390,7 +401,7 @@ pub fn sled_insert_resource_query(
             query.sql("UPDATE_LOCAL_STORAGE_RECORDS as (");
             query.sql("
             UPDATE local_storage_dataset
-            SET size_used = size_used + NEW_VMM_LOCAL_STORAGE_RECORDS.size_bytes
+            SET size_used = size_used + NEW_VMM_LOCAL_STORAGE_RECORDS.dataset_size
             FROM NEW_VMM_LOCAL_STORAGE_RECORDS
             WHERE
               NEW_VMM_LOCAL_STORAGE_RECORDS.pool_id = local_storage_dataset.pool_id AND
@@ -452,7 +463,7 @@ pub fn sled_insert_resource_query(
                   SUM(
                     crucible_dataset.size_used +
                     local_storage_dataset.size_used +
-                    NEW_VMM_LOCAL_STORAGE_RECORDS.size_bytes
+                    NEW_VMM_LOCAL_STORAGE_RECORDS.dataset_size
                   )
                 FROM
                   crucible_dataset
@@ -476,6 +487,7 @@ pub fn sled_insert_resource_query(
                   crucible_dataset.pool_id");
 
                 // XXX (NEW_VMM_LOCAL_STORAGE_RECORDS.time_deleted IS NULL) AND
+                // XXXX local storage no provision flag?
 
                 query.sql(") < (");
 

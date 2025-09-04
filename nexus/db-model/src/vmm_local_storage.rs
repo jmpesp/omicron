@@ -47,9 +47,11 @@ pub struct VmmLocalStorage { // XXX jwm rename to SledResourceVmmLocalStorage ?
     /// state and slot assignment will often change together).
     pub slot: SqlU8,
 
-    /// size of the Disk
-    #[diesel(column_name = size_bytes)]
-    pub size: ByteCount,
+    /// size of the parent dataset for the volume passed through to Propolis
+    pub dataset_size: ByteCount,
+
+    /// size of the volume passed through to Propolis
+    pub volume_size: ByteCount,
 
     /// size of blocks (512, 2048, or 4096)
     pub block_size: BlockSize,

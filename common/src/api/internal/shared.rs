@@ -1107,10 +1107,11 @@ pub struct SledIdentifiers {
 }
 
 // XXX specific to propolis? specific to volume delegation?
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)] // XXX don't need all this
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq)] // XXX don't need all this derive stuff
 pub struct DelegatedDataset {
     pub pool_name: String,
     pub dataset_name: String,
+    pub dataset_size: u64,
     pub volume_size: u64,
     pub block_size: u32,
 }

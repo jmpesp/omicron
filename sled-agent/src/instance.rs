@@ -2026,7 +2026,6 @@ impl InstanceRunner {
         if !datasets.is_empty() {
             for delegated_dataset in &self.delegated_datasets {
                 // XXX what should actually do this? 
-                // pfexec zfs create -V 1G {dustertank/minecraft}/vol
 
                 use illumos_utils::zfs::*;
 
@@ -2039,11 +2038,11 @@ impl InstanceRunner {
 
                 let mountpoint = camino::Utf8PathBuf::try_from("/unused").unwrap();
 
-                let size = ByteCount::try_from(delegated_dataset.volume_size)
+
+                let dataset_size = ByteCount::try_from(delegated_dataset.dataset_size)
                     .map_err(|e| Error::DelegatedDataset(e.into()))?;
 
-                // XXX fudge factor for overhead is 16G?!
-                let byte_count = ByteCount::try_from(delegated_dataset.volume_size + 16 * 1024 * 1024 * 1024)
+                let volume_size = ByteCount::try_from(delegated_dataset.volume_size)
                     .map_err(|e| Error::DelegatedDataset(e.into()))?;
 
                 Zfs::ensure_dataset(DatasetEnsureArgs {
@@ -2053,8 +2052,8 @@ impl InstanceRunner {
                     zoned: true,
                     encryption_details: None, // inherits from parent "crypt/local_storage"
                     size_details: Some(SizeDetails {
-                        quota: Some(byte_count),
-                        reservation: Some(byte_count),
+                        quota: Some(dataset_size),
+                        reservation: Some(dataset_size),
                         compression: omicron_common::disk::CompressionAlgorithm::Off,
                     }),
                     id: None,
@@ -2065,15 +2064,11 @@ impl InstanceRunner {
 
                 Zfs::ensure_dataset_volume(
                     format!("{}/vol", name),
-                    size,
+                    volume_size,
                     delegated_dataset.block_size,
                 )
                 .await
                 .map_err(|e| Error::DelegatedDataset(e.into()))?;
-
-                // XXX and is this name correct?
-                // /dev/zvol/rdsk/{dustertank/minecraft}/zvol/*
-                // root@minecraft:~# stat /dev/zvol/rdsk/{dustertank/minecraft}/vol
 
                 devices.push(zone::Device {
                     name: format!("/dev/zvol/rdsk/{}/zvol/*", name),

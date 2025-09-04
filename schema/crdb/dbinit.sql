@@ -6534,7 +6534,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.vmm_local_storage (
     slot INT2 CHECK (slot >= 0 AND slot < 8),
 
     /* Disk configuration */
-    size_bytes INT NOT NULL,
+    dataset_size INT NOT NULL,
+    volume_size INT NOT NULL,
     block_size omicron.public.block_size NOT NULL,
 
     /* FK into the zpool table */

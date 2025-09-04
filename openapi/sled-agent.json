@@ -3912,6 +3912,11 @@
           "dataset_name": {
             "type": "string"
           },
+          "dataset_size": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
           "pool_name": {
             "type": "string"
           },
@@ -3924,6 +3929,7 @@
         "required": [
           "block_size",
           "dataset_name",
+          "dataset_size",
           "pool_name",
           "volume_size"
         ]

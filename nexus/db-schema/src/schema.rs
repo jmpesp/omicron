@@ -2759,7 +2759,8 @@ table! {
         //project_id -> Uuid,
         vmm_id -> Uuid,
         slot -> Int2,
-        size_bytes -> Int8,
+        dataset_size -> Int8,
+        volume_size -> Int8,
         block_size -> crate::enums::BlockSizeEnum,
         pool_id -> Uuid,
     }

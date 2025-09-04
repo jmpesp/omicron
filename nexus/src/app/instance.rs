@@ -1327,7 +1327,8 @@ impl super::Nexus {
                     .map(|record| DelegatedDataset {
                         pool_name: format!("oxp_{}", record.pool_id), // oxp_ only happens once here!
                         dataset_name: format!("{}", record.id),
-                        volume_size: record.size.to_bytes(),
+                        dataset_size: record.dataset_size.to_bytes(),
+                        volume_size: record.volume_size.to_bytes(),
                         block_size: record.block_size.to_bytes(),
                     })
                     .collect()
