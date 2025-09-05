@@ -239,6 +239,8 @@ async fn cleanup_all_old_global_state(log: &Logger) -> Result<(), StartError> {
     illumos_utils::opte::delete_all_xde_devices(&log)
         .map_err(StartError::DeleteXdeDevices)?;
 
+    // XXX delete local storage datasets here, they survive reboots
+
     Ok(())
 }
 
