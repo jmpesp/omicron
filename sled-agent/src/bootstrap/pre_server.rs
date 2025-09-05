@@ -144,6 +144,7 @@ impl BootstrapAgentStartup {
             config.sidecar_revision.clone(),
             config.switch_zone_maghemite_links.clone(),
             long_running_task_handles.zone_image_resolver.clone(),
+            config.switch_zone_extra_links.clone(),
         );
 
         // Inform the hardware monitor that the service manager is ready

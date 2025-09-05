@@ -570,6 +570,7 @@ pub struct ServiceManagerInner {
     switch_zone_bootstrap_address: Ipv6Addr,
     zone_image_resolver: ZoneImageSourceResolver,
     system_api: Box<dyn SystemApi>,
+    switch_zone_extra_links: Vec<PhysicalLink>,
 }
 
 // Late-binding information, only known once the sled agent is up and
@@ -705,6 +706,7 @@ impl ServiceManager {
         sidecar_revision: SidecarRevision,
         switch_zone_maghemite_links: Vec<PhysicalLink>,
         zone_image_resolver: ZoneImageSourceResolver,
+        switch_zone_extra_links: Vec<PhysicalLink>,
     ) -> Self {
         Self::new_inner(
             log,
@@ -715,6 +717,7 @@ impl ServiceManager {
             switch_zone_maghemite_links,
             zone_image_resolver,
             RealSystemApi::new(),
+            switch_zone_extra_links,
         )
     }
 
@@ -728,6 +731,7 @@ impl ServiceManager {
         switch_zone_maghemite_links: Vec<PhysicalLink>,
         zone_image_resolver: ZoneImageSourceResolver,
         system_api: Box<dyn SystemApi>,
+        switch_zone_extra_links: Vec<PhysicalLink>,
     ) -> Self {
         let log = log.new(o!("component" => "ServiceManager"));
         info!(log, "Creating ServiceManager");
@@ -760,6 +764,7 @@ impl ServiceManager {
                     .switch_zone_bootstrap_ip,
                 zone_image_resolver,
                 system_api,
+                switch_zone_extra_links,
             }),
         }
     }
@@ -991,6 +996,7 @@ impl ServiceManager {
                             }
 
                             Err(_) => {
+                                // XXX why not all types return error?
                                 if let SidecarRevision::SoftZone(_) =
                                     self.inner.sidecar_revision
                                 {
@@ -1002,7 +1008,32 @@ impl ServiceManager {
                         }
                     }
                 }
+
                 _ => (),
+            }
+        }
+
+        if matches!(zone_args, ZoneArgs::Switch(_)) {
+            for link in &self.inner.switch_zone_extra_links {
+                match self
+                    .inner
+                    .system_api
+                    .dladm()
+                    .verify_link(&link.to_string())
+                    .await
+                {
+                    Ok(link) => {
+                        // Link local addresses should be delegated for
+                        // experimenting!
+                        links.push((link, true));
+                    }
+
+                    Err(_) => {
+                        return Err(Error::MissingDevice {
+                            device: link.to_string(),
+                        });
+                    }
+                }
             }
         }
 

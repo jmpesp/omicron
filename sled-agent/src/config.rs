@@ -119,6 +119,10 @@ pub struct Config {
     /// root certificates and whether to use local certificate chain or
     /// one over IPCC
     pub sprockets: SprocketsConfig,
+
+    /// Extra links to delegate to the switch zone for non-gimlet based testing.
+    #[serde(default)]
+    pub switch_zone_extra_links: Vec<PhysicalLink>,
 }
 
 #[derive(Debug, thiserror::Error)]
