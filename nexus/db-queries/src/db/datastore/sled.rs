@@ -558,7 +558,7 @@ impl DataStore {
         //
         // In the uncontended case, however, we'll only iterate through this
         // loop once.
-        loop {
+        'outer: loop {
             // Pick a reservation target, given the constraints we previously
             // saw in the database.
             let sled_target = pick_sled_reservation_target(
@@ -668,7 +668,8 @@ impl DataStore {
                         unpreferred.remove(&sled_target);
                         preferred.remove(&sled_target);
 
-                        continue;
+                        // pick another sled
+                        continue 'outer;
                     }
 
                     requests.push(LocalStorageRequest2 {
