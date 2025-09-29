@@ -795,7 +795,10 @@ zone = { version = "0.3.1", default-features = false, features = ["async"] }
 newtype-uuid = { version = "1.2.4", default-features = false }
 omicron-uuid-kinds = { path = "uuid-kinds", features = ["serde", "schemars08", "uuid-v4"] }
 
-scim2-rs = { git = "https://github.com/oxidecomputer/scim2-rs" }
+#scim2-rs = { git = "https://github.com/oxidecomputer/scim2-rs" }
+#scim2-test-client = { git = "https://github.com/oxidecomputer/scim2-rs" }
+scim2-rs = { path = "../scim2-rs/core" }
+scim2-test-client = { path = "../scim2-rs/test-client" }
 
 # NOTE: The test profile inherits from the dev profile, so settings under
 # profile.dev get inherited. AVOID setting anything under profile.test: that
@@ -1024,3 +1027,4 @@ path = "workspace-hack"
 [patch."https://github.com/oxidecomputer/omicron"]
 omicron-uuid-kinds = { path = "uuid-kinds" }
 omicron-common = { path = "common" }
+

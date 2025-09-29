@@ -27,6 +27,8 @@ use omicron_common::api::external::IdentityMetadataCreateParams;
 use omicron_nexus::TestInterfaces;
 use uuid::Uuid;
 
+use scim2_test_client::Tester;
+
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
 
@@ -555,18 +557,18 @@ async fn test_scim_client_token_bearer_auth(
         .await;
 
     // Check that we can get a SCIM provider using that token
-    // XXX this will 500 until the final impl PR, but it should not 401
 
     RequestBuilder::new(client, Method::GET, "/scim/v2/Users")
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
         .header(
             http::header::AUTHORIZATION,
             format!("Bearer {}", created_token.bearer_token),
         )
         .allow_non_dropshot_errors()
-        .expect_status(Some(StatusCode::INTERNAL_SERVER_ERROR))
+        .expect_status(Some(StatusCode::OK))
         .execute()
         .await
-        .expect("expected 500");
+        .expect("expected 200");
 }
 
 #[nexus_test]
@@ -621,4 +623,51 @@ async fn test_scim_client_no_auth_with_expired_token(
         .execute()
         .await
         .expect("expected 401");
+}
+
+#[nexus_test]
+async fn test_scim2_test_client(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create a Silo, then grant the PrivilegedUser the Admin role on it
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Point the scim2-rs crate's self tester at Nexus
+
+    let tester = Tester::new_with_bearer_auth(
+        client.url("/scim/v2").to_string(),
+        created_token.bearer_token,
+    )
+    .unwrap();
+
+    tester.run().await.unwrap();
 }
