@@ -1284,7 +1284,7 @@ pub static SCIM_TOKENS_URL: LazyLock<String> = LazyLock::new(|| {
 pub static SCIM_TOKEN_URL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "/v1/system/identity-providers/scim/tokens/{}?silo={}",
-        uuid::Uuid::new_v4(),
+        "7885144e-9c75-47f7-a97d-7dfc58e1186c",
         DEFAULT_SILO.identity().name,
     )
 });
