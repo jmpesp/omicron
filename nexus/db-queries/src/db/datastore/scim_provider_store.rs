@@ -248,7 +248,7 @@ impl CrdbScimProviderStore {
 
         diesel::insert_into(dsl::silo_user)
             .values(model)
-            .execute_async(&*conn)
+            .execute_async(conn)
             .await?;
 
         Ok(convert_to_scim_user(new_user, None))
@@ -824,7 +824,7 @@ impl CrdbScimProviderStore {
 
         let groups = query
             .select(model::SiloGroup::as_returning())
-            .load_async(&*conn)
+            .load_async(conn)
             .await?;
 
         let mut returned_groups = Vec::with_capacity(groups.len());
@@ -1118,7 +1118,6 @@ impl ProviderStore for CrdbScimProviderStore {
             self.datastore
                 .transaction_retry_wrapper("scim_get_user_by_id")
                 .transaction(&conn, |conn| {
-                    let user_id = user_id.clone();
                     let err = err.clone();
 
                     async move {
@@ -1288,7 +1287,6 @@ impl ProviderStore for CrdbScimProviderStore {
             .datastore
             .transaction_retry_wrapper("scim_delete_user_by_id")
             .transaction(&conn, |conn| {
-                let user_id = user_id.clone();
                 let err = err.clone();
 
                 async move {
@@ -1339,7 +1337,6 @@ impl ProviderStore for CrdbScimProviderStore {
             .datastore
             .transaction_retry_wrapper("scim_get_group_by_id")
             .transaction(&conn, |conn| {
-                let group_id = group_id.clone();
                 let err = err.clone();
 
                 async move {
