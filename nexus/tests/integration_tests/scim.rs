@@ -672,7 +672,8 @@ async fn test_scim2_crate_self_test(cptestctx: &ControlPlaneTestContext) {
     tester.run().await.unwrap();
 }
 
-// Test that disabling a SCIM user means they can no longer log in
+// Test that disabling a SCIM user means they can no longer log in, and it
+// invalidates all their sessions.
 #[nexus_test]
 async fn test_disabling_scim_user(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
@@ -887,6 +888,31 @@ async fn test_disabling_scim_user(cptestctx: &ControlPlaneTestContext) {
         RequestBuilder::new(client, Method::GET, "/v1/me")
             .header(http::header::COOKIE, session_cookie_value.clone())
             .expect_status(Some(StatusCode::UNAUTHORIZED)),
+    )
+    .execute()
+    .await
+    .expect("expected 401");
+
+    // And they can no longer log in
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::POST,
+            &format!(
+                "/login/{}/saml/some-totally-real-saml-provider",
+                SILO_NAME
+            ),
+        )
+        .raw_body(Some(
+            serde_urlencoded::to_string(SamlLoginPost {
+                saml_response: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_WITH_GROUPS),
+                relay_state: None,
+            })
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::UNAUTHORIZED)),
     )
     .execute()
     .await
