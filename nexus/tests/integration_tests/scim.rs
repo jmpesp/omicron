@@ -626,7 +626,7 @@ async fn test_scim_client_no_auth_with_expired_token(
 }
 
 #[nexus_test]
-async fn test_scim2_test_client(cptestctx: &ControlPlaneTestContext) {
+async fn test_scim2_crate_self_test(cptestctx: &ControlPlaneTestContext) {
     let client = &cptestctx.external_client;
     let nexus = &cptestctx.server.server_context().nexus;
     let opctx = OpContext::for_tests(
@@ -670,4 +670,225 @@ async fn test_scim2_test_client(cptestctx: &ControlPlaneTestContext) {
     .unwrap();
 
     tester.run().await.unwrap();
+}
+
+// Test that disabling a SCIM user means they can no longer log in
+#[nexus_test]
+async fn test_disabling_scim_user(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    // Create a SAML IDP
+
+    let _silo_saml_idp: views::SamlIdentityProvider = object_create(
+        client,
+        &format!("/v1/system/identity-providers/saml?silo={}", SILO_NAME),
+        &params::SamlIdentityProviderCreate {
+            identity: IdentityMetadataCreateParams {
+                name: "some-totally-real-saml-provider"
+                    .to_string()
+                    .parse()
+                    .unwrap(),
+                description: "a demo provider".to_string(),
+            },
+
+            idp_metadata_source: params::IdpMetadataSource::Base64EncodedXml {
+                data: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_IDP_DESCRIPTOR),
+            },
+
+            idp_entity_id: "https://some.idp.test/oxide_rack/".to_string(),
+            sp_client_id: "client_id".to_string(),
+            acs_url: "https://customer.site/oxide_rack/saml".to_string(),
+            slo_url: "https://customer.site/oxide_rack/saml".to_string(),
+            technical_contact_email: "technical@fake".to_string(),
+
+            signing_keypair: None,
+
+            group_attribute_name: Some("groups".into()),
+        },
+    )
+    .await;
+
+    nexus.set_samael_max_issue_delay(
+        chrono::Utc::now()
+            - "2022-05-04T15:36:12.631Z"
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap()
+            + chrono::Duration::seconds(60),
+    );
+
+    // The user isn't created yet so we should see a 401.
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::POST,
+            &format!(
+                "/login/{}/saml/some-totally-real-saml-provider",
+                SILO_NAME
+            ),
+        )
+        .raw_body(Some(
+            serde_urlencoded::to_string(SamlLoginPost {
+                saml_response: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_WITH_GROUPS),
+                relay_state: None,
+            })
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::UNAUTHORIZED)),
+    )
+    .execute()
+    .await
+    .expect("expected 401");
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, create a user with a name matching the saml:NameID
+    // email in SAML_RESPONSE_WITH_GROUPS.
+
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                    "userName": "some@customer.com",
+                    "externalId": "some@customer.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201");
+
+    // Now the user can log in and create a valid session
+
+    let result = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::POST,
+            &format!(
+                "/login/{}/saml/some-totally-real-saml-provider",
+                SILO_NAME
+            ),
+        )
+        .raw_body(Some(
+            serde_urlencoded::to_string(SamlLoginPost {
+                saml_response: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_WITH_GROUPS),
+                relay_state: None,
+            })
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::SEE_OTHER)),
+    )
+    .execute()
+    .await
+    .expect("expected 303");
+
+    let session_cookie_value =
+        result.headers["Set-Cookie"].to_str().unwrap().to_string();
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert_eq!(me.user.display_name, String::from("some@customer.com"));
+
+    // Disable the user by asetting active = false
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Users/{}", me.user.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "replace",
+                      "value": {
+                        "active": false
+                      }
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+
+    // The same session should not work anymore.
+
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::UNAUTHORIZED)),
+    )
+    .execute()
+    .await
+    .expect("expected 401");
 }

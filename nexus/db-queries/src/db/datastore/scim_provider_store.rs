@@ -81,6 +81,7 @@ impl CrdbScimProviderStore {
                 .execute_async(conn)
                 .await?;
         }
+
         Ok(())
     }
 
