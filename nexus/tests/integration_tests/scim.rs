@@ -918,3 +918,664 @@ async fn test_disabling_scim_user(cptestctx: &ControlPlaneTestContext) {
     .await
     .expect("expected 401");
 }
+
+// Test that searching for a SCIM user works and is case insensitive
+#[nexus_test]
+async fn test_scim_user_search(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, create two users.
+
+    let _mike: scim2_rs::User = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "userName": "mscott",
+                        "externalId": "mscott@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created user");
+
+    let created_user: scim2_rs::User = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        // Note that the name uses upper case!
+                        "userName": "JHALPERT",
+                        "externalId": "jhalpert@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created user");
+
+    // Now search for that user
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!("/scim/v2/Users?filter=username%20eq%20%22JHALPERT%22"),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of users");
+
+    // `response.resources` is a Vec of generic resources that have the type
+    // `serde_json::Map<String, serde_json::Value>`. This to_value -> from_value
+    // converts it into a User without a trip though string serialization +
+    // deserialization.
+    let users: Vec<scim2_rs::User> = serde_json::from_value(
+        serde_json::to_value(&response.resources).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].id, created_user.id);
+
+    // Case insensitive search should also work
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!("/scim/v2/Users?filter=username%20eq%20%22JhaLpErT%22"),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of users");
+
+    let users: Vec<scim2_rs::User> = serde_json::from_value(
+        serde_json::to_value(&response.resources).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].id, created_user.id);
+
+    // Searching for a non-existent user should return nothing
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!("/scim/v2/Users?filter=username%20eq%20%22dschrute%22"),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of users");
+
+    assert_eq!(response.total_results, 0);
+}
+
+// Test that searching for a SCIM group works and is case insensitive
+#[nexus_test]
+async fn test_scim_group_search(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, create two groups.
+
+    let _regional_managers: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "regional_managers",
+                        "externalId": "regional_managers@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    let created_group: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        // Note that the name uses upper case!
+                        "displayName": "ASSISTANT_TO_REGIONAL_MANAGER",
+                        "externalId": "arm@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    // Now search for that group
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!(
+                "/scim/v2/Groups?filter=displayname%20eq%20%22{}%22",
+                "ASSISTANT_TO_REGIONAL_MANAGER",
+            ),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of groups");
+
+    // `response.resources` is a Vec of generic resources that have the type
+    // `serde_json::Map<String, serde_json::Value>`. This to_value -> from_value
+    // converts it into a Group without a trip though string serialization +
+    // deserialization.
+    let groups: Vec<scim2_rs::Group> = serde_json::from_value(
+        serde_json::to_value(&response.resources).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].id, created_group.id);
+
+    // Case insensitive search should also work
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!(
+                "/scim/v2/Groups?filter=displayname%20eq%20%22{}%22",
+                "AsSIStANT_TO_regIOnAL_mANaGER",
+            ),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of groups");
+
+    let groups: Vec<scim2_rs::Group> = serde_json::from_value(
+        serde_json::to_value(&response.resources).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].id, created_group.id);
+
+    // Searching for a non-existent group should return nothing
+
+    let response: scim2_rs::ListResponse = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::GET,
+            &format!(
+                "/scim/v2/Groups?filter=displayname%20eq%20%22{}%22",
+                "assistant_to_assistant_to_regional_manager",
+            ),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200")
+    .parsed_body()
+    .expect("list of groups");
+
+    assert_eq!(response.total_results, 0);
+}
+
+// Test that for SCIM users, userName is unique (even if case is different)
+#[nexus_test]
+async fn test_scim_user_unique(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, try to create two "identical" users.
+
+    let _mike: scim2_rs::User = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "userName": "mscott",
+                        "externalId": "mscott@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created user");
+
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "userName": "MscOtT",
+                        "externalId": "mscott@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CONFLICT)),
+    )
+    .execute()
+    .await
+    .expect("expected 409");
+
+    // Now, create a different user, then try to PUT so that the name matches.
+    // This should fail with a 409 as well.
+
+    let mike_scarn: scim2_rs::User = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "userName": "mscarn",
+                        "externalId": "mscarn@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created user");
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PUT,
+            &format!("/scim/v2/Users/{}", mike_scarn.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                    "userName": "mscott",
+                    "externalId": "mscott@dundermifflin.com",
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::CONFLICT)),
+    )
+    .execute()
+    .await
+    .expect("expected 409");
+}
+
+// Test that for SCIM groups, displayName is unique (even if case is different)
+#[nexus_test]
+async fn test_scim_group_unique(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo(&client, SILO_NAME, true, shared::SiloIdentityMode::SamlScim)
+        .await;
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, try to create two "identical" groups
+
+    let _sales: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "Sales",
+                        "externalId": "sales@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "SALES",
+                        "externalId": "sales@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CONFLICT)),
+    )
+    .execute()
+    .await
+    .expect("expected 409");
+
+    // Now, create a different group, then try to PUT so that the name matches.
+    // This should fail with a 409 as well.
+
+    let accounting: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "accounting",
+                        "externalId": "accounting@dundermifflin.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PUT,
+            &format!("/scim/v2/Groups/{}", accounting.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                    "displayName": "sales",
+                    "externalId": "sales@dundermifflin.com",
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::CONFLICT)),
+    )
+    .execute()
+    .await
+    .expect("expected 409");
+}

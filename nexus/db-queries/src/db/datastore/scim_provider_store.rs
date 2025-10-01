@@ -53,6 +53,14 @@ pub struct CrdbScimProviderStore {
     datastore: Arc<DataStore>,
 }
 
+// Define the lower case function here: some SCIM attributes like user name are
+// case insensitive!
+define_sql_function!(
+    fn lower(
+        a: diesel::sql_types::Nullable<diesel::sql_types::Text>,
+    ) -> diesel::sql_types::Text
+);
+
 impl CrdbScimProviderStore {
     pub fn new(silo_id: Uuid, datastore: Arc<DataStore>) -> Self {
         CrdbScimProviderStore { silo_id, datastore }
@@ -113,12 +121,11 @@ impl CrdbScimProviderStore {
             .load_async(conn)
             .await?
             .into_iter()
-            // XXX without the into_iter?
             .map(|(group_id, display_name): (Uuid, Option<String>)| Columns {
+                group_id: SiloGroupUuid::from_untyped_uuid(group_id),
                 // SAFETY: if the user provision type is SCIM, then there is a
                 // DB constraint preventing display_name from being null.
-                group_id: SiloGroupUuid::from_untyped_uuid(group_id),
-                display_name: display_name.unwrap(),
+                display_name: display_name.expect("database constraint exists"),
             })
             .collect();
 
@@ -128,7 +135,7 @@ impl CrdbScimProviderStore {
             let groups = tuples
                 .into_iter()
                 .map(|column| UserGroup {
-                    // Note this provider type does not support nested
+                    // Note neither the scim2-rs crate or Nexus supports nested
                     // groups
                     member_type: Some(UserGroupType::Direct),
                     value: Some(column.group_id.to_string()),
@@ -159,6 +166,8 @@ impl CrdbScimProviderStore {
             let members = users
                 .into_iter()
                 .map(|user_id| GroupMember {
+                    // Note neither the scim2-rs crate or Nexus support nested
+                    // groups
                     resource_type: Some(ResourceType::User.to_string()),
                     value: Some(user_id.to_string()),
                 })
@@ -220,7 +229,7 @@ impl CrdbScimProviderStore {
         let maybe_other_user = dsl::silo_user
             .filter(dsl::silo_id.eq(self.silo_id))
             .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
-            .filter(dsl::user_name.eq(user_request.name.clone()))
+            .filter(lower(dsl::user_name).eq(lower(user_request.name.clone())))
             .filter(dsl::time_deleted.is_null())
             .select(model::SiloUser::as_returning())
             .first_async(conn)
@@ -271,9 +280,10 @@ impl CrdbScimProviderStore {
 
         match filter {
             Some(FilterOp::UserNameEq(username)) => {
-                // XXX case sensitive?
-                // define_sql_function!(fn lower(a: diesel::sql_types::VarChar) -> diesel::sql_types::VarChar);
-                query = query.filter(dsl::user_name.eq(username.clone()));
+                // userName is defined as `"caseExact" : false` in RFC 7643,
+                // section 8.7.1
+                query = query
+                    .filter(lower(dsl::user_name).eq(lower(username.clone())));
             }
 
             None => {
@@ -347,7 +357,7 @@ impl CrdbScimProviderStore {
         let maybe_other_user = dsl::silo_user
             .filter(dsl::silo_id.eq(self.silo_id))
             .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
-            .filter(dsl::user_name.eq(name.clone()))
+            .filter(lower(dsl::user_name).eq(lower(name.clone())))
             .filter(dsl::id.ne(to_db_typed_uuid(user_id)))
             .filter(dsl::time_deleted.is_null())
             .select(model::SiloUser::as_returning())
@@ -522,7 +532,7 @@ impl CrdbScimProviderStore {
 
             Err(_) => {
                 return Err(err.bail(ProviderStoreError::StoreError(anyhow!(
-                    "user id must be uuid"
+                    "id must be uuid"
                 ))));
             }
         };
@@ -562,7 +572,6 @@ impl CrdbScimProviderStore {
                 }
 
                 ResourceType::Group => {
-                    // don't support nested groups for now.
                     return Err(err.bail(
                         scim2_rs::Error::internal_error(
                             "nested groups not supported".to_string(),
@@ -574,6 +583,9 @@ impl CrdbScimProviderStore {
 
             resource_type
         } else {
+            // If no resource type is supplied, then search for a matching user
+            // or group.
+
             let maybe_user: Option<Uuid> = {
                 use nexus_db_schema::schema::silo_user::dsl;
 
@@ -660,11 +672,14 @@ impl CrdbScimProviderStore {
 
         // displayName is meant to be unique: If the group request is changing
         // the displayName to one that already exists, reject it.
+        //
+        // Note that the SCIM spec says that displayName's uniqueness is none -
+        // but our / Nexus groups have to be unique due to the lookup by Name.
 
         let maybe_group = dsl::silo_group
             .filter(dsl::silo_id.eq(self.silo_id))
             .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
-            .filter(dsl::display_name.eq(display_name.clone()))
+            .filter(lower(dsl::display_name).eq(lower(display_name.clone())))
             .filter(dsl::time_deleted.is_null())
             .select(model::SiloGroup::as_returning())
             .first_async(conn)
@@ -750,11 +765,6 @@ impl CrdbScimProviderStore {
                 .first_async(conn)
                 .await?;
 
-            // XXX this means that the admin group can't be deleted!
-
-            // XXX this means that the SCIM provisioning client won't know about
-            // this group!
-
             if let Some(admin_group_name) = silo.admin_group_name {
                 if admin_group_name == display_name {
                     // XXX code copied from silo create
@@ -802,11 +812,11 @@ impl CrdbScimProviderStore {
 
         match filter {
             Some(FilterOp::DisplayNameEq(display_name)) => {
-                // XXX case sensitive?
-                // define_sql_function!(fn lower(a: diesel::sql_types::VarChar) -> diesel::sql_types::VarChar);
-
-                query =
-                    query.filter(dsl::display_name.eq(display_name.clone()));
+                // displayName is defined as `"caseExact" : false` in RFC 7643,
+                // section 8.7.1
+                query = query.filter(
+                    lower(dsl::display_name).eq(lower(display_name.clone())),
+                );
             }
 
             None => {
@@ -884,7 +894,7 @@ impl CrdbScimProviderStore {
         let maybe_group = dsl::silo_group
             .filter(dsl::silo_id.eq(self.silo_id))
             .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
-            .filter(dsl::display_name.eq(display_name.clone()))
+            .filter(lower(dsl::display_name).eq(lower(display_name.clone())))
             .filter(dsl::id.ne(to_db_typed_uuid(group_id)))
             .filter(dsl::time_deleted.is_null())
             .select(model::SiloGroup::as_returning())
