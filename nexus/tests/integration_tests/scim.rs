@@ -1017,7 +1017,7 @@ async fn test_scim_user_search(cptestctx: &ControlPlaneTestContext) {
         RequestBuilder::new(
             client,
             Method::GET,
-            &format!("/scim/v2/Users?filter=username%20eq%20%22JHALPERT%22"),
+            "/scim/v2/Users?filter=username%20eq%20%22JHALPERT%22",
         )
         .header(http::header::CONTENT_TYPE, "application/scim+json")
         .header(
@@ -1051,7 +1051,7 @@ async fn test_scim_user_search(cptestctx: &ControlPlaneTestContext) {
         RequestBuilder::new(
             client,
             Method::GET,
-            &format!("/scim/v2/Users?filter=username%20eq%20%22JhaLpErT%22"),
+            "/scim/v2/Users?filter=username%20eq%20%22JhaLpErT%22",
         )
         .header(http::header::CONTENT_TYPE, "application/scim+json")
         .header(
@@ -1081,7 +1081,7 @@ async fn test_scim_user_search(cptestctx: &ControlPlaneTestContext) {
         RequestBuilder::new(
             client,
             Method::GET,
-            &format!("/scim/v2/Users?filter=username%20eq%20%22dschrute%22"),
+            "/scim/v2/Users?filter=username%20eq%20%22dschrute%22",
         )
         .header(http::header::CONTENT_TYPE, "application/scim+json")
         .header(
