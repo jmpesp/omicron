@@ -1579,3 +1579,6 @@ async fn test_scim_group_unique(cptestctx: &ControlPlaneTestContext) {
     .await
     .expect("expected 409");
 }
+
+// XXX need test for admin group name changes, test the permissions
+

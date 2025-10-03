@@ -912,6 +912,23 @@ impl CrdbScimProviderStore {
             ));
         }
 
+        // Stash the group for later
+
+        let existing_group = dsl::silo_group
+            .filter(dsl::silo_id.eq(self.silo_id))
+            .filter(dsl::user_provision_type.eq(model::UserProvisionType::Scim))
+            .filter(dsl::id.eq(to_db_typed_uuid(group_id)))
+            .filter(dsl::time_deleted.is_null())
+            .select(model::SiloGroup::as_select())
+            .first_async(conn)
+            .await?;
+
+        let SiloGroup::Scim(existing_group) = existing_group.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
         // Overwrite all fields based on CreateGroupRequest.
 
         let updated = diesel::update(dsl::silo_group)
@@ -941,6 +958,13 @@ impl CrdbScimProviderStore {
             .select(model::SiloGroup::as_select())
             .first_async(conn)
             .await?;
+
+        let SiloGroup::Scim(group) = group.into() else {
+            // SAFETY: with the user provision type filter, this should never be
+            // another type.
+            unreachable!();
+        };
+
 
         // Delete all existing group memberships for this group id
 
@@ -996,14 +1020,68 @@ impl CrdbScimProviderStore {
             None
         };
 
-        // XXX if displayName changes, invalidate role assignments, or delete
-        // them all then re-check name?
+        // If displayName changes from the Silo admin group name to something
+        // else, delete the Silo admin role assignment for this group ID. If it
+        // changes _to_ the Silo admin group name, insert the appropriate Silo
+        // admin role assignment.
 
-        let SiloGroup::Scim(group) = group.into() else {
-            // SAFETY: with the user provision type filter, this should never be
-            // another type.
-            unreachable!();
-        };
+        {
+            use nexus_db_schema::schema::silo::dsl;
+            let silo = dsl::silo
+                .filter(dsl::id.eq(self.silo_id))
+                .select(model::Silo::as_select())
+                .first_async(conn)
+                .await?;
+
+            let authz_silo = authz::Silo::new(
+                authz::FLEET,
+                self.silo_id,
+                LookupType::ById(self.silo_id),
+            );
+
+            if let Some(admin_group_name) = silo.admin_group_name {
+                use nexus_db_schema::schema::role_assignment::dsl;
+
+                // Did the group's name match the admin group name, and was it
+                // changed?
+                if existing_group.display_name == admin_group_name {
+                    if group.display_name != admin_group_name {
+                        // Scan for the matching role assignment, and delete
+                        // that.
+
+                        diesel::delete(dsl::role_assignment)
+                            .filter(dsl::identity_type.eq(model::IdentityType::SiloGroup))
+                            .filter(dsl::identity_id.eq(to_db_typed_uuid(group_id)))
+                            .filter(dsl::resource_type.eq(authz_silo.resource_type().to_string()))
+                            .filter(dsl::resource_id.eq(authz_silo.id()))
+                            .filter(dsl::role_name.eq(SiloRole::Admin.to_database_string()))
+                            .execute_async(conn)
+                            .await?;
+                    }
+                } else {
+                    // Did the group's name change _to_ the admin group name?
+                    if group.display_name == admin_group_name {
+                        // If so, insert a new assignment.
+
+                        let new_assignment = model::RoleAssignment::new(
+                            model::IdentityType::SiloGroup,
+                            group_id.into_untyped_uuid(),
+                            authz_silo.resource_type(),
+                            authz_silo.resource_id(),
+                            &SiloRole::Admin.to_database_string(),
+                        );
+
+                        diesel::insert_into(dsl::role_assignment)
+                            .values(new_assignment)
+                            .execute_async(conn)
+                            .await?;
+
+                        // XXX what if the user has added this assignment
+                        // already? test this!
+                    }
+                }
+            }
+        }
 
         Ok(convert_to_scim_group(group, members))
     }
