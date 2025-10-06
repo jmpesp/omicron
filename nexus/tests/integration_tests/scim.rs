@@ -15,7 +15,9 @@ use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::model::ScimClientBearerToken;
 use nexus_test_utils::http_testing::{AuthnMode, NexusRequest, RequestBuilder};
 use nexus_test_utils::resource_helpers::create_silo;
+use nexus_test_utils::resource_helpers::create_silo_with_admin_group_name;
 use nexus_test_utils::resource_helpers::grant_iam;
+use nexus_test_utils::resource_helpers::grant_iam_for_group;
 use nexus_test_utils::resource_helpers::object_create;
 use nexus_test_utils::resource_helpers::object_create_no_body;
 use nexus_test_utils::resource_helpers::object_delete;
@@ -25,6 +27,8 @@ use nexus_types::external_api::views::{self, Silo};
 use nexus_types::external_api::{params, shared};
 use omicron_common::api::external::IdentityMetadataCreateParams;
 use omicron_nexus::TestInterfaces;
+use omicron_uuid_kinds::GenericUuid;
+use omicron_uuid_kinds::SiloGroupUuid;
 use uuid::Uuid;
 
 use scim2_test_client::Tester;
@@ -1580,5 +1584,547 @@ async fn test_scim_group_unique(cptestctx: &ControlPlaneTestContext) {
     .expect("expected 409");
 }
 
-// XXX need test for admin group name changes, test the permissions
+// Test that a group with the silo admin group name confers admin privileges
+#[nexus_test]
+async fn test_scim_user_admin_group_priv(cptestctx: &ControlPlaneTestContext) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
 
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo_with_admin_group_name(
+        &client,
+        SILO_NAME,
+        true,
+        shared::SiloIdentityMode::SamlScim,
+        Some(String::from("scranton_admins")),
+    )
+    .await;
+
+    // Create a SAML IDP
+
+    let _silo_saml_idp: views::SamlIdentityProvider = object_create(
+        client,
+        &format!("/v1/system/identity-providers/saml?silo={}", SILO_NAME),
+        &params::SamlIdentityProviderCreate {
+            identity: IdentityMetadataCreateParams {
+                name: "some-totally-real-saml-provider"
+                    .to_string()
+                    .parse()
+                    .unwrap(),
+                description: "a demo provider".to_string(),
+            },
+
+            idp_metadata_source: params::IdpMetadataSource::Base64EncodedXml {
+                data: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_IDP_DESCRIPTOR),
+            },
+
+            idp_entity_id: "https://some.idp.test/oxide_rack/".to_string(),
+            sp_client_id: "client_id".to_string(),
+            acs_url: "https://customer.site/oxide_rack/saml".to_string(),
+            slo_url: "https://customer.site/oxide_rack/saml".to_string(),
+            technical_contact_email: "technical@fake".to_string(),
+
+            signing_keypair: None,
+
+            group_attribute_name: Some("groups".into()),
+        },
+    )
+    .await;
+
+    nexus.set_samael_max_issue_delay(
+        chrono::Utc::now()
+            - "2022-05-04T15:36:12.631Z"
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .unwrap()
+            + chrono::Duration::seconds(60),
+    );
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Using this SCIM token, create a user with a name matching the saml:NameID
+    // email in SAML_RESPONSE_WITH_GROUPS.
+
+    let user: scim2_rs::User = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Users")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                    "userName": "some@customer.com",
+                    "externalId": "some@customer.com",
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created user");
+
+    // Login with that user
+
+    let result = NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::POST,
+            &format!(
+                "/login/{}/saml/some-totally-real-saml-provider",
+                SILO_NAME
+            ),
+        )
+        .raw_body(Some(
+            serde_urlencoded::to_string(SamlLoginPost {
+                saml_response: base64::engine::general_purpose::STANDARD
+                    .encode(SAML_RESPONSE_WITH_GROUPS),
+                relay_state: None,
+            })
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::SEE_OTHER)),
+    )
+    .execute()
+    .await
+    .expect("expected 303");
+
+    let session_cookie_value =
+        result.headers["Set-Cookie"].to_str().unwrap().to_string();
+
+    // Initially this user should _not_ have the silo admin role, they are not
+    // part of any group.
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(!me.silo_admin);
+
+    // Creating the group with a name that matches the silo admin group name but
+    // with no members does not change the existing user's role assignment.
+
+    let admin_group: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "scranton_admins",
+                        "externalId": "scranton_admins",
+                        "members": [],
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(!me.silo_admin);
+
+    // Then, add the user to the silo admin group via a PATCH - they should gain
+    // the admin role
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{}", admin_group.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "add",
+                      "path": "members",
+                      "value": [
+                        {
+                          "value": user.id
+                        }
+                      ]
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(me.silo_admin);
+
+    // Renaming the group to _not_ the silo admin group name means they should
+    // lose the admin role
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{}", admin_group.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "replace",
+                      "value": {
+                        "id": admin_group.id,
+                        "displayName": "scranton_the_electric_city", // WHAT?
+                      }
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(!me.silo_admin);
+
+    // Renaming it back to what it was should mean they gain the admin role on
+    // their silo
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{}", admin_group.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "replace",
+                      "value": {
+                        "id": admin_group.id,
+                        "displayName": "scranton_admins",
+                      }
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(me.silo_admin);
+
+    // Removing them from the group means they lose the admin role on their silo
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{}", admin_group.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "remove",
+                      "path": "members",
+                      "value": [
+                        {
+                          "value": user.id,
+                        }
+                      ]
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+
+    let me: views::CurrentUser = NexusRequest::new(
+        RequestBuilder::new(client, Method::GET, "/v1/me")
+            .header(http::header::COOKIE, session_cookie_value.clone())
+            .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected success")
+    .parsed_body()
+    .unwrap();
+
+    assert!(!me.silo_admin);
+}
+
+// Test that if a group already has the silo admin role, renaming it to the silo
+// admin group name won't error with a conflict.
+#[nexus_test]
+async fn test_scim_user_admin_group_priv_conflict(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+    let nexus = &cptestctx.server.server_context().nexus;
+    let opctx = OpContext::for_tests(
+        cptestctx.logctx.log.new(o!()),
+        nexus.datastore().clone(),
+    );
+
+    // Create the Silo
+
+    const SILO_NAME: &str = "saml-scim-silo";
+    create_silo_with_admin_group_name(
+        &client,
+        SILO_NAME,
+        true,
+        shared::SiloIdentityMode::SamlScim,
+        Some(String::from("assistant_to_assistant_to_regional_manager")),
+    )
+    .await;
+
+    // Grant permissions on this silo for the PrivilegedUser
+
+    grant_iam(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        opctx.authn.actor().unwrap().silo_user_id().unwrap(),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Create a token
+
+    let created_token: views::ScimClientBearerTokenCreateResponse =
+        object_create_no_body(
+            client,
+            &format!(
+                "/v1/system/identity-providers/scim/tokens?silo={}",
+                SILO_NAME,
+            ),
+        )
+        .await;
+
+    // Create the group with a name that does not match the silo admin group
+    // name.
+
+    let group: scim2_rs::Group = NexusRequest::new(
+        RequestBuilder::new(client, Method::POST, "/scim/v2/Groups")
+            .header(http::header::CONTENT_TYPE, "application/scim+json")
+            .header(
+                http::header::AUTHORIZATION,
+                format!("Bearer {}", created_token.bearer_token),
+            )
+            .allow_non_dropshot_errors()
+            .raw_body(Some(
+                serde_json::to_string(&serde_json::json!(
+                    {
+                        "displayName": "assistant_to_regional_manager",
+                        "externalId": "assistant_to_regional_manager",
+                        "members": [],
+                    }
+                ))
+                .unwrap(),
+            ))
+            .expect_status(Some(StatusCode::CREATED)),
+    )
+    .execute()
+    .await
+    .expect("expected 201")
+    .parsed_body()
+    .expect("created group");
+
+    // Create a role assignment of silo admin for this group
+
+    grant_iam_for_group(
+        client,
+        &format!("/v1/system/silos/{SILO_NAME}"),
+        shared::SiloRole::Admin,
+        SiloGroupUuid::from_untyped_uuid(group.id.parse().unwrap()),
+        AuthnMode::PrivilegedUser,
+    )
+    .await;
+
+    // Rename the group to match the silo's admin group name - this should not
+    // error out
+
+    NexusRequest::new(
+        RequestBuilder::new(
+            client,
+            Method::PATCH,
+            &format!("/scim/v2/Groups/{}", group.id),
+        )
+        .header(http::header::CONTENT_TYPE, "application/scim+json")
+        .header(
+            http::header::AUTHORIZATION,
+            format!("Bearer {}", created_token.bearer_token),
+        )
+        .allow_non_dropshot_errors()
+        .raw_body(Some(
+            serde_json::to_string(&serde_json::json!(
+                {
+                  "schemas": [
+                    "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+                  ],
+                  "Operations": [
+                    {
+                      "op": "replace",
+                      "value": {
+                        "id": group.id,
+                        "displayName":
+                            "assistant_to_assistant_to_regional_manager",
+                      }
+                    }
+                  ]
+                }
+            ))
+            .unwrap(),
+        ))
+        .expect_status(Some(StatusCode::OK)),
+    )
+    .execute()
+    .await
+    .expect("expected 200");
+}

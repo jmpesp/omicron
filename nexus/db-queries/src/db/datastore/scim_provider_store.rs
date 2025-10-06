@@ -965,7 +965,6 @@ impl CrdbScimProviderStore {
             unreachable!();
         };
 
-
         // Delete all existing group memberships for this group id
 
         {
@@ -1050,11 +1049,22 @@ impl CrdbScimProviderStore {
                         // that.
 
                         diesel::delete(dsl::role_assignment)
-                            .filter(dsl::identity_type.eq(model::IdentityType::SiloGroup))
-                            .filter(dsl::identity_id.eq(to_db_typed_uuid(group_id)))
-                            .filter(dsl::resource_type.eq(authz_silo.resource_type().to_string()))
+                            .filter(
+                                dsl::identity_type
+                                    .eq(model::IdentityType::SiloGroup),
+                            )
+                            .filter(
+                                dsl::identity_id.eq(to_db_typed_uuid(group_id)),
+                            )
+                            .filter(
+                                dsl::resource_type
+                                    .eq(authz_silo.resource_type().to_string()),
+                            )
                             .filter(dsl::resource_id.eq(authz_silo.id()))
-                            .filter(dsl::role_name.eq(SiloRole::Admin.to_database_string()))
+                            .filter(
+                                dsl::role_name
+                                    .eq(SiloRole::Admin.to_database_string()),
+                            )
                             .execute_async(conn)
                             .await?;
                     }
@@ -1071,13 +1081,23 @@ impl CrdbScimProviderStore {
                             &SiloRole::Admin.to_database_string(),
                         );
 
+                        // The ON CONFLICT + DO NOTHING is required to handle
+                        // the case where the group was granted the silo admin
+                        // role _before_ being renamed to match the silo's admin
+                        // group name.
+
                         diesel::insert_into(dsl::role_assignment)
                             .values(new_assignment)
+                            .on_conflict((
+                                dsl::identity_type,
+                                dsl::identity_id,
+                                dsl::resource_type,
+                                dsl::resource_id,
+                                dsl::role_name,
+                            ))
+                            .do_nothing()
                             .execute_async(conn)
                             .await?;
-
-                        // XXX what if the user has added this assignment
-                        // already? test this!
                     }
                 }
             }
