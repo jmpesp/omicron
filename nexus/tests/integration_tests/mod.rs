@@ -28,6 +28,7 @@ mod initialization;
 mod instances;
 mod internet_gateway;
 mod ip_pools;
+mod local_storage;
 mod metrics;
 mod metrics_querier;
 mod oximeter;

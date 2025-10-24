@@ -1476,7 +1476,8 @@ CREATE TYPE IF NOT EXISTS omicron.public.block_size AS ENUM (
 );
 
 CREATE TYPE IF NOT EXISTS omicron.public.disk_type AS ENUM (
-  'crucible'
+  'crucible',
+  'local_storage'
 );
 
 CREATE TABLE IF NOT EXISTS omicron.public.disk (
@@ -7022,6 +7023,23 @@ ON
 WHERE
     time_deleted IS NULL;
 
+CREATE TABLE IF NOT EXISTS omicron.public.disk_type_local_storage (
+    disk_id UUID PRIMARY KEY,
+
+    local_storage_dataset_allocation_id UUID
+);
+
+CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset_allocation (
+    id UUID PRIMARY KEY,
+
+    time_created TIMESTAMPTZ NOT NULL,
+    time_deleted TIMESTAMPTZ,
+
+    local_storage_dataset_id UUID NOT NULL,
+
+    dataset_size INT8 NOT NULL
+);
+
 -- Keep this at the end of file so that the database does not contain a version
 -- until it is fully populated.
 INSERT INTO omicron.public.db_metadata (
@@ -7031,7 +7049,7 @@ INSERT INTO omicron.public.db_metadata (
     version,
     target_version
 ) VALUES
-    (TRUE, NOW(), NOW(), '207.0.0', NULL)
+    (TRUE, NOW(), NOW(), '208.0.0', NULL)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

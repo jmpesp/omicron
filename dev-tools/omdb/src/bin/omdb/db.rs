@@ -120,6 +120,7 @@ use nexus_db_queries::db::datastore::CrucibleTargets;
 use nexus_db_queries::db::datastore::Disk;
 use nexus_db_queries::db::datastore::InstanceAndActiveVmm;
 use nexus_db_queries::db::datastore::InstanceStateComputer;
+use nexus_db_queries::db::datastore::LocalStorageDisk;
 use nexus_db_queries::db::datastore::SQL_BATCH_SIZE;
 use nexus_db_queries::db::datastore::VolumeCookedResult;
 use nexus_db_queries::db::datastore::read_only_resources_associated_with_volume;
@@ -152,6 +153,7 @@ use omicron_common::api::external::MacAddr;
 use omicron_uuid_kinds::CollectionUuid;
 use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::DownstairsRegionUuid;
+use omicron_uuid_kinds::ExternalZpoolUuid;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
 use omicron_uuid_kinds::ParseError;
@@ -2277,6 +2279,51 @@ async fn crucible_disk_info(
     Ok(())
 }
 
+async fn local_storage_disk_info(
+    disk: LocalStorageDisk,
+) -> Result<(), anyhow::Error> {
+    #[derive(Tabled)]
+    #[tabled(rename_all = "SCREAMING_SNAKE_CASE")]
+    struct Row {
+        disk_name: String,
+
+        #[tabled(display_with = "display_option_blank")]
+        pool_id: Option<ExternalZpoolUuid>,
+        #[tabled(display_with = "display_option_blank")]
+        dataset_id: Option<DatasetUuid>,
+
+        #[tabled(display_with = "display_option_blank")]
+        dataset_size: Option<u64>,
+    }
+
+    let (pool_id, dataset_id, dataset_size) =
+        if let Some(allocation) = &disk.local_storage_dataset_allocation {
+            (
+                Some(allocation.pool_id()),
+                Some(allocation.id()),
+                Some(allocation.dataset_size.to_bytes()),
+            )
+        } else {
+            (None, None, None)
+        };
+
+    let rows = vec![Row {
+        disk_name: disk.name().to_string(),
+        pool_id,
+        dataset_id,
+        dataset_size,
+    }];
+
+    let table = tabled::Table::new(rows)
+        .with(tabled::settings::Style::empty())
+        .with(tabled::settings::Padding::new(0, 1, 0, 0))
+        .to_string();
+
+    println!("{}", table);
+
+    Ok(())
+}
+
 /// Run `omdb db disk info <UUID>`.
 async fn cmd_db_disk_info(
     opctx: &OpContext,
@@ -2287,6 +2334,7 @@ async fn cmd_db_disk_info(
         Disk::Crucible(disk) => {
             crucible_disk_info(opctx, datastore, disk).await
         }
+        Disk::LocalStorage(disk) => local_storage_disk_info(disk).await,
     }
 }
 

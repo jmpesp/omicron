@@ -1423,6 +1423,7 @@ impl SimpleIdentityOrName for AntiAffinityGroupMember {
 #[serde(rename_all = "snake_case")]
 pub enum DiskType {
     Crucible,
+    LocalStorage,
 }
 
 /// View of a Disk
