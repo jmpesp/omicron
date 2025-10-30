@@ -131,6 +131,7 @@ omicron-zone-package.workspace = true
 once_cell.workspace = true
 tufaceous-brand-metadata.workspace = true
 sp-sim.workspace = true # Only used by the simulated sled agent.
+attest-mock = { git = "https://github.com/oxidecomputer/dice-util", rev = "10952e8d9599b735b85d480af3560a11700e5b64" }
 
 rand = { workspace = true, features = ["os_rng"] }
 reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
