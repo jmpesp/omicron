@@ -50,8 +50,9 @@ use gateway_messages::DevicePresence;
 use std::net::SocketAddrV6;
 use std::net::Ipv6Addr;
 use omicron_common::disk::DiskVariant;
-use sprockets_tls::keys::SprocketsConfig;
+use sprockets_tls::keys::AttestConfig;
 use sprockets_tls::keys::ResolveSetting;
+use sprockets_tls::keys::SprocketsConfig;
 use omicron_gateway::RetryConfig;
 use uuid::Uuid;
 use sp_sim::config::EreportConfig;
@@ -67,13 +68,13 @@ fn main() -> Result<()> {
 
     let sled_mode = if MULTI_SWITCH_MODE {
         match hostname {
-            "dinnerbone" | "gravytrain" => SledMode::Gimlet,
+            "dinnerbone" | "gravytrain" => SledMode::Sled,
             "kibblesnbits" | "frostypaws" => SledMode::Scrimlet,
             _ => panic!("unknown hostname {}", hostname),
         }
     } else {
         match hostname {
-            "dinnerbone" | "gravytrain" | "kibblesnbits"  => SledMode::Gimlet,
+            "dinnerbone" | "gravytrain" | "kibblesnbits"  => SledMode::Sled,
             "frostypaws" => SledMode::Scrimlet,
 
             _ => panic!("unknown hostname {}", hostname),
@@ -470,6 +471,18 @@ fn main() -> Result<()> {
             roots: vec![
                 Utf8PathBuf::from("/home/james/omicron/sprockets_tls/canada_region_ca.cert.pem"),
             ],
+
+            attest: AttestConfig::Local {
+                priv_key: Utf8PathBuf::from(
+                    format!("/home/james/omicron/sprockets_tls/{hostname}.key.pem")
+                ),
+
+                cert_chain: Utf8PathBuf::from(
+                    format!("/home/james/omicron/sprockets_tls/{hostname}.cert.pem")
+                ),
+
+                log: Utf8PathBuf::from("/opt/oxide/attest.log"),
+            },
         },
 
         control_plane_memory_earmark_mb: Some(6144),
@@ -528,6 +541,8 @@ fn main() -> Result<()> {
                         },
 
                         ereport_network_config: None,
+
+                        cabooses: None,
                     }}
                 ]
             } else {
@@ -660,6 +675,8 @@ fn main() -> Result<()> {
                     },
 
                     ereport_network_config: None,
+
+                    cabooses: None,
                 }},
             ],
         },
@@ -815,9 +832,18 @@ fn main() -> Result<()> {
 
                 location: omicron_gateway::LocationConfig {
                     // possible locations where MGS could be running
-                    names: vec![
-                        String::from("switch0"), // XXX frostypaws
-                        String::from("switch1"), // XXX kibblesnbits
+                    description: vec![
+                        omicron_gateway::LocationDescriptionConfig {
+                            name: String::from("frostypaws"),
+                            local_sled: 3, // XXX 14?
+                            allow_local_sled_sp_reset: false,
+                        },
+                        // XXX MULTI SWITCH MODE?
+                        omicron_gateway::LocationDescriptionConfig {
+                            name: String::from("kibblesnbits"),
+                            local_sled: 1, // XXX 14?
+                            allow_local_sled_sp_reset: false,
+                        },
                     ],
 
                     // - the list of switch ports to contact to determine
