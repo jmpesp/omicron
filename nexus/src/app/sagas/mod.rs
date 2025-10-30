@@ -18,6 +18,8 @@ use steno::DagBuilder;
 use steno::SagaDag;
 use steno::SagaName;
 use steno::SagaType;
+use steno::Node;
+use serde::Serialize;
 use steno::new_action_noop_undo;
 use thiserror::Error;
 use uuid::Uuid;
@@ -333,3 +335,34 @@ pub(crate) use __action_name;
 pub(crate) use __emit_action;
 pub(crate) use __stringify_ident;
 pub(crate) use declare_saga_actions;
+
+// Helper function for appending subsagas to parent sagas.
+fn subsaga_append<S: Serialize>(
+    node_basename: String,
+    subsaga_dag: steno::Dag,
+    parent_builder: &mut steno::DagBuilder,
+    params: S,
+    which: usize,
+) -> Result<(), SagaInitError> {
+    // The "parameter" node is a constant node that goes into the outer saga.
+    // Its value becomes the parameters for the one-node subsaga (defined below)
+    // that actually creates each resource.
+    let params_node_name = format!("{}_params{}", node_basename, which);
+
+    parent_builder.append(Node::constant(
+        &params_node_name,
+        serde_json::to_value(&params).map_err(|e| {
+            SagaInitError::SerializeError(params_node_name.clone(), e)
+        })?,
+    ));
+
+    let output_name = format!("{}{}", node_basename, which);
+
+    parent_builder.append(Node::subsaga(
+        output_name.as_str(),
+        subsaga_dag,
+        params_node_name,
+    ));
+
+    Ok(())
+}

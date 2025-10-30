@@ -1638,6 +1638,7 @@ impl<'a, N: NexusServer> ControlPlaneTestContextBuilder<'a, N> {
                         })
                         .expect("freshly generated disk IDs are unique");
                     disk_index += 1;
+
                     let id = DatasetUuid::new_v4();
                     datasets
                         .insert_unique(BlueprintDatasetConfig {
@@ -1656,6 +1657,23 @@ impl<'a, N: NexusServer> ControlPlaneTestContextBuilder<'a, N> {
                             compression: CompressionAlgorithm::Off,
                         })
                         .expect("freshly generated dataset IDs are unique");
+
+                    // not enough, zpool doesn't exist!
+
+                    let id = DatasetUuid::new_v4();
+                    datasets.insert_unique(BlueprintDatasetConfig {
+                        disposition: BlueprintDatasetDisposition::InService,
+                        id,
+                        pool: *zpool,
+                        kind: DatasetKind::LocalStorage,
+                        address: None,
+                        quota: None,
+                        reservation: None,
+                        compression: CompressionAlgorithm::Off,
+                    })
+                    .expect("freshly generated dataset IDs are unique");
+
+                    // XXX each zone's data, assuming a full thing?
                 }
                 zones.iter().cloned().collect()
             } else {
@@ -1681,6 +1699,7 @@ impl<'a, N: NexusServer> ControlPlaneTestContextBuilder<'a, N> {
                     disk_index += 1;
                 }
             }
+
             blueprint_sleds.insert(
                 sled_id,
                 BlueprintSledConfig {

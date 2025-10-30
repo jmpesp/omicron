@@ -14,6 +14,7 @@ use super::MAX_VCPU_PER_INSTANCE;
 use super::MIN_MEMORY_BYTES_PER_INSTANCE;
 use crate::app::sagas;
 use crate::app::sagas::NexusSaga;
+use crate::db::datastore::Disk;
 use crate::external_api::params;
 use cancel_safe_futures::prelude::*;
 use futures::future::Fuse;
@@ -67,6 +68,7 @@ use sagas::instance_start;
 use sagas::instance_update;
 use sled_agent_client::types::InstanceMigrationTargetParams;
 use sled_agent_client::types::VmmPutStateBody;
+use sled_agent_client::types::DelegatedZvol;
 use std::matches;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -1187,6 +1189,42 @@ impl super::Nexus {
             )
             .await?;
 
+        // Each Disk::LocalStorage will require a delegated zvol entry.
+        let mut delegated_zvols: Vec<DelegatedZvol>
+            = Vec::with_capacity(disks.len());
+
+        for disk in &disks {
+            let local_storage_disk = match disk {
+                Disk::Crucible(_) => {
+                    continue;
+                }
+
+                Disk::LocalStorage(local_storage_disk) => local_storage_disk,
+            };
+
+            let Some(pool_id) = local_storage_disk.pool_id() else {
+                return Err(Error::internal_error(
+                    &format!("local storage disk {} pool_id is None!", disk.id()),
+                ).into());
+            };
+            let Some(dataset_id) = local_storage_disk.dataset_id() else {
+                return Err(Error::internal_error(
+                    &format!("local storage disk {} dataset_id is None!", disk.id()),
+                ).into());
+            };
+
+            delegated_zvols.push(DelegatedZvol {
+                parent_dataset: format!(
+                    // XXX use external zpool name thing
+                    "oxp_{}/crypt/local_storage/{}",
+                    pool_id,
+                    dataset_id,
+                ),
+
+                name: String::from("vol"),
+            });
+        }
+
         let nics = self
             .db_datastore
             .derive_guest_network_interface_info(&opctx, &authz_instance)
@@ -1331,7 +1369,7 @@ impl super::Nexus {
                 host_domain: None,
                 search_domains: Vec::new(),
             },
-            delegated_zvols: vec![],
+            delegated_zvols,
         };
 
         let instance_id = InstanceUuid::from_untyped_uuid(db_instance.id());
