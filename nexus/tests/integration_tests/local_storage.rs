@@ -4,19 +4,37 @@
 
 //! Tests local storage support
 
+use crate::integration_tests::instances::get_instance_url;
+use crate::integration_tests::instances::instance_get;
+use crate::integration_tests::instances::instance_simulate;
+use dropshot::HttpErrorResponseBody;
 use dropshot::test_util::ClientTestContext;
 use http::StatusCode;
 use http::method::Method;
+use nexus_auth::context::OpContext;
+use nexus_test_utils::background::run_blueprint_executor;
+use nexus_test_utils::background::run_blueprint_loader;
+use nexus_test_utils::background::run_blueprint_planner;
+use nexus_test_utils::background::run_blueprint_rendezvous;
 use nexus_test_utils::http_testing::AuthnMode;
 use nexus_test_utils::http_testing::NexusRequest;
 use nexus_test_utils::http_testing::RequestBuilder;
 use nexus_test_utils::resource_helpers::create_default_ip_pool;
 use nexus_test_utils::resource_helpers::create_project;
 use nexus_test_utils_macros::nexus_test;
+use nexus_types::deployment::BlueprintTargetSet;
 use nexus_types::external_api::{params, views};
+use nexus_types::internal_api::background::BlueprintPlannerStatus;
+use nexus_types::internal_api::params::InstanceMigrateRequest;
 use omicron_common::api::external;
+use omicron_common::api::external::ByteCount;
+use omicron_common::api::external::IdentityMetadataCreateParams;
+use omicron_common::api::external::InstanceState;
+use omicron_nexus::TestInterfaces as _;
 use omicron_nexus::app::MAX_DISK_SIZE_BYTES;
 use omicron_nexus::app::MIN_DISK_SIZE_BYTES;
+use omicron_uuid_kinds::GenericUuid;
+use omicron_uuid_kinds::InstanceUuid;
 use std::convert::TryFrom;
 
 type ControlPlaneTestContext =
@@ -162,4 +180,183 @@ async fn test_create_large_local_storage_disk(
     .unwrap()
     .parsed_body::<external::Disk>()
     .unwrap();
+}
+
+#[nexus_test]
+async fn test_create_instance_with_local_storage(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+    let lockstep_client = &cptestctx.lockstep_client;
+    let apictx = &cptestctx.server.server_context();
+    let nexus = &apictx.nexus;
+    let datastore = nexus.datastore();
+    let opctx =
+        OpContext::for_tests(cptestctx.logctx.log.new(o!()), datastore.clone());
+
+    let instance_name = "bird-ecology";
+
+    // Need the local storage datasets to be created! Enable blueprint
+    // execution, then run through load + plan + execute + rendezvous table
+    // create.
+
+    nexus
+        .blueprint_target_set_enabled(
+            &opctx,
+            BlueprintTargetSet {
+                target_id: nexus
+                    .blueprint_target_view(&opctx)
+                    .await
+                    .expect("current blueprint target")
+                    .target_id,
+                enabled: true,
+            },
+        )
+        .await
+        .expect("enable blueprint execution");
+
+    run_blueprint_loader(lockstep_client).await;
+
+    /*
+    let status = run_blueprint_planner(lockstep_client).await;
+
+    match status {
+        BlueprintPlannerStatus::Targeted { .. } => {
+            // ok
+        }
+
+        _ => {
+            panic!("blueprint_planner status is {status:?}");
+        }
+    }
+    */
+
+    run_blueprint_executor(lockstep_client).await;
+
+    run_blueprint_rendezvous(lockstep_client).await;
+
+    // Assert local storage datasets were created.
+    assert!(
+        !datastore
+            .local_storage_dataset_list_all_batched(&opctx)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    create_project_and_pool(&client).await;
+    let instance_url = get_instance_url(instance_name);
+
+    // Create an instance with one local storage disk.
+    let instance = nexus_test_utils::resource_helpers::create_instance_with(
+        client,
+        PROJECT_NAME,
+        instance_name,
+        &params::InstanceNetworkInterfaceAttachment::Default,
+        vec![params::InstanceDiskAttachment::Create(
+            params::DiskCreate::LocalStorage {
+                identity: IdentityMetadataCreateParams {
+                    name: "local-disk".parse().unwrap(),
+                    description: String::from("local disk"),
+                },
+
+                size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
+            },
+        )],
+        Vec::<params::ExternalIpCreate>::new(),
+        true,
+        Default::default(),
+        None,
+    )
+    .await;
+
+    let instance_id = InstanceUuid::from_untyped_uuid(instance.identity.id);
+
+    // Poke the instance into an active state - this only works if instance
+    // start worked.
+    instance_simulate(nexus, &instance_id).await;
+
+    let instance_next = instance_get(&client, &instance_url).await;
+    assert_eq!(instance_next.runtime.run_state, InstanceState::Running);
+}
+
+#[nexus_test(extra_sled_agents = 1)]
+async fn test_instance_no_migrate_with_local_storage(
+    cptestctx: &ControlPlaneTestContext,
+) {
+    let client = &cptestctx.external_client;
+    let lockstep_client = &cptestctx.lockstep_client;
+    let apictx = &cptestctx.server.server_context();
+    let nexus = &apictx.nexus;
+    let instance_name = "bird-ecology";
+
+    // Get the second sled to migrate to/from.
+    let default_sled_id = cptestctx.first_sled_id();
+    let other_sled_id = cptestctx.second_sled_id();
+
+    create_project_and_pool(&client).await;
+    let instance_url = get_instance_url(instance_name);
+
+    // Create an instance with one local storage disk.
+    let instance = nexus_test_utils::resource_helpers::create_instance_with(
+        client,
+        PROJECT_NAME,
+        instance_name,
+        &params::InstanceNetworkInterfaceAttachment::Default,
+        vec![params::InstanceDiskAttachment::Create(
+            params::DiskCreate::LocalStorage {
+                identity: IdentityMetadataCreateParams {
+                    name: "local-disk".parse().unwrap(),
+                    description: String::from("local disk"),
+                },
+
+                size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
+            },
+        )],
+        Vec::<params::ExternalIpCreate>::new(),
+        true,
+        Default::default(),
+        None,
+    )
+    .await;
+    let instance_id = InstanceUuid::from_untyped_uuid(instance.identity.id);
+
+    // Poke the instance into an active state.
+    instance_simulate(nexus, &instance_id).await;
+    let instance_next = instance_get(&client, &instance_url).await;
+    assert_eq!(instance_next.runtime.run_state, InstanceState::Running);
+
+    let sled_info = nexus
+        .active_instance_info(&instance_id, None)
+        .await
+        .unwrap()
+        .expect("running instance should have a sled");
+
+    let original_sled = sled_info.sled_id;
+    let dst_sled_id = if original_sled == default_sled_id {
+        other_sled_id
+    } else {
+        default_sled_id
+    };
+
+    // Attempt to migrate - this should fail.
+    let migrate_url =
+        format!("/instances/{}/migrate", &instance_id.to_string());
+
+    let err = NexusRequest::new(
+        RequestBuilder::new(lockstep_client, Method::POST, &migrate_url)
+            .body(Some(&InstanceMigrateRequest { dst_sled_id }))
+            .expect_status(Some(StatusCode::BAD_REQUEST)),
+    )
+    .authn_as(AuthnMode::PrivilegedUser)
+    .execute()
+    .await
+    .expect("request returns 400")
+    .parsed_body::<HttpErrorResponseBody>()
+    .expect("failed to parse error body");
+
+    assert_eq!(
+        err.message,
+        format!("cannot migrate {} as it uses local storage", instance_id),
+    );
 }
