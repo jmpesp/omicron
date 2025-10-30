@@ -481,7 +481,7 @@ fn main() -> Result<()> {
                     format!("/home/james/omicron/sprockets_tls/{hostname}.cert.pem")
                 ),
 
-                log: Utf8PathBuf::from("/opt/oxide/attest.log"),
+                log: Utf8PathBuf::from("/home/james/omicron/sprockets_tls/attest.bin"),
             },
         },
 
@@ -492,6 +492,26 @@ fn main() -> Result<()> {
         "smf/sled-agent/non-gimlet/config.toml",
         toml::to_string(&sled_config)?.as_bytes(),
     )?;
+
+    // Need to write out a fake measurement file for the attest code. Copied
+    // code from `write_keys_and_measurements`
+    {
+        // This is just a made up digest. We aren't currently using a corpus, so it
+        // doesn't matter what the measurements are, just that there is at least
+        // one in a file named "log.bin".
+        let digest =
+            "be4df4e085175f3de0c8ac4837e1c2c9a34e8983209dac6b549e94154f7cdd9c"
+                .into();
+        let attest_log_doc = attest_mock::log::Document {
+            measurements: vec![attest_mock::log::Measurement {
+                algorithm: "sha3-256".into(),
+                digest,
+            }],
+        };
+        // Write out the log document to the filesystem
+        let out = attest_mock::log::mock(attest_log_doc).unwrap();
+        std::fs::write("/home/james/omicron/sprockets_tls/attest.bin", &out)?;
+    }
 
     // Simulated SP in the switch zone for the sled
     let sp_sim_config = sp_sim::config::Config {
