@@ -530,10 +530,10 @@ fn main() -> Result<()> {
                             }
                         ]),
 
-                        // XXX does this have to match mgs location map?
+                        // has to match mgs location map
                         serial_number: match hostname {
-                            "frostypaws" => String::from("switch0"),
-                            "kibblesnbits" => String::from("switch1"),
+                            "frostypaws" => String::from("frostypaws"),
+                            "kibblesnbits" => String::from("kibblesnbits"),
 
                             _ => panic!("unknown hostname {}", hostname),
                         },
@@ -734,14 +734,15 @@ fn main() -> Result<()> {
 
                     location: vec![
                         (
-                            String::from("switch0"),
+                            String::from("frostypaws"),
                             omicron_gateway::SpIdentifier {
                                 typ: omicron_gateway::SpType::Switch,
                                 slot: 0,
                             },
                         ),
+                        // XXX MULTI SWITCH MODE ?
                         (
-                            String::from("switch1"),
+                            String::from("kibblesnbits"),
                             omicron_gateway::SpIdentifier {
                                 typ: omicron_gateway::SpType::Switch,
                                 slot: 1,
@@ -803,14 +804,14 @@ fn main() -> Result<()> {
 
                         location: vec![
                             (
-                                String::from("switch0"),
+                                String::from("frostypaws"),
                                 omicron_gateway::SpIdentifier {
                                     typ: omicron_gateway::SpType::Sled,
                                     slot: config.sled_number as u16,
                                 },
                             ),
                             (
-                                String::from("switch1"),
+                                String::from("kibblesnbits"),
                                 omicron_gateway::SpIdentifier {
                                     typ: omicron_gateway::SpType::Sled,
                                     slot: config.sled_number as u16,
@@ -887,8 +888,8 @@ fn main() -> Result<()> {
 
                                 _ => panic!("switch hostname not recognized"),
                             },
-                            sp_port_1: vec![String::from("switch0")],
-                            sp_port_2: vec![String::from("switch1")],
+                            sp_port_1: vec![String::from("frostypaws")],
+                            sp_port_2: vec![String::from("kibblesnbits")],
                         }
                     ],
                 },
