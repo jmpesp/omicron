@@ -1,993 +1,1241 @@
-# Omicron Packages
-# ----------------
-#
-# The Oxide control plane software (Omicron) is built and assembled into
-# *packages* that can be shipped to Oxide systems and deployed.  Note that
-# "package" here is an Omicron concept.  There is overlap with Rust packages,
-# but they're not the same thing.  This "package" has nothing to do with illumos
-# IPS packages or any other kind of operating system or ecosystem package.
-#
-# Four kinds of packages are supported, as determined by their _source_ type:
-#
-# (1) "local": packages whose contents come from any combination of files in the
-#     current directory, blobs stored in S3, or the result of building a Rust
-#     package in the current workspace
-#
-#     If the package involves building a Rust package in the same workspace,
-#     then the Rust package *must* have the same name as the Omicron package.
-#
-# (2) "prebuilt": packages whose contents come wholesale from the output of a
-#     buildomat job
-#
-# (3) "composite": packages whose contents come from combining the results of
-#     one or more other packages
-#
-# (4) "manual": packages whose contents are assumed to be put into place by hand
-#
-#     Manual packages are intended for developers (in development) to override
-#     the source of prebuilt packages with custom contents.
-#
-# For more on these, see the documentation on
-# `omicron_zone_package::PackageSource`.
-#
-# This file defines all of the packages that make up Omicron and how to build
-# each one.  `omicron-package` and `thing-flinger` process this file to build
-# and deploy these packages.
-#
-# **For a visual of how all this works, run:**
-#
-#     $ cargo run --bin=omicron-package -- dot > packages.dot
-#     $ dot -Tpng -o packages.png packages.dot
-#
-# and open up `packages.png`.
+[package.chrony-setup]
+service_name = "chrony-setup"
 
-[package.omicron-sled-agent]
-service_name = "sled-agent"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["sled-agent", "zone-bundle"]
-source.rust.release = true
-source.paths = [
-  { from = "smf/sled-agent/manifest.xml", to = "pkg/manifest.xml" },
-  # Valid options for "machine" include:
-  # - gimlet: Assumes control of real hardware, does not emulate hardware
-  # - gimlet-standalone: A real gimlet but running in isolation from the rack as a whole
-  # - non-gimlet: Used for testing on development illumos machines
-  { from = "smf/sled-agent/{{machine}}", to = "pkg" },
-]
-output.type = "tarball"
+[package.chrony-setup.source]
+type = "local"
 
-# Installinator is a service which should run in the Global Zone for the
-# explicit purpose of recovery and OS re-installation. It should not be
-# installed concurrently with the sled-agent, and is built separately using the
-# target only_for_target.image = "trampoline".
+[[package.chrony-setup.source.paths]]
+from = "smf/chrony-setup/manifest.xml"
+to = "/var/svc/manifest/site/chrony-setup/manifest.xml"
+
+[[package.chrony-setup.source.paths]]
+from = "smf/chrony-setup/etc"
+to = "/etc"
+
+[package.chrony-setup.output]
+type = "zone"
+intermediate_only = true
+
+[package.chrony-setup.only_for_targets]
+image = "standard"
+
+[package.clickana]
+service_name = "clickana"
+
+[package.clickana.source]
+type = "local"
+paths = []
+
+[package.clickana.source.rust]
+binary_names = ["clickana"]
+release = true
+
+[package.clickana.output]
+type = "zone"
+intermediate_only = true
+
+[package.clickana.only_for_targets]
+image = "standard"
+
+[package.clickhouse]
+service_name = "clickhouse"
+
+[package.clickhouse.source]
+type = "composite"
+packages = ["clickhouse_svc.tar.gz", "internal-dns-cli.tar.gz", "omicron-clickhouse-admin.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz", "clickana.tar.gz"]
+
+[package.clickhouse.output]
+type = "zone"
+intermediate_only = false
+
+[package.clickhouse.only_for_targets]
+image = "standard"
+
+[package.clickhouse_keeper]
+service_name = "clickhouse_keeper"
+
+[package.clickhouse_keeper.source]
+type = "composite"
+packages = ["clickhouse_keeper_svc.tar.gz", "internal-dns-cli.tar.gz", "omicron-clickhouse-admin.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.clickhouse_keeper.output]
+type = "zone"
+intermediate_only = false
+
+[package.clickhouse_keeper.only_for_targets]
+image = "standard"
+
+[package.clickhouse_keeper_svc]
+service_name = "clickhouse_keeper_svc"
+setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+
+[package.clickhouse_keeper_svc.source]
+type = "local"
+
+[[package.clickhouse_keeper_svc.source.paths]]
+from = "out/clickhouse"
+to = "/opt/oxide/clickhouse_keeper"
+
+[[package.clickhouse_keeper_svc.source.paths]]
+from = "smf/clickhouse_keeper/manifest.xml"
+to = "/var/svc/manifest/site/clickhouse_keeper/manifest.xml"
+
+[[package.clickhouse_keeper_svc.source.paths]]
+from = "smf/clickhouse-admin-keeper"
+to = "/var/svc/manifest/site/clickhouse-admin-keeper"
+
+[package.clickhouse_keeper_svc.output]
+type = "zone"
+intermediate_only = true
+
+[package.clickhouse_keeper_svc.only_for_targets]
+image = "standard"
+
+[package.clickhouse_server]
+service_name = "clickhouse_server"
+
+[package.clickhouse_server.source]
+type = "composite"
+packages = ["clickhouse_server_svc.tar.gz", "internal-dns-cli.tar.gz", "omicron-clickhouse-admin.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz", "clickana.tar.gz"]
+
+[package.clickhouse_server.output]
+type = "zone"
+intermediate_only = false
+
+[package.clickhouse_server.only_for_targets]
+image = "standard"
+
+[package.clickhouse_server_svc]
+service_name = "clickhouse_server_svc"
+setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+
+[package.clickhouse_server_svc.source]
+type = "local"
+
+[[package.clickhouse_server_svc.source.paths]]
+from = "out/clickhouse"
+to = "/opt/oxide/clickhouse_server"
+
+[[package.clickhouse_server_svc.source.paths]]
+from = "smf/clickhouse_server/manifest.xml"
+to = "/var/svc/manifest/site/clickhouse_server/manifest.xml"
+
+[[package.clickhouse_server_svc.source.paths]]
+from = "smf/clickhouse-admin-server"
+to = "/var/svc/manifest/site/clickhouse-admin-server"
+
+[package.clickhouse_server_svc.output]
+type = "zone"
+intermediate_only = true
+
+[package.clickhouse_server_svc.only_for_targets]
+image = "standard"
+
+[package.clickhouse_svc]
+service_name = "clickhouse_svc"
+setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+
+[package.clickhouse_svc.source]
+type = "local"
+
+[[package.clickhouse_svc.source.paths]]
+from = "out/clickhouse"
+to = "/opt/oxide/clickhouse"
+
+[[package.clickhouse_svc.source.paths]]
+from = "smf/clickhouse/manifest.xml"
+to = "/var/svc/manifest/site/clickhouse/manifest.xml"
+
+[[package.clickhouse_svc.source.paths]]
+from = "smf/clickhouse/method_script.sh"
+to = "/opt/oxide/lib/svc/manifest/clickhouse.sh"
+
+[[package.clickhouse_svc.source.paths]]
+from = "smf/clickhouse/config.xml"
+to = "/opt/oxide/clickhouse/config.xml"
+
+[[package.clickhouse_svc.source.paths]]
+from = "smf/clickhouse-admin-single"
+to = "/var/svc/manifest/site/clickhouse-admin-single"
+
+[package.clickhouse_svc.output]
+type = "zone"
+intermediate_only = true
+
+[package.clickhouse_svc.only_for_targets]
+image = "standard"
+
+[package.cockroachdb]
+service_name = "cockroachdb"
+
+[package.cockroachdb.source]
+type = "composite"
+packages = ["cockroachdb-service.tar.gz", "omicron-cockroach-admin.tar.gz", "internal-dns-cli.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.cockroachdb.output]
+type = "zone"
+intermediate_only = false
+
+[package.cockroachdb.only_for_targets]
+image = "standard"
+
+[package.cockroachdb-service]
+service_name = "cockroachdb-service"
+setup_hint = "Run `cargo xtask download cockroach` to download the necessary binaries"
+
+[package.cockroachdb-service.source]
+type = "local"
+
+[[package.cockroachdb-service.source.paths]]
+from = "out/cockroachdb"
+to = "/opt/oxide/cockroachdb"
+
+[[package.cockroachdb-service.source.paths]]
+from = "schema/crdb"
+to = "/opt/oxide/cockroachdb/sql"
+
+[[package.cockroachdb-service.source.paths]]
+from = "smf/cockroachdb/manifest.xml"
+to = "/var/svc/manifest/site/cockroachdb/manifest.xml"
+
+[[package.cockroachdb-service.source.paths]]
+from = "smf/cockroachdb/method_script.sh"
+to = "/opt/oxide/lib/svc/manifest/cockroachdb.sh"
+
+[package.cockroachdb-service.output]
+type = "zone"
+intermediate_only = true
+
+[package.cockroachdb-service.only_for_targets]
+image = "standard"
+
+[package.crucible]
+service_name = "crucible_prebuilt"
+
+[package.crucible.source]
+type = "manual"
+
+[package.crucible.output]
+type = "zone"
+intermediate_only = true
+
+[package.crucible.only_for_targets]
+image = "standard"
+
+[package.crucible-dtrace]
+service_name = "crucible_dtrace"
+
+[package.crucible-dtrace.source]
+type = "manual"
+
+[package.crucible-dtrace.output]
+type = "tarball"
+
+[package.crucible-dtrace.only_for_targets]
+image = "standard"
+
+[package.crucible-pantry]
+service_name = "crucible_pantry_prebuilt"
+
+[package.crucible-pantry.source]
+type = "manual"
+
+[package.crucible-pantry.output]
+type = "zone"
+intermediate_only = true
+
+[package.crucible-pantry.only_for_targets]
+image = "standard"
+
+[package.crucible-pantry-zone]
+service_name = "crucible_pantry"
+
+[package.crucible-pantry-zone.source]
+type = "composite"
+packages = ["crucible-pantry.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.crucible-pantry-zone.output]
+type = "zone"
+intermediate_only = false
+
+[package.crucible-pantry-zone.only_for_targets]
+image = "standard"
+
+[package.crucible-zone]
+service_name = "crucible"
+
+[package.crucible-zone.source]
+type = "composite"
+packages = ["crucible.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.crucible-zone.output]
+type = "zone"
+intermediate_only = false
+
+[package.crucible-zone.only_for_targets]
+image = "standard"
+
+[package.dendrite-asic]
+service_name = "dendrite"
+
+[package.dendrite-asic.source]
+type = "manual"
+
+[package.dendrite-asic.output]
+type = "zone"
+intermediate_only = true
+
+[package.dendrite-asic.only_for_targets]
+image = "standard"
+switch = "asic"
+
+[package.dendrite-softnpu]
+service_name = "dendrite"
+
+[package.dendrite-softnpu.source]
+type = "manual"
+
+[package.dendrite-softnpu.output]
+type = "zone"
+intermediate_only = true
+
+[package.dendrite-softnpu.only_for_targets]
+image = "standard"
+switch = "softnpu"
+
+[package.dendrite-stub]
+service_name = "dendrite"
+
+[package.dendrite-stub.source]
+type = "manual"
+
+[package.dendrite-stub.output]
+type = "zone"
+intermediate_only = true
+
+[package.dendrite-stub.only_for_targets]
+image = "standard"
+switch = "stub"
+
+[package.dns-server]
+service_name = "dns-server"
+
+[package.dns-server.source]
+type = "local"
+paths = []
+
+[package.dns-server.source.rust]
+binary_names = ["dnsadm", "dns-server"]
+release = true
+
+[package.dns-server.output]
+type = "zone"
+intermediate_only = true
+
+[package.dns-server.only_for_targets]
+image = "standard"
+
+[package.external-dns]
+service_name = "external_dns"
+
+[package.external-dns.source]
+type = "composite"
+packages = ["dns-server.tar.gz", "external-dns-customizations.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz", "opte-interface-setup.tar.gz"]
+
+[package.external-dns.output]
+type = "zone"
+intermediate_only = false
+
+[package.external-dns.only_for_targets]
+image = "standard"
+
+[package.external-dns-customizations]
+service_name = "external-dns-customizations"
+
+[package.external-dns-customizations.source]
+type = "local"
+
+[[package.external-dns-customizations.source.paths]]
+from = "smf/external-dns"
+to = "/var/svc/manifest/site/external_dns"
+
+[package.external-dns-customizations.output]
+type = "zone"
+intermediate_only = true
+
+[package.external-dns-customizations.only_for_targets]
+image = "standard"
+
 [package.installinator]
 service_name = "installinator"
-only_for_targets.image = "trampoline"
-source.type = "local"
-source.rust.binary_names = ["installinator"]
-source.rust.release = true
-source.paths = [{ from = "smf/installinator", to = "pkg" }]
-output.type = "tarball"
 
-# overlay is a set of packages that are overlaid onto all non-global zones.
-[package.overlay]
-service_name = "overlay"
-source.type = "composite"
-source.packages = ["logadm.tar.gz", "profile.tar.gz"]
-output.type = "zone"
+[package.installinator.source]
+type = "local"
 
-# The logadm package is an overlay for all non-global zones to reconfigure log
-# rotation and the frequency with which it runs.
+[package.installinator.source.rust]
+binary_names = ["installinator"]
+release = true
+
+[[package.installinator.source.paths]]
+from = "smf/installinator"
+to = "pkg"
+
+[package.installinator.output]
+type = "tarball"
+
+[package.installinator.only_for_targets]
+image = "trampoline"
+
+[package.internal-dns]
+service_name = "internal_dns"
+
+[package.internal-dns.source]
+type = "composite"
+packages = ["dns-server.tar.gz", "internal-dns-customizations.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.internal-dns.output]
+type = "zone"
+intermediate_only = false
+
+[package.internal-dns.only_for_targets]
+image = "standard"
+
+[package.internal-dns-cli]
+service_name = "internal-dns-cli"
+
+[package.internal-dns-cli.source]
+type = "local"
+paths = []
+
+[package.internal-dns-cli.source.rust]
+binary_names = ["dnswait"]
+release = true
+
+[package.internal-dns-cli.output]
+type = "zone"
+intermediate_only = true
+
+[package.internal-dns-cli.only_for_targets]
+image = "standard"
+
+[package.internal-dns-customizations]
+service_name = "internal-dns-customizations"
+
+[package.internal-dns-customizations.source]
+type = "local"
+
+[[package.internal-dns-customizations.source.paths]]
+from = "smf/internal-dns"
+to = "/var/svc/manifest/site/internal_dns"
+
+[package.internal-dns-customizations.output]
+type = "zone"
+intermediate_only = true
+
+[package.internal-dns-customizations.only_for_targets]
+image = "standard"
+
+[package.lldp]
+service_name = "lldp"
+
+[package.lldp.source]
+type = "prebuilt"
+repo = "lldp"
+commit = "61479b6922f9112fbe1e722414d2b8055212cb12"
+sha256 = "8f988c0b0fa3ad4121ab0e825298601035e56c5c054bdc3a1dfb4d6c8fd5b300"
+
+[package.lldp.output]
+type = "zone"
+intermediate_only = true
+
 [package.logadm]
 service_name = "logadm"
-source.type = "local"
-source.paths = [
-  { from = "smf/logadm/crontab.root", to = "/var/spool/cron/crontabs/root" },
-  { from = "smf/logadm/logadm.conf", to = "/etc/logadm.conf" },
-]
-output.type = "zone"
-output.intermediate_only = true
-#
-# The profile package is an overlay for all non-global zones to configure
-# root's bash environment.
-[package.profile]
-service_name = "profile"
-source.type = "local"
-source.paths = [
-  { from = "smf/profile/profile", to = "/root/.profile" },
-  { from = "smf/profile/bashrc", to = "/root/.bashrc" },
-]
-output.type = "zone"
-output.intermediate_only = true
+
+[package.logadm.source]
+type = "local"
+
+[[package.logadm.source.paths]]
+from = "smf/logadm/crontab.root"
+to = "/var/spool/cron/crontabs/root"
+
+[[package.logadm.source.paths]]
+from = "smf/logadm/logadm.conf"
+to = "/etc/logadm.conf"
+
+[package.logadm.output]
+type = "zone"
+intermediate_only = true
+
+[package.mg-ddm]
+service_name = "mg-ddm"
+
+[package.mg-ddm.source]
+type = "manual"
+
+[package.mg-ddm.output]
+type = "zone"
+intermediate_only = true
+
+[package.mg-ddm-gz]
+service_name = "mg-ddm"
+
+[package.mg-ddm-gz.source]
+type = "manual"
+
+[package.mg-ddm-gz.output]
+type = "tarball"
+
+[package.mgd]
+service_name = "mgd"
+
+[package.mgd.source]
+type = "manual"
+
+[package.mgd.output]
+type = "zone"
+intermediate_only = true
 
 [package.nexus]
 service_name = "nexus"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "omicron-nexus.tar.gz",
-  "omicron-omdb.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz",
-  "opte-interface-setup.tar.gz",
-]
-output.type = "zone"
+
+[package.nexus.source]
+type = "composite"
+packages = ["omicron-nexus.tar.gz", "omicron-omdb.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz", "opte-interface-setup.tar.gz"]
+
+[package.nexus.output]
+type = "zone"
+intermediate_only = false
+
+[package.nexus.only_for_targets]
+image = "standard"
+
+[package.ntp]
+service_name = "ntp"
+
+[package.ntp.source]
+type = "composite"
+packages = ["chrony-setup.tar.gz", "ntp-svc.tar.gz", "omicron-ntp-admin.tar.gz", "opte-interface-setup.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.ntp.output]
+type = "zone"
+intermediate_only = false
+
+[package.ntp.only_for_targets]
+image = "standard"
+
+[package.ntp-svc]
+service_name = "ntp-svc"
+
+[package.ntp-svc.source]
+type = "local"
+
+[[package.ntp-svc.source.paths]]
+from = "smf/ntp/manifest"
+to = "/var/svc/manifest/site/ntp"
+
+[package.ntp-svc.output]
+type = "zone"
+intermediate_only = true
+
+[package.ntp-svc.only_for_targets]
+image = "standard"
+
+[package.omicron-clickhouse-admin]
+service_name = "omicron-clickhouse-admin"
+
+[package.omicron-clickhouse-admin.source]
+type = "local"
+paths = []
+
+[package.omicron-clickhouse-admin.source.rust]
+binary_names = ["clickhouse-admin-keeper", "clickhouse-admin-server", "clickhouse-admin-single"]
+release = true
+
+[package.omicron-clickhouse-admin.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-clickhouse-admin.only_for_targets]
+image = "standard"
+
+[package.omicron-cockroach-admin]
+service_name = "cockroach-admin"
+
+[package.omicron-cockroach-admin.source]
+type = "local"
+
+[package.omicron-cockroach-admin.source.rust]
+binary_names = ["cockroach-admin"]
+release = true
+
+[[package.omicron-cockroach-admin.source.paths]]
+from = "smf/cockroach-admin/manifest.xml"
+to = "/var/svc/manifest/site/cockroach-admin/manifest.xml"
+
+[[package.omicron-cockroach-admin.source.paths]]
+from = "smf/cockroach-admin/config.toml"
+to = "/opt/oxide/lib/svc/cockroach-admin/config.toml"
+
+[[package.omicron-cockroach-admin.source.paths]]
+from = "smf/cockroach-admin/method_script.sh"
+to = "/opt/oxide/lib/svc/manifest/cockroach-admin.sh"
+
+[package.omicron-cockroach-admin.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-cockroach-admin.only_for_targets]
+image = "standard"
+
+[package.omicron-faux-mgs]
+service_name = "faux_mgs"
+
+[package.omicron-faux-mgs.source]
+type = "prebuilt"
+repo = "management-gateway-service"
+commit = "6bd2660d651332f38949cdfd3d23d751ca54b120"
+sha256 = "bf38d83d61ea7b2923fc7bd3aa563627e1f270b4bf18b1fc7bc744ddedc3b8bc"
+
+[package.omicron-faux-mgs.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-faux-mgs.only_for_targets]
+image = "standard"
+
+[package.omicron-gateway]
+service_name = "mgs"
+
+[package.omicron-gateway.source]
+type = "local"
+paths = []
+
+[package.omicron-gateway.source.rust]
+binary_names = ["mgs"]
+release = true
+
+[package.omicron-gateway.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-gateway.only_for_targets]
+image = "standard"
+
+[package.omicron-gateway-asic]
+service_name = "mgs"
+
+[package.omicron-gateway-asic.source]
+type = "composite"
+packages = ["omicron-gateway.tar.gz", "omicron-gateway-asic-customizations.tar.gz"]
+
+[package.omicron-gateway-asic.output]
+type = "zone"
+intermediate_only = false
+
+[package.omicron-gateway-asic.only_for_targets]
+image = "standard"
+switch = "asic"
+
+[package.omicron-gateway-asic-customizations]
+service_name = "mgs"
+
+[package.omicron-gateway-asic-customizations.source]
+type = "local"
+
+[[package.omicron-gateway-asic-customizations.source.paths]]
+from = "smf/mgs"
+to = "/var/svc/manifest/site/mgs"
+
+[package.omicron-gateway-asic-customizations.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-gateway-asic-customizations.only_for_targets]
+image = "standard"
+switch = "asic"
+
+[package.omicron-gateway-softnpu]
+service_name = "mgs"
+
+[package.omicron-gateway-softnpu.source]
+type = "composite"
+packages = ["omicron-gateway.tar.gz", "omicron-gateway-softnpu-customizations.tar.gz"]
+
+[package.omicron-gateway-softnpu.output]
+type = "zone"
+intermediate_only = false
+
+[package.omicron-gateway-softnpu.only_for_targets]
+image = "standard"
+switch = "softnpu"
+
+[package.omicron-gateway-softnpu-customizations]
+service_name = "mgs"
+
+[package.omicron-gateway-softnpu-customizations.source]
+type = "local"
+
+[[package.omicron-gateway-softnpu-customizations.source.paths]]
+from = "smf/mgs/manifest.xml"
+to = "/var/svc/manifest/site/mgs/manifest.xml"
+
+[[package.omicron-gateway-softnpu-customizations.source.paths]]
+from = "smf/mgs-sim/config.toml"
+to = "/var/svc/manifest/site/mgs/config.toml"
+
+[package.omicron-gateway-softnpu-customizations.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-gateway-softnpu-customizations.only_for_targets]
+image = "standard"
+switch = "softnpu"
+
+[package.omicron-gateway-stub]
+service_name = "mgs"
+
+[package.omicron-gateway-stub.source]
+type = "composite"
+packages = ["omicron-gateway.tar.gz", "omicron-gateway-stub-customizations.tar.gz"]
+
+[package.omicron-gateway-stub.output]
+type = "zone"
+intermediate_only = false
+
+[package.omicron-gateway-stub.only_for_targets]
+image = "standard"
+switch = "stub"
+
+[package.omicron-gateway-stub-customizations]
+service_name = "mgs"
+
+[package.omicron-gateway-stub-customizations.source]
+type = "local"
+
+[[package.omicron-gateway-stub-customizations.source.paths]]
+from = "smf/mgs/manifest.xml"
+to = "/var/svc/manifest/site/mgs/manifest.xml"
+
+[[package.omicron-gateway-stub-customizations.source.paths]]
+from = "smf/mgs-sim/config.toml"
+to = "/var/svc/manifest/site/mgs/config.toml"
+
+[package.omicron-gateway-stub-customizations.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-gateway-stub-customizations.only_for_targets]
+image = "standard"
+switch = "stub"
 
 [package.omicron-nexus]
 service_name = "omicron-nexus"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["nexus", "schema-updater"]
-source.rust.release = true
-source.paths = [
-  { from = "/opt/ooce/pgsql-13/lib/amd64", to = "/opt/ooce/pgsql-13/lib/amd64" },
-  { from = "smf/nexus/manifest.xml", to = "/var/svc/manifest/site/nexus/manifest.xml" },
-  { from = "smf/nexus/{{rack-topology}}", to = "/var/svc/manifest/site/nexus" },
-  { from = "out/console-assets", to = "/var/nexus/static" },
-  { from = "schema/crdb", to = "/var/nexus/schema/crdb" },
-  { from = "tools/dtrace/nexus", to = "/opt/oxide/dtrace/nexus" },
-]
-output.type = "zone"
 setup_hint = """
 - Run `cargo xtask download console` to download the web console assets
 - Run `pkg install library/postgresql-13` to download Postgres libraries
 """
-output.intermediate_only = true
 
-[package.oximeter]
-service_name = "oximeter"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [ "oximeter-collector.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz" ]
-output.type = "zone"
+[package.omicron-nexus.source]
+type = "local"
 
-[package.oximeter-collector]
-service_name = "oximeter-collector"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["oximeter", "clickhouse-schema-updater"]
-source.rust.release = true
-source.paths = [
-  { from = "oximeter/db/schema", to = "/opt/oxide/oximeter/schema" },
-  { from = "smf/oximeter/{{clickhouse-topology}}/config.toml", to = "/var/svc/manifest/site/oximeter/config.toml" },
-  { from = "smf/oximeter/manifest.xml", to = "/var/svc/manifest/site/oximeter/manifest.xml" },
-]
-output.type = "zone"
-output.intermediate_only = true
+[package.omicron-nexus.source.rust]
+binary_names = ["nexus", "schema-updater"]
+release = true
 
-[package.clickhouse]
-# This service runs a single-node ClickHouse server
-# and a small administrative Dropshot server.
-service_name = "clickhouse"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "clickhouse_svc.tar.gz",
-  "internal-dns-cli.tar.gz",
-  "omicron-clickhouse-admin.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz",
-  "clickana.tar.gz"
-]
-output.type = "zone"
+[[package.omicron-nexus.source.paths]]
+from = "/opt/ooce/pgsql-13/lib/amd64"
+to = "/opt/ooce/pgsql-13/lib/amd64"
 
-[package.clickhouse_svc]
-service_name = "clickhouse_svc"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "out/clickhouse", to = "/opt/oxide/clickhouse" },
-  { from = "smf/clickhouse/manifest.xml", to = "/var/svc/manifest/site/clickhouse/manifest.xml" },
-  { from = "smf/clickhouse/method_script.sh", to = "/opt/oxide/lib/svc/manifest/clickhouse.sh" },
-  { from = "smf/clickhouse/config.xml", to = "/opt/oxide/clickhouse/config.xml" },
-  { from = "smf/clickhouse-admin-single", to = "/var/svc/manifest/site/clickhouse-admin-single" },
-]
-output.type = "zone"
-output.intermediate_only = true
-setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+[[package.omicron-nexus.source.paths]]
+from = "smf/nexus/manifest.xml"
+to = "/var/svc/manifest/site/nexus/manifest.xml"
 
-[package.clickhouse_server]
-# This service runs a server for a replicated ClickHouse cluster.
-# It is complimentary to the clickhouse_keeper service.
-# One cannot be run without the other.
-service_name = "clickhouse_server"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "clickhouse_server_svc.tar.gz",
-  "internal-dns-cli.tar.gz",
-  "omicron-clickhouse-admin.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz",
-  "clickana.tar.gz"
-]
-output.type = "zone"
+[[package.omicron-nexus.source.paths]]
+from = "smf/nexus/{{rack-topology}}"
+to = "/var/svc/manifest/site/nexus"
 
-[package.clickhouse_server_svc]
-service_name = "clickhouse_server_svc"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "out/clickhouse", to = "/opt/oxide/clickhouse_server" },
-  { from = "smf/clickhouse_server/manifest.xml", to = "/var/svc/manifest/site/clickhouse_server/manifest.xml" },
-  { from = "smf/clickhouse-admin-server", to = "/var/svc/manifest/site/clickhouse-admin-server" },
-]
-output.type = "zone"
-output.intermediate_only = true
-setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+[[package.omicron-nexus.source.paths]]
+from = "out/console-assets"
+to = "/var/nexus/static"
 
-[package.clickhouse_keeper]
-# This service runs a keeper for a replicated ClickHouse cluster.
-# It is complimentary to the clickhouse_server service.
-# One cannot be run without the other.
-service_name = "clickhouse_keeper"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "clickhouse_keeper_svc.tar.gz",
-  "internal-dns-cli.tar.gz",
-  "omicron-clickhouse-admin.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
+[[package.omicron-nexus.source.paths]]
+from = "schema/crdb"
+to = "/var/nexus/schema/crdb"
 
-[package.clickhouse_keeper_svc]
-service_name = "clickhouse_keeper_svc"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "out/clickhouse", to = "/opt/oxide/clickhouse_keeper" },
-  { from = "smf/clickhouse_keeper/manifest.xml", to = "/var/svc/manifest/site/clickhouse_keeper/manifest.xml" },
-  { from = "smf/clickhouse-admin-keeper", to = "/var/svc/manifest/site/clickhouse-admin-keeper" },
-]
-output.type = "zone"
-output.intermediate_only = true
-setup_hint = "Run `cargo xtask download clickhouse` to download the necessary binaries"
+[[package.omicron-nexus.source.paths]]
+from = "tools/dtrace/nexus"
+to = "/opt/oxide/dtrace/nexus"
 
-[package.omicron-clickhouse-admin]
-service_name = "omicron-clickhouse-admin"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["clickhouse-admin-keeper", "clickhouse-admin-server", "clickhouse-admin-single"]
-source.rust.release = true
-# We specifically put the smf manifests with their corresponding container zones
-# so that both servers aren't started simultaneously
-# See [package.clickhouse_keeper_svc] and [package.clickhouse_server_svc]
-source.paths = []
-output.type = "zone"
-output.intermediate_only = true
+[package.omicron-nexus.output]
+type = "zone"
+intermediate_only = true
 
-[package.cockroachdb]
-service_name = "cockroachdb"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "cockroachdb-service.tar.gz",
-  "omicron-cockroach-admin.tar.gz",
-  "internal-dns-cli.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-[package.cockroachdb-service]
-service_name = "cockroachdb-service"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "out/cockroachdb", to = "/opt/oxide/cockroachdb" },
-  { from = "schema/crdb", to = "/opt/oxide/cockroachdb/sql" },
-  { from = "smf/cockroachdb/manifest.xml", to = "/var/svc/manifest/site/cockroachdb/manifest.xml" },
-  { from = "smf/cockroachdb/method_script.sh", to = "/opt/oxide/lib/svc/manifest/cockroachdb.sh" },
-]
-output.type = "zone"
-output.intermediate_only = true
-setup_hint = "Run `cargo xtask download cockroach` to download the necessary binaries"
-
-[package.omicron-cockroach-admin]
-service_name = "cockroach-admin"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["cockroach-admin"]
-source.rust.release = true
-source.paths = [
-  { from = "smf/cockroach-admin/manifest.xml", to = "/var/svc/manifest/site/cockroach-admin/manifest.xml" },
-  { from = "smf/cockroach-admin/config.toml", to = "/opt/oxide/lib/svc/cockroach-admin/config.toml" },
-  { from = "smf/cockroach-admin/method_script.sh", to = "/opt/oxide/lib/svc/manifest/cockroach-admin.sh" },
-]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.internal-dns-cli]
-service_name = "internal-dns-cli"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["dnswait"]
-source.rust.release = true
-source.paths = []
-output.type = "zone"
-output.intermediate_only = true
-
-[package.internal-dns]
-service_name = "internal_dns"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "dns-server.tar.gz",
-  "internal-dns-customizations.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-[package.external-dns]
-service_name = "external_dns"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "dns-server.tar.gz",
-  "external-dns-customizations.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz",
-  "opte-interface-setup.tar.gz",
-]
-output.type = "zone"
-
-[package.dns-server]
-service_name = "dns-server"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["dnsadm", "dns-server"]
-source.rust.release = true
-source.paths = []
-output.type = "zone"
-output.intermediate_only = true
-
-[package.internal-dns-customizations]
-service_name = "internal-dns-customizations"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/internal-dns", to = "/var/svc/manifest/site/internal_dns" },
-]
-output.intermediate_only = true
-output.type = "zone"
-
-[package.external-dns-customizations]
-service_name = "external-dns-customizations"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/external-dns", to = "/var/svc/manifest/site/external_dns" },
-]
-output.intermediate_only = true
-output.type = "zone"
-
-[package.ntp]
-service_name = "ntp"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "chrony-setup.tar.gz",
-  "ntp-svc.tar.gz",
-  "omicron-ntp-admin.tar.gz",
-  "opte-interface-setup.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-[package.ntp-svc]
-service_name = "ntp-svc"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/ntp/manifest", to = "/var/svc/manifest/site/ntp" },
-]
-output.intermediate_only = true
-output.type = "zone"
+[package.omicron-nexus.only_for_targets]
+image = "standard"
 
 [package.omicron-ntp-admin]
 service_name = "ntp-admin"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["ntp-admin"]
-source.rust.release = true
-source.paths = [
-  { from = "smf/ntp-admin/manifest.xml", to = "/var/svc/manifest/site/ntp-admin/manifest.xml" },
-  { from = "smf/ntp-admin/config.toml", to = "/opt/oxide/lib/svc/ntp-admin/config.toml" },
-  { from = "smf/ntp-admin/method_script.sh", to = "/opt/oxide/lib/svc/manifest/ntp-admin.sh" },
-]
-output.type = "zone"
-output.intermediate_only = true
 
-[package.chrony-setup]
-service_name = "chrony-setup"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/chrony-setup/manifest.xml", to = "/var/svc/manifest/site/chrony-setup/manifest.xml" },
-  { from = "smf/chrony-setup/etc", to = "/etc" },
-]
-output.intermediate_only = true
-output.type = "zone"
+[package.omicron-ntp-admin.source]
+type = "local"
 
-[package.omicron-gateway]
-service_name = "mgs"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["mgs"]
-source.rust.release = true
-source.paths = []
-output.type = "zone"
-output.intermediate_only = true
+[package.omicron-ntp-admin.source.rust]
+binary_names = ["ntp-admin"]
+release = true
 
-[package.omicron-gateway-asic-customizations]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "asic"
-source.type = "local"
-source.paths = [{ from = "smf/mgs", to = "/var/svc/manifest/site/mgs" }]
-output.intermediate_only = true
-output.type = "zone"
+[[package.omicron-ntp-admin.source.paths]]
+from = "smf/ntp-admin/manifest.xml"
+to = "/var/svc/manifest/site/ntp-admin/manifest.xml"
 
-[package.omicron-gateway-stub-customizations]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "stub"
-source.type = "local"
-source.paths = [
-  { from = "smf/mgs/manifest.xml", to = "/var/svc/manifest/site/mgs/manifest.xml" },
-  { from = "smf/mgs-sim/config.toml", to = "/var/svc/manifest/site/mgs/config.toml" },
-]
-output.intermediate_only = true
-output.type = "zone"
+[[package.omicron-ntp-admin.source.paths]]
+from = "smf/ntp-admin/config.toml"
+to = "/opt/oxide/lib/svc/ntp-admin/config.toml"
 
-[package.omicron-gateway-softnpu-customizations]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "softnpu"
-source.type = "local"
-source.paths = [
-  { from = "smf/mgs/manifest.xml", to = "/var/svc/manifest/site/mgs/manifest.xml" },
-  { from = "smf/mgs-sim/config.toml", to = "/var/svc/manifest/site/mgs/config.toml" },
-]
-output.intermediate_only = true
-output.type = "zone"
+[[package.omicron-ntp-admin.source.paths]]
+from = "smf/ntp-admin/method_script.sh"
+to = "/opt/oxide/lib/svc/manifest/ntp-admin.sh"
 
-[package.omicron-gateway-asic]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "asic"
-source.type = "composite"
-source.packages = [
-  "omicron-gateway.tar.gz",
-  "omicron-gateway-asic-customizations.tar.gz",
-]
-output.type = "zone"
+[package.omicron-ntp-admin.output]
+type = "zone"
+intermediate_only = true
 
-[package.omicron-gateway-stub]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "stub"
-source.type = "composite"
-source.packages = [
-  "omicron-gateway.tar.gz",
-  "omicron-gateway-stub-customizations.tar.gz",
-]
-output.type = "zone"
-
-[package.omicron-gateway-softnpu]
-service_name = "mgs"
-only_for_targets.image = "standard"
-only_for_targets.switch = "softnpu"
-source.type = "composite"
-source.packages = [
-  "omicron-gateway.tar.gz",
-  "omicron-gateway-softnpu-customizations.tar.gz",
-]
-output.type = "zone"
-
-[package.wicketd]
-service_name = "wicketd"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["wicketd"]
-source.rust.release = true
-source.paths = [{ from = "smf/wicketd", to = "/var/svc/manifest/site/wicketd" }]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.wicket]
-service_name = "wicket"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["wicket"]
-source.rust.release = true
-source.paths = [{ from = "wicket/zone-etc", to = "/etc" }]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.switch_zone_setup]
-service_name = "switch_zone_setup"
-source.type = "local"
-source.paths = [
-  { from = "smf/switch_zone_setup/manifest.xml", to = "/var/svc/manifest/site/switch_zone_setup/manifest.xml" },
-  { from = "smf/switch_zone_setup/support_authorized_keys", to = "/opt/oxide/support/authorized_keys" },
-  { from = "/opt/ooce/pgsql-13/lib/amd64", to = "/opt/ooce/pgsql-13/lib/amd64" },
-]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.sp-sim]
-service_name = "sp-sim"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["sp-sim"]
-source.rust.release = true
-source.paths = [{ from = "smf/sp-sim", to = "/var/svc/manifest/site/sp-sim" }]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.sp-sim-stub]
-service_name = "sp-sim-customizations"
-only_for_targets.image = "standard"
-only_for_targets.switch = "stub"
-source.type = "composite"
-source.packages = ["sp-sim.tar.gz"]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.sp-sim-softnpu]
-service_name = "sp-sim-customizations"
-only_for_targets.image = "standard"
-only_for_targets.switch = "softnpu"
-source.type = "composite"
-source.packages = ["sp-sim.tar.gz"]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.crucible-zone]
-service_name = "crucible"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [ "crucible.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz" ]
-output.type = "zone"
-
-[package.crucible-pantry-zone]
-service_name = "crucible_pantry"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [ "crucible-pantry.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz" ]
-output.type = "zone"
-
-# Packages not built within Omicron, but which must be imported.
-
-[package.omicron-faux-mgs]
-# This package bundles a `faux-mgs` binary into `/usr/bin` in the switch zone,
-# allowing `pilot sp ...` to work without needing to manually scp a `faux-mgs`
-# binary in during support operations. (On rare occasions a support operator may
-# still need to do that to get a more recent faux-mgs.)
-service_name = "faux_mgs"
-only_for_targets.image = "standard"
-source.type = "prebuilt"
-source.repo = "management-gateway-service"
-# In general, this commit should match the pinned revision of `gateway-sp-comms`
-# in `Cargo.toml`.
-source.commit = "6bd2660d651332f38949cdfd3d23d751ca54b120"
-source.sha256 = "bf38d83d61ea7b2923fc7bd3aa563627e1f270b4bf18b1fc7bc744ddedc3b8bc"
-output.type = "zone"
-output.intermediate_only = true
-
-# Refer to
-#   https://github.com/oxidecomputer/crucible/blob/main/package/README.md
-# for instructions on building this manually.
-[package.crucible]
-service_name = "crucible_prebuilt"
-only_for_targets.image = "standard"
-# To manually override the package source (for example, to test a change in
-# both Crucible and Omicron simultaneously):
-#
-# 1. Build the zone image manually
-# 2. Copy the output zone image from crucible/out to omicron/out
-# 3. Use source.type = "manual" instead of "prebuilt"
-source.type = "prebuilt"
-source.repo = "crucible"
-source.commit = "75ea3408643664877aa603ffc65996ed6dc34c0a"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/crucible/image/<commit>/crucible.sha256.txt
-source.sha256 = "fd0e150de5792a1d04b2cf4c4754d828284227ee4526ea5d08b01cfa71e2dd6a"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.crucible-pantry]
-service_name = "crucible_pantry_prebuilt"
-only_for_targets.image = "standard"
-source.type = "prebuilt"
-source.repo = "crucible"
-source.commit = "75ea3408643664877aa603ffc65996ed6dc34c0a"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/crucible/image/<commit>/crucible-pantry.sha256.txt
-source.sha256 = "096b56c0db4e28a8bb216ee3bf96c06040a764101d8a3f497a175cf790613bd2"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.crucible-dtrace]
-# This package contains a select set of DTrace script that operate on DTrace
-# probes that exist for consumers of the crucible upstairs library.  These
-# scripts are extracted onto the global zone.  The source commit here should
-# match a version of Crucible that contain probes used by the upstairs.  In most
-# cases this means the version of Crucible that Propolis is using.
-service_name = "crucible_dtrace"
-only_for_targets.image = "standard"
-source.type = "prebuilt"
-source.repo = "crucible"
-source.commit = "75ea3408643664877aa603ffc65996ed6dc34c0a"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/crucible/image/<commit>/crucible-dtrace.sha256.txt
-source.sha256 = "46d1ec24e068124f33d3fbc2bcb4246c886089da95ba76a0a69a8facee1dc8ec"
-output.type = "tarball"
-
-# Refer to
-#   https://github.com/oxidecomputer/propolis/blob/master/package/README.md
-# for instructions on building this manually.
-[package.propolis-server]
-service_name = "propolis-server"
-only_for_targets.image = "standard"
-source.type = "prebuilt"
-source.repo = "propolis"
-source.commit = "aaa51291b747928a1d69e4b6059a54163d4d2e6d"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/propolis/image/<commit>/propolis-server.sha256.txt
-source.sha256 = "9c5aee66f1b70d63cc0cbc02ad15821614691678563c5f9375632c72b1696761"
-output.type = "zone"
-
-[package.mg-ddm-gz]
-service_name = "mg-ddm"
-# Note: unlike every other package, `maghemite` is not restricted to either the
-# "standard" or "trampoline" image; it is included in both.
-source.type = "prebuilt"
-source.repo = "maghemite"
-# Updating the commit hash here currently requires also updating
-# `tools/maghemite_openapi_version`. Failing to do so will cause a failure when
-# building `ddm-admin-client` (which will instruct you to update
-# `tools/maghemite_openapi_version`).
-source.commit = "08f2a34d487658e87545ffbba3add632a82baf0d"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/maghemite/image/<commit>/mg-ddm-gz.sha256.txt
-source.sha256 = "b11b8446669c525342c5a5e70e8d6bfffb637d23b4c30a0f39c964bd2c2cb972"
-output.type = "tarball"
-
-[package.mg-ddm]
-service_name = "mg-ddm"
-# Note: unlike every other package, `maghemite` is not restricted to either the
-# "standard" or "trampoline" image; it is included in both.
-source.type = "prebuilt"
-source.repo = "maghemite"
-# Updating the commit hash here currently requires also updating
-# `tools/maghemite_openapi_version`. Failing to do so will cause a failure when
-# building `ddm-admin-client` (which will instruct you to update
-# `tools/maghemite_openapi_version`).
-source.commit = "08f2a34d487658e87545ffbba3add632a82baf0d"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/maghemite/image/<commit>/mg-ddm.sha256.txt
-source.sha256 = "56aa1984ba58fd4d64eba3a0c321cdfbcd22f97f9c31e20055fd6292b7f69bdc"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.mgd]
-service_name = "mgd"
-source.type = "prebuilt"
-source.repo = "maghemite"
-# Updating the commit hash here currently requires also updating
-# `tools/maghemite_openapi_version`. Failing to do so will cause a failure when
-# building `ddm-admin-client` (which will instruct you to update
-# `tools/maghemite_openapi_version`).
-source.commit = "08f2a34d487658e87545ffbba3add632a82baf0d"
-# The SHA256 digest is automatically posted to:
-# https://buildomat.eng.oxide.computer/public/file/oxidecomputer/maghemite/image/<commit>/mgd.sha256.txt
-source.sha256 = "5f0f682cd13e18b7bb428aff336ee7e42796e43a5cbbab7a23b086d0fd67050b"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.lldp]
-service_name = "lldp"
-source.type = "prebuilt"
-source.repo = "lldp"
-source.commit = "61479b6922f9112fbe1e722414d2b8055212cb12"
-source.sha256 = "8f988c0b0fa3ad4121ab0e825298601035e56c5c054bdc3a1dfb4d6c8fd5b300"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.pumpkind]
-service_name = "pumpkind"
-source.type = "prebuilt"
-source.repo = "pumpkind"
-source.commit = "a9564ed157edcc34ee1edfad7287660db398a6c7"
-source.sha256 = "d4acf7facaec9b2e6b15b68c382040a0faa86e1a31036123aa8314e38ac23e60"
-output.type = "zone"
-output.intermediate_only = true
-only_for_targets.image = "standard"
-only_for_targets.switch = "asic"
-
-[package.pumpkind-gz]
-service_name = "pumpkind"
-source.type = "prebuilt"
-source.repo = "pumpkind"
-source.commit = "a9564ed157edcc34ee1edfad7287660db398a6c7"
-source.sha256 = "b7b356d7fce91de1f71948741ee92e673d26731327716bf645909e0515367f21"
-output.type = "tarball"
-only_for_targets.image = "standard"
-
-[package.dendrite-stub]
-service_name = "dendrite"
-only_for_targets.switch = "stub"
-only_for_targets.image = "standard"
-# To manually override the package source:
-#
-# 1. Build the zone image manually
-#   1a. cd <dendrite tree>
-#   1b. cargo build --features=tofino_stub --release
-#   1c. cargo xtask dist --format omicron --release --features tofino_stub
-# 2. Copy dendrite.tar.gz from dendrite/out to omicron/out
-# 3. Change the below `source.type` key to `"manual"` and comment out or remove
-# the other `source.*` keys.
-source.type = "prebuilt"
-source.repo = "dendrite"
-source.commit = "cc8e02a0800034c431c8cf96b889ea638da3d194"
-source.sha256 = "edc5fe4bc4e7f091cd886d37a1adedaa7f646971b7d235ea1000623fde8c6648"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.dendrite-asic]
-service_name = "dendrite"
-only_for_targets.switch = "asic"
-only_for_targets.image = "standard"
-# To manually override the package source:
-#
-# You'll need to build the Barefoot Software Develoment Environment (SDE), which
-# is the Tofino driver framework. Clone
-# `https://github.com/oxidecomputer/bf_sde` and follow the build instructions
-# there. The below commands for building Dendrite assume the environment
-# variable `SDE` is set to the path in which the SDE has been built and
-# installed. Otherwise they assume `/opt/oxide/dendrite/bf_sde`.
-#
-# 1. Build the zone image manually
-#   1a. cd <dendrite tree>
-#   1b. cargo build --features=tofino_asic --release
-#   1c. cargo xtask dist --format omicron --release --features tofino_asic
-# 2. Copy the output zone image from dendrite/out to omicron/out
-# 3. Change the below `source.type` key to `"manual"` and comment out or remove
-# the other `source.*` keys.
-source.type = "prebuilt"
-source.repo = "dendrite"
-source.commit = "cc8e02a0800034c431c8cf96b889ea638da3d194"
-source.sha256 = "31f8daf167cd647728b62e35d802c39c118c9b39fa6f3419c6c2eafd4094f172"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.dendrite-softnpu]
-service_name = "dendrite"
-only_for_targets.switch = "softnpu"
-only_for_targets.image = "standard"
-# To manually override the package source:
-#
-# 1. Build the zone image manually
-#   1a. cd <dendrite tree>
-#   1b. cargo build --features=softnpu --release
-#   1c. cargo xtask dist --format omicron --release --features softnpu
-# 2. Copy dendrite.tar.gz from dendrite/out to omicron/out/dendrite-softnpu.tar.gz
-# 3. Change the below `source.type` key to `"manual"` and comment out or remove
-# the other `source.*` keys.
-source.type = "prebuilt"
-source.repo = "dendrite"
-source.commit = "cc8e02a0800034c431c8cf96b889ea638da3d194"
-source.sha256 = "c27a07a4406739994d6fb68f0d8e7125091743881f1f3e82790ab1099f4f2f4c"
-output.type = "zone"
-output.intermediate_only = true
-
-[package.xcvradm]
-service_name = "xcvradm"
-only_for_targets.switch = "asic"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "out/transceiver-control/root/opt/oxide/bin/xcvradm", to = "/opt/oxide/bin/xcvradm" },
-]
-output.type = "zone"
-output.intermediate_only = true
-setup_hint = "Run `cargo xtask download transceiver-control` to download the necessary binaries"
-
-[package.thundermuffin]
-service_name = "thundermuffin"
-source.type = "prebuilt"
-source.repo = "thundermuffin"
-source.commit = "a4a6108d7c9aac2464a0b6898e88132a8f701a13"
-source.sha256 = "dc55a2accd33a347df4cbdc0026cbaccea2c004940c3fec8cadcdd633d440dfa"
-output.type = "zone"
-output.intermediate_only = true
-
-# To package and install the asic variant of the switch, do:
-#
-# $ cargo run --release --bin omicron-package -- -t default target create -p dev -m gimlet -s asic
-# $ cargo run --release --bin omicron-package -- package
-# $ pfexec ./target/release/omicron-package install
-[package.switch-asic]
-service_name = "switch"
-only_for_targets.switch = "asic"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "omicron-faux-mgs.tar.gz",
-  "omicron-gateway-asic.tar.gz",
-  "dendrite-asic.tar.gz",
-  "lldp.tar.gz",
-  "pumpkind.tar.gz",
-  "wicketd.tar.gz",
-  "wicket.tar.gz",
-  "mg-ddm.tar.gz",
-  "mgd.tar.gz",
-  "switch_zone_setup.tar.gz",
-  "xcvradm.tar.gz",
-  "omicron-omdb.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-# To package and install the stub variant of the switch, do the following:
-#
-# $ cargo run --release --bin omicron-package -- -t default target create -p dev -m <gimlet|gimlet-standalone|non-gimlet> -s stub
-# $ cargo run --release --bin omicron-package -- package
-# $ pfexec ./target/release/omicron-package install
-[package.switch-stub]
-service_name = "switch"
-only_for_targets.switch = "stub"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "omicron-gateway-stub.tar.gz",
-  "dendrite-stub.tar.gz",
-  "lldp.tar.gz",
-  "wicketd.tar.gz",
-  "wicket.tar.gz",
-  "mg-ddm.tar.gz",
-  "mgd.tar.gz",
-  "switch_zone_setup.tar.gz",
-  "sp-sim-stub.tar.gz",
-  "omicron-omdb.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-# To package and install the softnpu variant of the switch, do the following:
-#
-# $ cargo run --release --bin omicron-package -- -t default target create -p dev -m <gimlet|gimlet-standalone|non-gimlet>
-# $ cargo run --release --bin omicron-package -- package
-# $ pfexec ./target/release/omicron-package install
-[package.switch-softnpu]
-service_name = "switch"
-only_for_targets.switch = "softnpu"
-only_for_targets.image = "standard"
-source.type = "composite"
-source.packages = [
-  "omicron-gateway-softnpu.tar.gz",
-  "dendrite-softnpu.tar.gz",
-  "lldp.tar.gz",
-  "wicketd.tar.gz",
-  "wicket.tar.gz",
-  "mg-ddm.tar.gz",
-  "mgd.tar.gz",
-  "switch_zone_setup.tar.gz",
-  "sp-sim-softnpu.tar.gz",
-  "omicron-omdb.tar.gz",
-  "zone-setup.tar.gz",
-  "zone-network-install.tar.gz"
-]
-output.type = "zone"
-
-[package.zone-network-install]
-service_name = "zone-network-setup"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/zone-network-setup/manifest.xml", to = "/var/svc/manifest/site/zone-network-setup/manifest.xml" },
-]
-output.type = "zone"
-output.intermediate_only = true
-
-[package.zone-setup]
-service_name = "zone-setup-cli"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["zone-setup"]
-source.rust.release = true
-output.type = "zone"
-output.intermediate_only = true
-
-[package.opte-interface-setup]
-service_name = "opte-interface-setup"
-only_for_targets.image = "standard"
-source.type = "local"
-source.paths = [
-  { from = "smf/opte-interface-setup/manifest.xml", to = "/var/svc/manifest/site/opte-interface-setup/manifest.xml" },
-]
-output.type = "zone"
-output.intermediate_only = true
+[package.omicron-ntp-admin.only_for_targets]
+image = "standard"
 
 [package.omicron-omdb]
 service_name = "omdb"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["omdb"]
-source.rust.release = true
-output.type = "zone"
-output.intermediate_only = true
+
+[package.omicron-omdb.source]
+type = "local"
+paths = []
+
+[package.omicron-omdb.source.rust]
+binary_names = ["omdb"]
+release = true
+
+[package.omicron-omdb.output]
+type = "zone"
+intermediate_only = true
+
+[package.omicron-omdb.only_for_targets]
+image = "standard"
+
+[package.omicron-sled-agent]
+service_name = "sled-agent"
+
+[package.omicron-sled-agent.source]
+type = "local"
+
+[package.omicron-sled-agent.source.rust]
+binary_names = ["sled-agent", "zone-bundle"]
+release = true
+
+[[package.omicron-sled-agent.source.paths]]
+from = "smf/sled-agent/manifest.xml"
+to = "pkg/manifest.xml"
+
+[[package.omicron-sled-agent.source.paths]]
+from = "smf/sled-agent/{{machine}}"
+to = "pkg"
+
+[package.omicron-sled-agent.output]
+type = "tarball"
+
+[package.omicron-sled-agent.only_for_targets]
+image = "standard"
+
+[package.opte-interface-setup]
+service_name = "opte-interface-setup"
+
+[package.opte-interface-setup.source]
+type = "local"
+
+[[package.opte-interface-setup.source.paths]]
+from = "smf/opte-interface-setup/manifest.xml"
+to = "/var/svc/manifest/site/opte-interface-setup/manifest.xml"
+
+[package.opte-interface-setup.output]
+type = "zone"
+intermediate_only = true
+
+[package.opte-interface-setup.only_for_targets]
+image = "standard"
+
+[package.overlay]
+service_name = "overlay"
+
+[package.overlay.source]
+type = "composite"
+packages = ["logadm.tar.gz", "profile.tar.gz"]
+
+[package.overlay.output]
+type = "zone"
+intermediate_only = false
+
+[package.oximeter]
+service_name = "oximeter"
+
+[package.oximeter.source]
+type = "composite"
+packages = ["oximeter-collector.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.oximeter.output]
+type = "zone"
+intermediate_only = false
+
+[package.oximeter.only_for_targets]
+image = "standard"
+
+[package.oximeter-collector]
+service_name = "oximeter-collector"
+
+[package.oximeter-collector.source]
+type = "local"
+
+[package.oximeter-collector.source.rust]
+binary_names = ["oximeter", "clickhouse-schema-updater"]
+release = true
+
+[[package.oximeter-collector.source.paths]]
+from = "oximeter/db/schema"
+to = "/opt/oxide/oximeter/schema"
+
+[[package.oximeter-collector.source.paths]]
+from = "smf/oximeter/{{clickhouse-topology}}/config.toml"
+to = "/var/svc/manifest/site/oximeter/config.toml"
+
+[[package.oximeter-collector.source.paths]]
+from = "smf/oximeter/manifest.xml"
+to = "/var/svc/manifest/site/oximeter/manifest.xml"
+
+[package.oximeter-collector.output]
+type = "zone"
+intermediate_only = true
+
+[package.oximeter-collector.only_for_targets]
+image = "standard"
 
 [package.oxlog]
 service_name = "oxlog"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["oxlog"]
-source.rust.release = true
-output.type = "tarball"
+
+[package.oxlog.source]
+type = "local"
+paths = []
+
+[package.oxlog.source.rust]
+binary_names = ["oxlog"]
+release = true
+
+[package.oxlog.output]
+type = "tarball"
+
+[package.oxlog.only_for_targets]
+image = "standard"
 
 [package.probe]
 service_name = "probe"
-source.type = "composite"
-source.packages = ["thundermuffin.tar.gz"]
-output.type = "zone"
 
-[package.clickana]
-service_name = "clickana"
-only_for_targets.image = "standard"
-source.type = "local"
-source.rust.binary_names = ["clickana"]
-source.rust.release = true
-output.type = "zone"
-output.intermediate_only = true
+[package.probe.source]
+type = "composite"
+packages = ["thundermuffin.tar.gz"]
 
-# Target configuration
-# --------------------
-#
-# This section defines "targets" built by Omicron. A target is a map of keys and
-# values that are used to filter out packages (via `only_for_targets`) and for
-# other purposes.
-#
-# For what the individual keys mean, see the definition for `TargetCommand` in
-# `package/src/lib.rs`.
+[package.probe.output]
+type = "zone"
+intermediate_only = false
 
-# A preset for the host image built during release.
-[target.preset.host]
+[package.profile]
+service_name = "profile"
+
+[package.profile.source]
+type = "local"
+
+[[package.profile.source.paths]]
+from = "smf/profile/profile"
+to = "/root/.profile"
+
+[[package.profile.source.paths]]
+from = "smf/profile/bashrc"
+to = "/root/.bashrc"
+
+[package.profile.output]
+type = "zone"
+intermediate_only = true
+
+[package.propolis-server]
+service_name = "propolis-server"
+
+[package.propolis-server.source]
+type = "manual"
+
+[package.propolis-server.output]
+type = "zone"
+intermediate_only = false
+
+[package.propolis-server.only_for_targets]
 image = "standard"
-machine = "gimlet"
+
+[package.pumpkind]
+service_name = "pumpkind"
+
+[package.pumpkind.source]
+type = "prebuilt"
+repo = "pumpkind"
+commit = "a9564ed157edcc34ee1edfad7287660db398a6c7"
+sha256 = "d4acf7facaec9b2e6b15b68c382040a0faa86e1a31036123aa8314e38ac23e60"
+
+[package.pumpkind.output]
+type = "zone"
+intermediate_only = true
+
+[package.pumpkind.only_for_targets]
+image = "standard"
 switch = "asic"
-rack-topology = "multi-sled"
-clickhouse-topology = "single-node"
 
-# A preset for the recovery image built during release.
-[target.preset.recovery]
-image = "trampoline"
-# The trampoline image doesn't execute sled-agent and doesn't contain the switch
-# zone, so neither "machine" nor "switch" are defined.
-rack-topology = "single-sled"
-clickhouse-topology = "single-node"
+[package.pumpkind-gz]
+service_name = "pumpkind"
 
-# A preset for development.
-[target.preset.dev]
+[package.pumpkind-gz.source]
+type = "prebuilt"
+repo = "pumpkind"
+commit = "a9564ed157edcc34ee1edfad7287660db398a6c7"
+sha256 = "b7b356d7fce91de1f71948741ee92e673d26731327716bf645909e0515367f21"
+
+[package.pumpkind-gz.output]
+type = "tarball"
+
+[package.pumpkind-gz.only_for_targets]
+image = "standard"
+
+[package.sp-sim]
+service_name = "sp-sim"
+
+[package.sp-sim.source]
+type = "local"
+
+[package.sp-sim.source.rust]
+binary_names = ["sp-sim"]
+release = true
+
+[[package.sp-sim.source.paths]]
+from = "smf/sp-sim"
+to = "/var/svc/manifest/site/sp-sim"
+
+[package.sp-sim.output]
+type = "zone"
+intermediate_only = true
+
+[package.sp-sim.only_for_targets]
+image = "standard"
+
+[package.sp-sim-softnpu]
+service_name = "sp-sim-customizations"
+
+[package.sp-sim-softnpu.source]
+type = "composite"
+packages = ["sp-sim.tar.gz"]
+
+[package.sp-sim-softnpu.output]
+type = "zone"
+intermediate_only = true
+
+[package.sp-sim-softnpu.only_for_targets]
+image = "standard"
+switch = "softnpu"
+
+[package.sp-sim-stub]
+service_name = "sp-sim-customizations"
+
+[package.sp-sim-stub.source]
+type = "composite"
+packages = ["sp-sim.tar.gz"]
+
+[package.sp-sim-stub.output]
+type = "zone"
+intermediate_only = true
+
+[package.sp-sim-stub.only_for_targets]
+image = "standard"
+switch = "stub"
+
+[package.switch-asic]
+service_name = "switch"
+
+[package.switch-asic.source]
+type = "composite"
+packages = ["omicron-faux-mgs.tar.gz", "omicron-gateway-asic.tar.gz", "dendrite-asic.tar.gz", "lldp.tar.gz", "pumpkind.tar.gz", "wicketd.tar.gz", "wicket.tar.gz", "mg-ddm.tar.gz", "mgd.tar.gz", "switch_zone_setup.tar.gz", "xcvradm.tar.gz", "omicron-omdb.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.switch-asic.output]
+type = "zone"
+intermediate_only = false
+
+[package.switch-asic.only_for_targets]
+image = "standard"
+switch = "asic"
+
+[package.switch-softnpu]
+service_name = "switch"
+
+[package.switch-softnpu.source]
+type = "composite"
+packages = ["omicron-gateway-softnpu.tar.gz", "dendrite-softnpu.tar.gz", "lldp.tar.gz", "wicketd.tar.gz", "wicket.tar.gz", "mg-ddm.tar.gz", "mgd.tar.gz", "switch_zone_setup.tar.gz", "sp-sim-softnpu.tar.gz", "omicron-omdb.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.switch-softnpu.output]
+type = "zone"
+intermediate_only = false
+
+[package.switch-softnpu.only_for_targets]
+image = "standard"
+switch = "softnpu"
+
+[package.switch-stub]
+service_name = "switch"
+
+[package.switch-stub.source]
+type = "composite"
+packages = ["omicron-gateway-stub.tar.gz", "dendrite-stub.tar.gz", "lldp.tar.gz", "wicketd.tar.gz", "wicket.tar.gz", "mg-ddm.tar.gz", "mgd.tar.gz", "switch_zone_setup.tar.gz", "sp-sim-stub.tar.gz", "omicron-omdb.tar.gz", "zone-setup.tar.gz", "zone-network-install.tar.gz"]
+
+[package.switch-stub.output]
+type = "zone"
+intermediate_only = false
+
+[package.switch-stub.only_for_targets]
+image = "standard"
+switch = "stub"
+
+[package.switch_zone_setup]
+service_name = "switch_zone_setup"
+
+[package.switch_zone_setup.source]
+type = "local"
+
+[[package.switch_zone_setup.source.paths]]
+from = "smf/switch_zone_setup/manifest.xml"
+to = "/var/svc/manifest/site/switch_zone_setup/manifest.xml"
+
+[[package.switch_zone_setup.source.paths]]
+from = "smf/switch_zone_setup/support_authorized_keys"
+to = "/opt/oxide/support/authorized_keys"
+
+[[package.switch_zone_setup.source.paths]]
+from = "/opt/ooce/pgsql-13/lib/amd64"
+to = "/opt/ooce/pgsql-13/lib/amd64"
+
+[package.switch_zone_setup.output]
+type = "zone"
+intermediate_only = true
+
+[package.thundermuffin]
+service_name = "thundermuffin"
+
+[package.thundermuffin.source]
+type = "prebuilt"
+repo = "thundermuffin"
+commit = "a4a6108d7c9aac2464a0b6898e88132a8f701a13"
+sha256 = "dc55a2accd33a347df4cbdc0026cbaccea2c004940c3fec8cadcdd633d440dfa"
+
+[package.thundermuffin.output]
+type = "zone"
+intermediate_only = true
+
+[package.wicket]
+service_name = "wicket"
+
+[package.wicket.source]
+type = "local"
+
+[package.wicket.source.rust]
+binary_names = ["wicket"]
+release = true
+
+[[package.wicket.source.paths]]
+from = "wicket/zone-etc"
+to = "/etc"
+
+[package.wicket.output]
+type = "zone"
+intermediate_only = true
+
+[package.wicket.only_for_targets]
+image = "standard"
+
+[package.wicketd]
+service_name = "wicketd"
+
+[package.wicketd.source]
+type = "local"
+
+[package.wicketd.source.rust]
+binary_names = ["wicketd"]
+release = true
+
+[[package.wicketd.source.paths]]
+from = "smf/wicketd"
+to = "/var/svc/manifest/site/wicketd"
+
+[package.wicketd.output]
+type = "zone"
+intermediate_only = true
+
+[package.wicketd.only_for_targets]
+image = "standard"
+
+[package.xcvradm]
+service_name = "xcvradm"
+setup_hint = "Run `cargo xtask download transceiver-control` to download the necessary binaries"
+
+[package.xcvradm.source]
+type = "local"
+
+[[package.xcvradm.source.paths]]
+from = "out/transceiver-control/root/opt/oxide/bin/xcvradm"
+to = "/opt/oxide/bin/xcvradm"
+
+[package.xcvradm.output]
+type = "zone"
+intermediate_only = true
+
+[package.xcvradm.only_for_targets]
+image = "standard"
+switch = "asic"
+
+[package.zone-network-install]
+service_name = "zone-network-setup"
+
+[package.zone-network-install.source]
+type = "local"
+
+[[package.zone-network-install.source.paths]]
+from = "smf/zone-network-setup/manifest.xml"
+to = "/var/svc/manifest/site/zone-network-setup/manifest.xml"
+
+[package.zone-network-install.output]
+type = "zone"
+intermediate_only = true
+
+[package.zone-network-install.only_for_targets]
+image = "standard"
+
+[package.zone-setup]
+service_name = "zone-setup-cli"
+
+[package.zone-setup.source]
+type = "local"
+paths = []
+
+[package.zone-setup.source.rust]
+binary_names = ["zone-setup"]
+release = true
+
+[package.zone-setup.output]
+type = "zone"
+intermediate_only = true
+
+[package.zone-setup.only_for_targets]
+image = "standard"
+
+[target.preset.canada]
+clickhouse-topology = "single-node"
 image = "standard"
 machine = "non-gimlet"
-switch = "softnpu"
-rack-topology = "single-sled"
-clickhouse-topology = "single-node"
-
-# A preset for the `a4x2` testbed environment.
-[target.preset.a4x2]
-image = "standard"
-machine = "non-gimlet"
-switch = "softnpu"
 rack-topology = "multi-sled"
-clickhouse-topology = "single-node"
+switch = "stub"
