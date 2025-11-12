@@ -2886,6 +2886,8 @@ table! {
     disk_type_local_storage (disk_id) {
         disk_id -> Uuid,
 
+        required_dataset_overhead -> Int8,
+
         local_storage_dataset_allocation_id -> Nullable<Uuid>,
     }
 }
@@ -2899,6 +2901,7 @@ table! {
 
         local_storage_dataset_id -> Uuid,
         pool_id -> Uuid,
+        sled_id -> Uuid,
 
         dataset_size -> Int8,
     }

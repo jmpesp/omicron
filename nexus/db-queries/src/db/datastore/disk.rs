@@ -43,6 +43,7 @@ use nexus_db_errors::OptionalError;
 use nexus_db_errors::public_error_from_diesel;
 use nexus_db_lookup::LookupPath;
 use omicron_common::api;
+use omicron_common::api::external;
 use omicron_common::api::external::CreateResult;
 use omicron_common::api::external::Error;
 use omicron_common::api::external::ListResultVec;
@@ -219,6 +220,10 @@ impl LocalStorageDisk {
 
     pub fn slot(&self) -> Option<u8> {
         self.model().slot()
+    }
+
+    pub fn required_dataset_overhead(&self) -> external::ByteCount {
+        self.disk_type_local_storage.required_dataset_overhead()
     }
 
     /// Return the full path to the local storage zvol's device
@@ -1419,7 +1424,6 @@ mod tests {
 
     use crate::db::pub_test_utils::TestDatabase;
     use nexus_types::external_api::params;
-    use omicron_common::api::external;
     use omicron_test_utils::dev;
 
     #[tokio::test]

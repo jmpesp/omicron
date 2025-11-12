@@ -593,7 +593,16 @@ impl Display for ByteCount {
 }
 
 // TODO-cleanup This could use the experimental std::num::IntErrorKind.
-#[derive(Debug, Eq, thiserror::Error, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Debug,
+    Eq,
+    thiserror::Error,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
 pub enum ByteCountRangeError {
     #[error("value is too small for a byte count")]
     TooSmall,

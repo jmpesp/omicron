@@ -11,6 +11,8 @@ use omicron_uuid_kinds::DatasetKind;
 use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::ExternalZpoolKind;
 use omicron_uuid_kinds::ExternalZpoolUuid;
+use omicron_uuid_kinds::SledKind;
+use omicron_uuid_kinds::SledUuid;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -30,6 +32,7 @@ pub struct LocalStorageDatasetAllocation {
 
     local_storage_dataset_id: DbTypedUuid<DatasetKind>,
     pool_id: DbTypedUuid<ExternalZpoolKind>,
+    sled_id: DbTypedUuid<SledKind>,
 
     /// Size of this dataset, which is enough to contain the child zvol plus
     /// some overhead.
@@ -43,5 +46,9 @@ impl LocalStorageDatasetAllocation {
 
     pub fn pool_id(&self) -> ExternalZpoolUuid {
         self.pool_id.into()
+    }
+
+    pub fn sled_id(&self) -> SledUuid {
+        self.sled_id.into()
     }
 }

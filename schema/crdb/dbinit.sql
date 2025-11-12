@@ -7026,6 +7026,8 @@ WHERE
 CREATE TABLE IF NOT EXISTS omicron.public.disk_type_local_storage (
     disk_id UUID PRIMARY KEY,
 
+    required_dataset_overhead INT8 NOT NULL,
+
     local_storage_dataset_allocation_id UUID
 );
 
@@ -7036,6 +7038,8 @@ CREATE TABLE IF NOT EXISTS omicron.public.local_storage_dataset_allocation (
     time_deleted TIMESTAMPTZ,
 
     local_storage_dataset_id UUID NOT NULL,
+    pool_id UUID NOT NULL,
+    sled_id UUID NOT NULL,
 
     dataset_size INT8 NOT NULL
 );

@@ -313,7 +313,11 @@ async fn sdc_create_local_storage_disk_record(
         db::model::DiskType::LocalStorage,
     );
 
-    let disk_type_local_storage = db::model::DiskTypeLocalStorage::new(disk_id);
+    let disk_type_local_storage = db::model::DiskTypeLocalStorage::new(
+        disk_id,
+        params.create_params.size(),
+    )
+    .map_err(ActionError::action_failed)?;
 
     let local_storage_disk =
         db::datastore::LocalStorageDisk::new(disk, disk_type_local_storage);
