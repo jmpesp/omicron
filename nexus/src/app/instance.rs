@@ -53,6 +53,7 @@ use omicron_common::api::external::UpdateResult;
 use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_common::api::internal::nexus;
 use omicron_common::api::internal::shared::SourceNatConfig;
+use omicron_common::zpool_name::ZpoolName;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
 use omicron_uuid_kinds::PropolisUuid;
@@ -66,9 +67,9 @@ use propolis_client::support::tungstenite::protocol::frame::coding::CloseCode;
 use sagas::instance_common::ExternalIpAttach;
 use sagas::instance_start;
 use sagas::instance_update;
+use sled_agent_client::types::DelegatedZvol;
 use sled_agent_client::types::InstanceMigrationTargetParams;
 use sled_agent_client::types::VmmPutStateBody;
-use sled_agent_client::types::DelegatedZvol;
 use std::matches;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -1190,8 +1191,8 @@ impl super::Nexus {
             .await?;
 
         // Each Disk::LocalStorage will require a delegated zvol entry.
-        let mut delegated_zvols: Vec<DelegatedZvol>
-            = Vec::with_capacity(disks.len());
+        let mut delegated_zvols: Vec<DelegatedZvol> =
+            Vec::with_capacity(disks.len());
 
         for disk in &disks {
             let local_storage_disk = match disk {
@@ -1202,23 +1203,24 @@ impl super::Nexus {
                 Disk::LocalStorage(local_storage_disk) => local_storage_disk,
             };
 
-            let Some(pool_id) = local_storage_disk.pool_id() else {
-                return Err(Error::internal_error(
-                    &format!("local storage disk {} pool_id is None!", disk.id()),
-                ).into());
+            let Some(local_storage_dataset_allocation) =
+                &local_storage_disk.local_storage_dataset_allocation
+            else {
+                return Err(Error::internal_error(&format!(
+                    "local storage disk {} allocation is None!",
+                    disk.id()
+                ))
+                .into());
             };
-            let Some(dataset_id) = local_storage_disk.dataset_id() else {
-                return Err(Error::internal_error(
-                    &format!("local storage disk {} dataset_id is None!", disk.id()),
-                ).into());
-            };
+
+            let pool_id = local_storage_dataset_allocation.pool_id();
+            let dataset_id = local_storage_dataset_allocation.id();
+
+            let zpool_name = ZpoolName::External(pool_id);
 
             delegated_zvols.push(DelegatedZvol {
                 parent_dataset: format!(
-                    // XXX use external zpool name thing
-                    "oxp_{}/crypt/local_storage/{}",
-                    pool_id,
-                    dataset_id,
+                    "{zpool_name}/crypt/local_storage/{dataset_id}",
                 ),
 
                 name: String::from("vol"),

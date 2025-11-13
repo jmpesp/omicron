@@ -4,6 +4,7 @@
 
 //! Implementation of queries for affinity groups
 
+use crate::db::datastore::LocalStorageDisk;
 use crate::db::model::Resources;
 use crate::db::model::SledResourceVmm;
 use crate::db::raw_query_builder::QueryBuilder;
@@ -12,12 +13,11 @@ use diesel::sql_types;
 use nexus_db_model::SledCpuFamily;
 use nexus_db_schema::enums::AffinityPolicyEnum;
 use nexus_db_schema::enums::SledCpuFamilyEnum;
+use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
-use crate::db::datastore::LocalStorageDisk;
-use omicron_uuid_kinds::DatasetUuid;
-use omicron_uuid_kinds::ZpoolUuid;
 use omicron_uuid_kinds::SledUuid;
+use omicron_uuid_kinds::ZpoolUuid;
 use uuid::Uuid;
 
 // XXX do these need Debug? Clone?
@@ -30,6 +30,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct LocalStorageAllocation {
     pub disk_id: Uuid,
+    pub local_storage_dataset_allocation_id: DatasetUuid,
     pub required_dataset_size: i64,
     // XXX consider local storage dataset specific uuid, not any dataset can be
     // used here.
@@ -44,6 +45,8 @@ pub enum LocalStorageAllocationRequired {
     No,
     Yes { allocations: Vec<LocalStorageAllocation> },
 }
+
+// XXX did RustFmt butcher this file
 
 fn subquery_our_aa_groups(query: &mut QueryBuilder) {
     query
@@ -325,12 +328,16 @@ pub fn sled_insert_resource_query(
 
     // "our_aa_groups": All the anti-affinity group_ids to which our instance belongs.
     subquery_our_aa_groups(&mut query);
-    query.bind::<sql_types::Uuid, _>(resource.instance_id.unwrap().into_untyped_uuid());
+    query.bind::<sql_types::Uuid, _>(
+        resource.instance_id.unwrap().into_untyped_uuid(),
+    );
 
     // "other_aa_instances": All the group_id,instance_ids of instances (other
     // than our own) belonging to "our_aa_groups".
     subquery_other_aa_instances(&mut query);
-    query.bind::<sql_types::Uuid, _>(resource.instance_id.unwrap().into_untyped_uuid());
+    query.bind::<sql_types::Uuid, _>(
+        resource.instance_id.unwrap().into_untyped_uuid(),
+    );
 
     // Find instances with a strict anti-affinity policy in the sled failure
     // domain. We must ensure we do not co-locate with these instances.
@@ -360,12 +367,16 @@ pub fn sled_insert_resource_query(
 
     // "our_a_groups": All the affinity group_ids to which our instance belongs.
     subquery_our_a_groups(&mut query);
-    query.bind::<sql_types::Uuid, _>(resource.instance_id.unwrap().into_untyped_uuid());
+    query.bind::<sql_types::Uuid, _>(
+        resource.instance_id.unwrap().into_untyped_uuid(),
+    );
 
     // "other_a_instances": All the group_id,instance_ids of instances (other
     // than our own) belonging to "our_a_instances").
     subquery_other_a_instances(&mut query);
-    query.bind::<sql_types::Uuid, _>(resource.instance_id.unwrap().into_untyped_uuid());
+    query.bind::<sql_types::Uuid, _>(
+        resource.instance_id.unwrap().into_untyped_uuid(),
+    );
 
     // Find instances with a strict affinity policy in the sled failure
     // domain. We must ensure we co-locate with these instances.
@@ -394,89 +405,38 @@ pub fn sled_insert_resource_query(
     );
 
     match local_storage_allocation_required {
-        LocalStorageAllocationRequired::No => {},
+        LocalStorageAllocationRequired::No => {}
 
         LocalStorageAllocationRequired::Yes { allocations } => {
-            // XXX should we instead just skip the UPDATE statement? it's too
-            // bad there isn't a NonEmptyVec type
+            // XXX it's too bad there isn't a NonEmptyVec type
             assert!(!allocations.is_empty());
 
-            // Set the pool id and dataset size for each allocation by UPDATEing
-            // the corresponding row.
+            // Update each local storage disk's allocation id
 
-            query.sql(" UPDATED_LOCAL_STORAGE_RECORDS AS (");
+            query.sql(" UPDATED_LOCAL_STORAGE_DISK_RECORDS AS (");
             query.sql("  UPDATE disk_type_local_storage ");
 
-            query.sql("    SET pool_id = CASE disk_id ");
+            query.sql(
+                "    SET local_storage_dataset_allocation_id = CASE disk_id ",
+            );
 
             for allocation in allocations {
-                let LocalStorageAllocation { disk_id, pool_id, .. } = allocation;
+                let LocalStorageAllocation {
+                    disk_id,
+                    local_storage_dataset_allocation_id,
+                    ..
+                } = allocation;
 
                 query.sql("WHEN ");
                 query.param().bind::<sql_types::Uuid, _>(*disk_id);
                 query.sql(" THEN ");
-                query.param().bind::<sql_types::Uuid, _>(pool_id.into_untyped_uuid());
-                query.sql(" ");
-            }
-
-            query.sql("    END,");
-            query.sql("    dataset_size = CASE disk_id ");
-
-            for allocation in allocations {
-                let LocalStorageAllocation { disk_id, required_dataset_size, .. } = allocation;
-
-                query.sql("WHEN ");
-                query.param().bind::<sql_types::Uuid, _>(*disk_id);
-                query.sql(" THEN ");
-                query.param().bind::<sql_types::BigInt, _>(*required_dataset_size);
-                query.sql(" ");
-            }
-
-            query.sql("    END,");
-            query.sql("    sled_id = CASE disk_id ");
-
-            for allocation in allocations {
-                let LocalStorageAllocation { disk_id, sled_id, .. } = allocation;
-
-                query.sql("WHEN ");
-                query.param().bind::<sql_types::Uuid, _>(*disk_id);
-                query.sql(" THEN ");
-                query.param().bind::<sql_types::Uuid, _>(sled_id.into_untyped_uuid());
-                query.sql(" ");
-            }
-
-            query.sql("    END,");
-            query.sql("    dataset_id = CASE disk_id ");
-
-            for allocation in allocations {
-                let LocalStorageAllocation { disk_id, rendezvous_local_storage_dataset_id, .. } = allocation;
-
-                query.sql("WHEN ");
-                query.param().bind::<sql_types::Uuid, _>(*disk_id);
-                query.sql(" THEN ");
-                query.param().bind::<sql_types::Uuid, _>(rendezvous_local_storage_dataset_id.into_untyped_uuid());
+                query.param().bind::<sql_types::Uuid, _>(
+                    local_storage_dataset_allocation_id.into_untyped_uuid(),
+                );
                 query.sql(" ");
             }
 
             query.sql("    END");
-
-            /*
-            query.sql("    dataset_id = (");
-            query.sql("      SELECT id FROM rendezvous_local_storage_dataset");
-            query.sql("      WHERE rendezvous_local_storage_dataset.pool_id = CASE disk_id ");
-
-            for allocation in allocations {
-                let LocalStorageAllocation { disk_id, pool_id, .. } = allocation;
-
-                query.sql("WHEN ");
-                query.param().bind::<sql_types::Uuid, _>(*disk_id);
-                query.sql(" THEN ");
-                query.param().bind::<sql_types::Uuid, _>(pool_id.into_untyped_uuid());
-                query.sql(" ");
-            }
-
-            query.sql("    END AND time_tombstoned IS NULL) ");
-            */
 
             query.sql("  WHERE disk_id in ( ");
 
@@ -492,8 +452,59 @@ pub fn sled_insert_resource_query(
 
             query.sql("  )");
 
-            query.sql(" RETURNING *");
-            query.sql("), ");
+            query.sql("  RETURNING *");
+            query.sql(" ), ");
+
+            // Create new local storage dataset allocation records.
+
+            query.sql(" NEW_LOCAL_STORAGE_ALLOCATION_RECORDS AS (");
+            query.sql("  INSERT INTO local_storage_dataset_allocation VALUES ");
+
+            for (index, allocation) in allocations.iter().enumerate() {
+                let LocalStorageAllocation {
+                    local_storage_dataset_allocation_id,
+                    rendezvous_local_storage_dataset_id,
+                    pool_id,
+                    sled_id,
+                    required_dataset_size,
+                    ..
+                } = allocation;
+
+                query.sql("(");
+
+                query.param().bind::<sql_types::Uuid, _>(
+                    local_storage_dataset_allocation_id.into_untyped_uuid()
+                );
+                query.sql(",");
+
+                query.sql("NOW(),");
+                query.sql("NULL,");
+
+                query.param().bind::<sql_types::Uuid, _>(
+                    rendezvous_local_storage_dataset_id.into_untyped_uuid()
+                );
+                query.sql(",");
+
+                query
+                    .param()
+                    .bind::<sql_types::Uuid, _>(pool_id.into_untyped_uuid());
+                query.sql(",");
+
+                query
+                    .param()
+                    .bind::<sql_types::Uuid, _>(sled_id.into_untyped_uuid());
+                query.sql(",");
+
+                query.param().bind::<sql_types::BigInt, _>(*required_dataset_size);
+
+                query.sql(")");
+
+                if index != (allocations.len() - 1) {
+                    query.sql(",");
+                }
+            }
+
+            query.sql(" RETURNING *), ");
 
             // Update the rendezvous_local_storage_dataset table's size_used
             // column by adding what was changed in these computed rows
@@ -501,14 +512,15 @@ pub fn sled_insert_resource_query(
             query.sql("UPDATE_RENDEZVOUS_TABLES as (");
             query.sql("
             UPDATE rendezvous_local_storage_dataset
-            SET size_used = size_used + UPDATED_LOCAL_STORAGE_RECORDS.dataset_size
-            FROM UPDATED_LOCAL_STORAGE_RECORDS
+            SET size_used = size_used + NEW_LOCAL_STORAGE_ALLOCATION_RECORDS.dataset_size
+            FROM NEW_LOCAL_STORAGE_ALLOCATION_RECORDS
             WHERE
-              UPDATED_LOCAL_STORAGE_RECORDS.pool_id = rendezvous_local_storage_dataset.pool_id AND
-              rendezvous_local_storage_dataset.time_tombstoned is null
+              NEW_LOCAL_STORAGE_ALLOCATION_RECORDS.local_storage_dataset_id = rendezvous_local_storage_dataset.id AND
+              rendezvous_local_storage_dataset.time_tombstoned is null and
+              rendezvous_local_storage_dataset.no_provision = FALSE
             RETURNING *");
             query.sql("), ");
-        },
+        }
     }
 
     // The insert is only valid if:
@@ -517,7 +529,7 @@ pub fn sled_insert_resource_query(
     // - The sled is not banned (due to anti-affinity rules)
     // - If the sled is required (due to affinity rules) we're selecting it
     // - If there are requested local storage allocations, they all fit on the
-    //   target zpools. Combine the UPDATED_LOCAL_STORAGE_RECORDS with the
+    //   target zpools. Combine the NEW_LOCAL_STORAGE_ALLOCATION_RECORDS with the
     //   existing ones and test each zpool.
 
     query
@@ -541,10 +553,11 @@ pub fn sled_insert_resource_query(
         .sql(
             ") OR
                     NOT EXISTS (SELECT 1 FROM required_sleds)
-                )");
+                )",
+        );
 
     match local_storage_allocation_required {
-        LocalStorageAllocationRequired::No => {},
+        LocalStorageAllocationRequired::No => {}
 
         LocalStorageAllocationRequired::Yes { allocations } => {
             query.sql("AND (");
@@ -557,7 +570,7 @@ pub fn sled_insert_resource_query(
                 query.sql("(");
 
                 // add up crucible and local dataset usage, plus the altered
-                // disk_type_local_storage records
+                // local_storage_dataset_allocation records
 
                 query.sql("(");
 
@@ -565,7 +578,7 @@ pub fn sled_insert_resource_query(
                   SUM(
                     crucible_dataset.size_used +
                     rendezvous_local_storage_dataset.size_used +
-                    UPDATED_LOCAL_STORAGE_RECORDS.dataset_size
+                    NEW_LOCAL_STORAGE_ALLOCATION_RECORDS.dataset_size
                   )
                 FROM
                   crucible_dataset
@@ -574,9 +587,9 @@ pub fn sled_insert_resource_query(
                 ON
                   crucible_dataset.pool_id = rendezvous_local_storage_dataset.pool_id
                 JOIN
-                  UPDATED_LOCAL_STORAGE_RECORDS
+                  NEW_LOCAL_STORAGE_ALLOCATION_RECORDS
                 ON
-                  crucible_dataset.pool_id = UPDATED_LOCAL_STORAGE_RECORDS.pool_id
+                  crucible_dataset.pool_id = NEW_LOCAL_STORAGE_ALLOCATION_RECORDS.pool_id
                 WHERE
                   (crucible_dataset.size_used IS NOT NULL) AND
                   (crucible_dataset.time_deleted IS NULL) AND
@@ -594,28 +607,36 @@ pub fn sled_insert_resource_query(
                 // and compare that to the zpool's available space (minus the
                 // control plane storage buffer) as reported by the latest
                 // inventory collection.
-                //
-                // XXX what if there was no inventory collection yet?
 
-                query.sql("(SELECT
+                query
+                    .sql(
+                        "(SELECT
                   total_size
                  FROM
                   inv_zpool
                  WHERE
-                  inv_zpool.id = ")
+                  inv_zpool.id = ",
+                    )
                     .param()
-                    .bind::<sql_types::Uuid, _>(allocation.pool_id.into_untyped_uuid())
+                    .bind::<sql_types::Uuid, _>(
+                        allocation.pool_id.into_untyped_uuid(),
+                    )
                     .sql(" ORDER BY inv_zpool.time_collected DESC LIMIT 1)");
 
                 query.sql(" - ");
 
-                query.sql("(SELECT
+                query
+                    .sql(
+                        "(SELECT
                   control_plane_storage_buffer
                  FROM
                   zpool
-                 WHERE id = ")
+                 WHERE id = ",
+                    )
                     .param()
-                    .bind::<sql_types::Uuid, _>(allocation.pool_id.into_untyped_uuid())
+                    .bind::<sql_types::Uuid, _>(
+                        allocation.pool_id.into_untyped_uuid(),
+                    )
                     .sql(")");
 
                 query.sql(")");
@@ -628,7 +649,9 @@ pub fn sled_insert_resource_query(
 
                 query.sql("(");
 
-                query.sql("SELECT
+                query
+                    .sql(
+                        "SELECT
                   sled.sled_policy = 'in_service'
                   AND sled.sled_state = 'active'
                   AND physical_disk.disk_policy = 'in_service'
@@ -640,9 +663,26 @@ pub fn sled_insert_resource_query(
                 JOIN
                   physical_disk ON (zpool.physical_disk_id = physical_disk.id)
                 WHERE
-                  zpool.id = ")
+                  zpool.id = ",
+                    )
                     .param()
-                    .bind::<sql_types::Uuid, _>(allocation.pool_id.into_untyped_uuid());
+                    .bind::<sql_types::Uuid, _>(
+                        allocation.pool_id.into_untyped_uuid(),
+                    );
+
+                query.sql(") AND ");
+
+                // and the rendezvous local dataset must be available
+
+                query.sql("(
+                     SELECT time_tombstoned IS NULL AND no_provision IS FALSE
+                     FROM rendezvous_local_storage_dataset
+                     WHERE rendezvous_local_storage_dataset.id = "
+                    )
+                    .param()
+                    .bind::<sql_types::Uuid, _>(
+                        allocation.rendezvous_local_storage_dataset_id.into_untyped_uuid()
+                    );
 
                 query.sql(")");
 
@@ -789,19 +829,17 @@ mod test {
         )
         .await;
 
-
         let query = sled_insert_resource_query(
             &resource,
             &LocalStorageAllocationRequired::Yes {
-                allocations: vec![
-                    LocalStorageAllocation {
-                        disk_id: Uuid::nil(),
-                        required_dataset_size: 128 * 1024 * 1024 * 1024,
-                        rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
-                        pool_id: ZpoolUuid::nil(),
-                        sled_id: SledUuid::nil(),
-                    },
-                ],
+                allocations: vec![LocalStorageAllocation {
+                    disk_id: Uuid::nil(),
+                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
+                    required_dataset_size: 128 * 1024 * 1024 * 1024,
+                    rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
+                    pool_id: ZpoolUuid::nil(),
+                    sled_id: SledUuid::nil(),
+                }],
             },
         );
 
@@ -836,7 +874,10 @@ mod test {
             ),
         );
 
-        let query = sled_insert_resource_query(&resource, &LocalStorageAllocationRequired::No);
+        let query = sled_insert_resource_query(
+            &resource,
+            &LocalStorageAllocationRequired::No,
+        );
         let _ = query
             .explain_async(&conn)
             .await
@@ -847,15 +888,14 @@ mod test {
         let query = sled_insert_resource_query(
             &resource,
             &LocalStorageAllocationRequired::Yes {
-                allocations: vec![
-                    LocalStorageAllocation {
-                        disk_id: Uuid::nil(),
-                        required_dataset_size: 128 * 1024 * 1024 * 1024,
-                        rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
-                        pool_id: ZpoolUuid::nil(),
-                        sled_id: SledUuid::nil(),
-                    },
-                ],
+                allocations: vec![LocalStorageAllocation {
+                    disk_id: Uuid::nil(),
+                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
+                    required_dataset_size: 128 * 1024 * 1024 * 1024,
+                    rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
+                    pool_id: ZpoolUuid::nil(),
+                    sled_id: SledUuid::nil(),
+                }],
             },
         );
 
@@ -870,6 +910,7 @@ mod test {
                 allocations: vec![
                     LocalStorageAllocation {
                         disk_id: Uuid::nil(),
+                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
                         required_dataset_size: 128 * 1024 * 1024 * 1024,
                         rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
                         pool_id: ZpoolUuid::nil(),
@@ -877,6 +918,7 @@ mod test {
                     },
                     LocalStorageAllocation {
                         disk_id: Uuid::nil(),
+                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
                         required_dataset_size: 256 * 1024 * 1024 * 1024,
                         rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
                         pool_id: ZpoolUuid::nil(),

@@ -44,6 +44,7 @@ use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::SledUuid;
 use omicron_uuid_kinds::ZpoolKind;
 use omicron_uuid_kinds::ZpoolUuid;
+use omicron_uuid_kinds::ExternalZpoolUuid;
 use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::DatasetKind;
 use uuid::Uuid;
@@ -388,8 +389,6 @@ impl DataStore {
 
         let conn = self.pool_connection_authorized(opctx).await?;
 
-        // XXX U2 only?
-
         let tuples = dsl::zpool
             .filter(dsl::sled_id.eq(to_db_typed_uuid(sled_id)))
             .filter(dsl::time_deleted.is_null())
@@ -401,6 +400,10 @@ impl DataStore {
                 physical_disk_dsl::disk_policy
                     .eq(PhysicalDiskPolicy::InService),
             )
+            // Only U2 will be considered for local storage allocations. this
+            // should be redundant when filtering on pools with local storage
+            // datasets.
+            .filter(physical_disk_dsl::variant.eq(PhysicalDiskKind::U2))
             .select((
                 Zpool::as_select(),
                 // upper bound on existing usages

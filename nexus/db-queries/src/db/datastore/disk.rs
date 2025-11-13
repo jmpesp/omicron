@@ -426,13 +426,28 @@ impl DataStore {
         authz_instance: &authz::Instance,
         pagparams: &PaginatedBy<'_>,
     ) -> ListResultVec<Disk> {
-        use nexus_db_schema::schema::disk::dsl;
-        use nexus_db_schema::schema::disk_type_crucible::dsl as disk_type_crucible_dsl;
-        use nexus_db_schema::schema::disk_type_local_storage::dsl as disk_type_local_storage_dsl;
+        let conn = self.pool_connection_authorized(opctx).await?;
 
         opctx.authorize(authz::Action::ListChildren, authz_instance).await?;
 
-        let conn = self.pool_connection_authorized(opctx).await?;
+        self.instance_list_disks_impl_unauth(
+            &conn,
+            authz_instance.id(),
+            pagparams,
+        )
+        .await
+    }
+
+    /// List disks associated with a given instance by name.
+    pub async fn instance_list_disks_impl_unauth(
+        &self,
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        instance_id: Uuid,
+        pagparams: &PaginatedBy<'_>,
+    ) -> ListResultVec<Disk> {
+        use nexus_db_schema::schema::disk::dsl;
+        use nexus_db_schema::schema::disk_type_crucible::dsl as disk_type_crucible_dsl;
+        use nexus_db_schema::schema::disk_type_local_storage::dsl as disk_type_local_storage_dsl;
 
         let results = match pagparams {
             PaginatedBy::Id(pagparams) => {
@@ -453,7 +468,7 @@ impl DataStore {
                 .on(dsl::id.eq(disk_type_local_storage_dsl::disk_id)),
         )
         .filter(dsl::time_deleted.is_null())
-        .filter(dsl::attach_instance_id.eq(authz_instance.id()))
+        .filter(dsl::attach_instance_id.eq(instance_id))
         .select((
             model::Disk::as_select(),
             Option::<DiskTypeCrucible>::as_select(),

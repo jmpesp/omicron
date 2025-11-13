@@ -86,17 +86,24 @@ WITH
         required_instances
         JOIN sled_resource_vmm ON sled_resource_vmm.instance_id = required_instances.instance_id
     ),
-  updated_local_storage_records
+  updated_local_storage_disk_records
     AS (
       UPDATE
         disk_type_local_storage
       SET
-        pool_id = CASE disk_id WHEN $9 THEN $10 END,
-        dataset_size = CASE disk_id WHEN $11 THEN $12 END,
-        sled_id = CASE disk_id WHEN $13 THEN $14 END,
-        dataset_id = CASE disk_id WHEN $15 THEN $16 END
+        local_storage_dataset_allocation_id = CASE disk_id WHEN $9 THEN $10 END
       WHERE
-        disk_id IN ($17,)
+        disk_id IN ($11,)
+      RETURNING
+        *
+    ),
+  new_local_storage_allocation_records
+    AS (
+      INSERT
+      INTO
+        local_storage_dataset_allocation
+      VALUES
+        ($12, now(), NULL, $13, $14, $15, $16)
       RETURNING
         *
     ),
@@ -105,12 +112,14 @@ WITH
       UPDATE
         rendezvous_local_storage_dataset
       SET
-        size_used = size_used + updated_local_storage_records.dataset_size
+        size_used = size_used + new_local_storage_allocation_records.dataset_size
       FROM
-        updated_local_storage_records
+        new_local_storage_allocation_records
       WHERE
-        updated_local_storage_records.pool_id = rendezvous_local_storage_dataset.pool_id
+        new_local_storage_allocation_records.local_storage_dataset_id
+        = rendezvous_local_storage_dataset.id
         AND rendezvous_local_storage_dataset.time_tombstoned IS NULL
+        AND rendezvous_local_storage_dataset.no_provision = false
       RETURNING
         *
     ),
@@ -120,9 +129,9 @@ WITH
         1
       WHERE
         EXISTS(SELECT 1 FROM sled_has_space)
-        AND NOT (EXISTS(SELECT 1 FROM banned_sleds WHERE sled_id = $18))
+        AND NOT (EXISTS(SELECT 1 FROM banned_sleds WHERE sled_id = $17))
         AND (
-            EXISTS(SELECT 1 FROM required_sleds WHERE sled_id = $19)
+            EXISTS(SELECT 1 FROM required_sleds WHERE sled_id = $18)
             OR NOT EXISTS(SELECT 1 FROM required_sleds)
           )
         AND (
@@ -131,20 +140,20 @@ WITH
                 sum(
                   crucible_dataset.size_used
                   + rendezvous_local_storage_dataset.size_used
-                  + updated_local_storage_records.dataset_size
+                  + new_local_storage_allocation_records.dataset_size
                 )
               FROM
                 crucible_dataset
                 JOIN rendezvous_local_storage_dataset ON
                     crucible_dataset.pool_id = rendezvous_local_storage_dataset.pool_id
-                JOIN updated_local_storage_records ON
-                    crucible_dataset.pool_id = updated_local_storage_records.pool_id
+                JOIN new_local_storage_allocation_records ON
+                    crucible_dataset.pool_id = new_local_storage_allocation_records.pool_id
               WHERE
                 (crucible_dataset.size_used IS NOT NULL)
                 AND (crucible_dataset.time_deleted IS NULL)
                 AND (rendezvous_local_storage_dataset.time_tombstoned IS NULL)
                 AND rendezvous_local_storage_dataset.no_provision IS false
-                AND crucible_dataset.pool_id = $20
+                AND crucible_dataset.pool_id = $19
               GROUP BY
                 crucible_dataset.pool_id
             )
@@ -155,13 +164,13 @@ WITH
                   FROM
                     inv_zpool
                   WHERE
-                    inv_zpool.id = $21
+                    inv_zpool.id = $20
                   ORDER BY
                     inv_zpool.time_collected DESC
                   LIMIT
                     1
                 )
-                - (SELECT control_plane_storage_buffer FROM zpool WHERE id = $22)
+                - (SELECT control_plane_storage_buffer FROM zpool WHERE id = $21)
               )
             AND (
                 SELECT
@@ -174,7 +183,15 @@ WITH
                   JOIN sled ON zpool.sled_id = sled.id
                   JOIN physical_disk ON zpool.physical_disk_id = physical_disk.id
                 WHERE
-                  zpool.id = $23
+                  zpool.id = $22
+              )
+            AND (
+                SELECT
+                  time_tombstoned IS NULL AND no_provision IS false
+                FROM
+                  rendezvous_local_storage_dataset
+                WHERE
+                  rendezvous_local_storage_dataset.id = $23
               )
           )
     )

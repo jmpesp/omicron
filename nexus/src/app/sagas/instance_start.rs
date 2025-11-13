@@ -640,42 +640,46 @@ async fn sis_ensure_local_storage(
     let local_storage_records =
         sagactx.lookup::<Vec<LocalStorageDisk>>("local_storage_records")?;
 
-    if local_storage_records.is_empty() || (which >= local_storage_records.len()) {
+    if local_storage_records.is_empty()
+        || (which >= local_storage_records.len())
+    {
         return Ok(());
     }
 
-    let LocalStorageDisk { disk, disk_type_local_storage } =
-        &local_storage_records[which];
+    let LocalStorageDisk {
+        disk,
+        disk_type_local_storage,
+        local_storage_dataset_allocation,
+    } = &local_storage_records[which];
 
     // Make sure this was a complete allocation.
 
-    let Some(sled_id) = disk_type_local_storage.sled_id() else {
+    let Some(local_storage_dataset_allocation) =
+        local_storage_dataset_allocation
+    else {
         return Err(ActionError::action_failed(format!(
-            "local storage record {} has a None sled_id!",
+            "local storage record {} has a None allocation!",
             which
         )));
     };
 
-    let Some(pool_id) = disk_type_local_storage.pool_id() else {
-        return Err(ActionError::action_failed(format!(
-            "local storage record {} has a None pool_id!",
-            which
-        )));
-    };
+    // All local storage volumes will be created with 4k blocks. Double check
+    // here.
 
-    let Some(dataset_id) = disk_type_local_storage.dataset_id() else {
+    if disk.block_size.to_bytes() != 4096 {
         return Err(ActionError::action_failed(format!(
-            "local storage record {} has a None dataset_id!",
-            which
+            "local storage record {} has block size {}!",
+            which,
+            disk.block_size.to_bytes(),
         )));
-    };
+    }
 
-    let Some(dataset_size) = disk_type_local_storage.dataset_size() else {
-        return Err(ActionError::action_failed(format!(
-            "local storage record {} has a None dataset_size!",
-            which
-        )));
-    };
+    let dataset_id = local_storage_dataset_allocation.id();
+    let pool_id = local_storage_dataset_allocation.pool_id();
+    let sled_id = local_storage_dataset_allocation.sled_id();
+    let dataset_size = local_storage_dataset_allocation.dataset_size.into();
+    let volume_size = disk.size.into();
+    let block_size = disk.block_size.to_bytes();
 
     // Get a sled agent client
 
@@ -693,9 +697,9 @@ async fn sis_ensure_local_storage(
                 &pool_id,
                 &dataset_id,
                 &LocalStorageDatasetEnsureRequest {
-                    dataset_size: *dataset_size,
-                    volume_size: disk.size.into(),
-                    block_size: disk.block_size.to_bytes(),
+                    dataset_size,
+                    volume_size,
+                    block_size,
                 },
             )
             .await

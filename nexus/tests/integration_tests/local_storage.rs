@@ -11,6 +11,7 @@ use dropshot::HttpErrorResponseBody;
 use dropshot::test_util::ClientTestContext;
 use http::StatusCode;
 use http::method::Method;
+use nexus_auth::context::OpContext;
 use nexus_test_utils::background::run_blueprint_executor;
 use nexus_test_utils::background::run_blueprint_loader;
 use nexus_test_utils::background::run_blueprint_planner;
@@ -21,10 +22,10 @@ use nexus_test_utils::http_testing::RequestBuilder;
 use nexus_test_utils::resource_helpers::create_default_ip_pool;
 use nexus_test_utils::resource_helpers::create_project;
 use nexus_test_utils_macros::nexus_test;
+use nexus_types::deployment::BlueprintTargetSet;
 use nexus_types::external_api::{params, views};
 use nexus_types::internal_api::background::BlueprintPlannerStatus;
 use nexus_types::internal_api::params::InstanceMigrateRequest;
-use nexus_types::deployment::BlueprintTargetSet;
 use omicron_common::api::external;
 use omicron_common::api::external::ByteCount;
 use omicron_common::api::external::IdentityMetadataCreateParams;
@@ -35,7 +36,6 @@ use omicron_nexus::app::MIN_DISK_SIZE_BYTES;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
 use std::convert::TryFrom;
-use nexus_auth::context::OpContext;
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
@@ -253,18 +253,16 @@ async fn test_create_instance_with_local_storage(
         PROJECT_NAME,
         instance_name,
         &params::InstanceNetworkInterfaceAttachment::Default,
-        vec![params::InstanceDiskAttachment::Create(params::DiskCreate {
-            identity: IdentityMetadataCreateParams {
-                name: "local-disk".parse().unwrap(),
-                description: String::from("local disk"),
-            },
+        vec![params::InstanceDiskAttachment::Create(
+            params::DiskCreate::LocalStorage {
+                identity: IdentityMetadataCreateParams {
+                    name: "local-disk".parse().unwrap(),
+                    description: String::from("local disk"),
+                },
 
-            details: params::DiskCreateDetails::LocalStorage {
-                block_size: params::BlockSize::try_from(4096).unwrap(),
+                size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
             },
-
-            size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
-        })],
+        )],
         Vec::<params::ExternalIpCreate>::new(),
         true,
         Default::default(),
@@ -305,18 +303,16 @@ async fn test_instance_no_migrate_with_local_storage(
         PROJECT_NAME,
         instance_name,
         &params::InstanceNetworkInterfaceAttachment::Default,
-        vec![params::InstanceDiskAttachment::Create(params::DiskCreate {
-            identity: IdentityMetadataCreateParams {
-                name: "local-disk".parse().unwrap(),
-                description: String::from("local disk"),
-            },
+        vec![params::InstanceDiskAttachment::Create(
+            params::DiskCreate::LocalStorage {
+                identity: IdentityMetadataCreateParams {
+                    name: "local-disk".parse().unwrap(),
+                    description: String::from("local disk"),
+                },
 
-            details: params::DiskCreateDetails::LocalStorage {
-                block_size: params::BlockSize::try_from(4096).unwrap(),
+                size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
             },
-
-            size: ByteCount::try_from(2 * MIN_DISK_SIZE_BYTES).unwrap(),
-        })],
+        )],
         Vec::<params::ExternalIpCreate>::new(),
         true,
         Default::default(),
