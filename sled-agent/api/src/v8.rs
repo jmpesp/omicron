@@ -2,31 +2,27 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Sled agent API types (version 7)
-//!
-//! Version 7 adds support for multicast group management on instances.
+//! Sled agent types that changed from version 8 to version 9
 
-use std::net::{IpAddr, SocketAddr};
-
-use omicron_common::api::{
-    external::Hostname,
-    internal::{
-        nexus::VmmRuntimeState,
-        shared::{
-            DhcpConfig, NetworkInterface, ResolvedVpcFirewallRule,
-            SourceNatConfig,
-        },
-    },
-};
+use omicron_common::api::external::Hostname;
+use omicron_common::api::internal::nexus::VmmRuntimeState;
+use omicron_common::api::internal::shared::DhcpConfig;
+use omicron_common::api::internal::shared::NetworkInterface;
+use omicron_common::api::internal::shared::ResolvedVpcFirewallRule;
+use omicron_common::api::internal::shared::SourceNatConfig;
 use omicron_uuid_kinds::InstanceUuid;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use sled_agent_types::instance::InstanceMetadata;
+use sled_agent_types::instance::InstanceMulticastMembership;
+use sled_agent_types::instance::VmmSpec;
+use std::net::IpAddr;
+use std::net::SocketAddr;
 use uuid::Uuid;
 
-use sled_agent_types::instance::{InstanceMetadata, VmmSpec};
-
 /// The body of a request to ensure that a instance and VMM are known to a sled
-/// agent (version 7, with multicast support).
+/// agent.
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct InstanceEnsureBody {
     /// The virtual hardware configuration this virtual machine should have when
@@ -56,7 +52,7 @@ pub struct InstanceEnsureBody {
 }
 
 /// Describes sled-local configuration that a sled-agent must establish to make
-/// the instance's virtual hardware fully functional (version 7, with multicast).
+/// the instance's virtual hardware fully functional.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct InstanceSledLocalConfig {
     pub hostname: Hostname,
@@ -71,20 +67,40 @@ pub struct InstanceSledLocalConfig {
     pub dhcp_config: DhcpConfig,
 }
 
-/// Represents a multicast group membership for an instance.
-#[derive(
-    Clone, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq, Hash,
-)]
-pub struct InstanceMulticastMembership {
-    pub group_ip: IpAddr,
-    // For Source-Specific Multicast (SSM)
-    pub sources: Vec<IpAddr>,
+impl From<InstanceEnsureBody>
+    for sled_agent_types::instance::InstanceEnsureBody
+{
+    fn from(
+        v8: InstanceEnsureBody,
+    ) -> sled_agent_types::instance::InstanceEnsureBody {
+        sled_agent_types::instance::InstanceEnsureBody {
+            vmm_spec: v8.vmm_spec,
+            local_config: v8.local_config.into(),
+            vmm_runtime: v8.vmm_runtime,
+            instance_id: v8.instance_id,
+            migration_id: v8.migration_id,
+            propolis_addr: v8.propolis_addr,
+            metadata: v8.metadata,
+        }
+    }
 }
 
-/// Request body for multicast group operations.
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum InstanceMulticastBody {
-    Join(InstanceMulticastMembership),
-    Leave(InstanceMulticastMembership),
+impl From<InstanceSledLocalConfig>
+    for sled_agent_types::instance::InstanceSledLocalConfig
+{
+    fn from(
+        v8: InstanceSledLocalConfig,
+    ) -> sled_agent_types::instance::InstanceSledLocalConfig {
+        sled_agent_types::instance::InstanceSledLocalConfig {
+            hostname: v8.hostname,
+            nics: v8.nics,
+            source_nat: v8.source_nat,
+            ephemeral_ip: v8.ephemeral_ip,
+            floating_ips: v8.floating_ips,
+            multicast_groups: v8.multicast_groups,
+            firewall_rules: v8.firewall_rules,
+            dhcp_config: v8.dhcp_config,
+            delegated_zvols: vec![],
+        }
+    }
 }

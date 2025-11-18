@@ -540,7 +540,7 @@ impl DataStore {
     ) -> Result<Disk, diesel::result::Error> {
         use nexus_db_schema::schema::disk::dsl;
 
-        let gen = disk.runtime().gen;
+        let generation = disk.runtime().generation;
         let name = disk.name().clone();
         let project_id = disk.project_id();
 
@@ -616,10 +616,10 @@ impl DataStore {
 
         let runtime = disk_model.runtime();
 
-        if runtime.gen != gen {
+        if runtime.generation != generation {
             return Err(err.bail(Error::internal_error(&format!(
                 "newly-created Disk has unexpected generation: {:?}",
-                runtime.gen
+                runtime.generation
             ))));
         }
 
@@ -1044,7 +1044,7 @@ impl DataStore {
         let updated = diesel::update(dsl::disk)
             .filter(dsl::time_deleted.is_null())
             .filter(dsl::id.eq(disk_id))
-            .filter(dsl::state_generation.lt(new_runtime.gen))
+            .filter(dsl::state_generation.lt(new_runtime.generation))
             .set(new_runtime.clone())
             .check_if_exists::<model::Disk>(disk_id)
             .execute_and_check(&*self.pool_connection_authorized(opctx).await?)
