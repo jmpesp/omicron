@@ -312,6 +312,7 @@ fn main() -> Result<()> {
                 // Skip the following disk on dinnerbone
                 if serial == "PHLJ252100WU2P0BGN" {
                     println!("skipping PHLJ252100WU2P0BGN!");
+                    continue;
                 }
 
                 instance_map.insert(instance, (model, serial));
