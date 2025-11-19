@@ -474,7 +474,7 @@ impl DataStore {
             Option::<DiskTypeCrucible>::as_select(),
             Option::<DiskTypeLocalStorage>::as_select(),
         ))
-        .get_results_async(&*conn)
+        .get_results_async(conn)
         .await
         .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
@@ -506,7 +506,7 @@ impl DataStore {
                                 .select(
                                     LocalStorageDatasetAllocation::as_select(),
                                 )
-                                .first_async(&*conn)
+                                .first_async(conn)
                                 .await
                                 .map_err(|e| {
                                     public_error_from_diesel(

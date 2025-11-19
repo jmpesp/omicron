@@ -53,7 +53,6 @@ use omicron_common::api::external::UpdateResult;
 use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_common::api::internal::nexus;
 use omicron_common::api::internal::shared::SourceNatConfig;
-use omicron_common::zpool_name::ZpoolName;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::InstanceUuid;
 use omicron_uuid_kinds::MulticastGroupUuid;
@@ -1387,17 +1386,9 @@ impl super::Nexus {
                 .into());
             };
 
-            let pool_id = local_storage_dataset_allocation.pool_id();
-            let dataset_id = local_storage_dataset_allocation.id();
-
-            let zpool_name = ZpoolName::External(pool_id);
-
-            delegated_zvols.push(DelegatedZvol {
-                parent_dataset: format!(
-                    "{zpool_name}/crypt/local_storage/{dataset_id}",
-                ),
-
-                name: String::from("vol"),
+            delegated_zvols.push(DelegatedZvol::LocalStorage {
+                zpool_id: local_storage_dataset_allocation.pool_id(),
+                dataset_id: local_storage_dataset_allocation.id(),
             });
         }
 

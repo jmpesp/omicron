@@ -1684,17 +1684,18 @@ impl<'a, N: NexusServer> ControlPlaneTestContextBuilder<'a, N> {
                     // not enough, zpool doesn't exist!
 
                     let id = DatasetUuid::new_v4();
-                    datasets.insert_unique(BlueprintDatasetConfig {
-                        disposition: BlueprintDatasetDisposition::InService,
-                        id,
-                        pool: *zpool,
-                        kind: DatasetKind::LocalStorage,
-                        address: None,
-                        quota: None,
-                        reservation: None,
-                        compression: CompressionAlgorithm::Off,
-                    })
-                    .expect("freshly generated dataset IDs are unique");
+                    datasets
+                        .insert_unique(BlueprintDatasetConfig {
+                            disposition: BlueprintDatasetDisposition::InService,
+                            id,
+                            pool: *zpool,
+                            kind: DatasetKind::LocalStorage,
+                            address: None,
+                            quota: None,
+                            reservation: None,
+                            compression: CompressionAlgorithm::Off,
+                        })
+                        .expect("freshly generated dataset IDs are unique");
 
                     // XXX each zone's data, assuming a full thing?
                 }

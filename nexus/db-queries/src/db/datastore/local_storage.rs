@@ -18,14 +18,12 @@ use crate::db::model::to_db_typed_uuid;
 use crate::db::pagination::Paginator;
 use crate::db::pagination::paginated;
 use async_bb8_diesel::AsyncRunQueryDsl;
-use chrono::DateTime;
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel::sql_types::Nullable;
 use diesel::sql_types::Numeric;
 use nexus_db_errors::ErrorHandler;
-use nexus_db_errors::OptionalError;
 use nexus_db_errors::public_error_from_diesel;
 use omicron_common::api::external::CreateResult;
 use omicron_common::api::external::DataPageParams;
@@ -165,7 +163,6 @@ impl DataStore {
 
     pub(super) async fn delete_local_storage_dataset_allocation_in_txn(
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        err: OptionalError<Error>,
         local_storage_dataset_allocation_id: DatasetUuid,
     ) -> Result<(), diesel::result::Error> {
         use nexus_db_schema::schema::local_storage_dataset_allocation::dsl;
@@ -227,31 +224,20 @@ impl DataStore {
         opctx: &OpContext,
         local_storage_dataset_allocation_id: DatasetUuid,
     ) -> Result<(), Error> {
-        let err = OptionalError::new();
         let conn = self.pool_connection_authorized(opctx).await?;
 
         self.transaction_retry_wrapper(
             "delete_local_storage_dataset_allocation",
         )
-        .transaction(&conn, |conn| {
-            let err = err.clone();
-            async move {
-                Self::delete_local_storage_dataset_allocation_in_txn(
-                    &conn,
-                    err,
-                    local_storage_dataset_allocation_id,
-                )
-                .await
-            }
+        .transaction(&conn, |conn| async move {
+            Self::delete_local_storage_dataset_allocation_in_txn(
+                &conn,
+                local_storage_dataset_allocation_id,
+            )
+            .await
         })
         .await
-        .map_err(|e| {
-            if let Some(err) = err.take() {
-                err
-            } else {
-                public_error_from_diesel(e, ErrorHandler::Server)
-            }
-        })?;
+        .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
 
         Ok(())
     }

@@ -473,9 +473,7 @@ pub async fn run_tuf_artifact_replication_step(
 }
 
 /// Run the blueprint_loader background task
-pub async fn run_blueprint_loader(
-    lockstep_client: &ClientTestContext,
-) {
+pub async fn run_blueprint_loader(lockstep_client: &ClientTestContext) {
     let last_background_task =
         activate_background_task(&lockstep_client, "blueprint_loader").await;
 
@@ -512,9 +510,7 @@ pub async fn run_blueprint_planner(
 }
 
 /// Run the blueprint_executor background task
-pub async fn run_blueprint_executor(
-    lockstep_client: &ClientTestContext,
-) {
+pub async fn run_blueprint_executor(lockstep_client: &ClientTestContext) {
     let last_background_task =
         activate_background_task(&lockstep_client, "blueprint_executor").await;
 
@@ -529,11 +525,10 @@ pub async fn run_blueprint_executor(
 }
 
 /// Run the blueprint_rendezvous background task
-pub async fn run_blueprint_rendezvous(
-    lockstep_client: &ClientTestContext,
-) {
+pub async fn run_blueprint_rendezvous(lockstep_client: &ClientTestContext) {
     let last_background_task =
-        activate_background_task(&lockstep_client, "blueprint_rendezvous").await;
+        activate_background_task(&lockstep_client, "blueprint_rendezvous")
+            .await;
 
     let LastResult::Completed(last_result_completed) =
         last_background_task.last

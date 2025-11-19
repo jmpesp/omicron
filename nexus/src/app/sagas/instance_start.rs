@@ -10,7 +10,6 @@ use super::NexusActionContext;
 use super::NexusSaga;
 use super::SagaInitError;
 use super::instance_common::allocate_vmm_ipv6;
-use super::subsaga_append;
 use crate::app::InlineErrorChain;
 use crate::app::MAX_DISKS_PER_INSTANCE;
 use crate::app::instance::{
@@ -30,13 +29,10 @@ use omicron_common::api::external::http_pagination::PaginatedBy;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetry;
 use omicron_uuid_kinds::{GenericUuid, InstanceUuid, PropolisUuid, SledUuid};
 use serde::{Deserialize, Serialize};
+use sled_agent_client::types::LocalStorageDatasetEnsureRequest;
 use slog::error;
 use slog::info;
-use sled_agent_client::types::LocalStorageDatasetEnsureRequest;
 use steno::ActionError;
-use steno::DagBuilder;
-use steno::Node;
-use steno::SagaName;
 
 /// Parameters to the instance start saga.
 #[derive(Debug, Deserialize, Serialize)]
@@ -187,7 +183,7 @@ impl NexusSaga for SagaInstanceStart {
     }
 
     fn make_saga_dag(
-        params: &Self::Params,
+        _params: &Self::Params,
         mut builder: steno::DagBuilder,
     ) -> Result<steno::Dag, SagaInitError> {
         builder.append(generate_propolis_id_action());
@@ -656,7 +652,7 @@ async fn sis_ensure_local_storage(
 
     let LocalStorageDisk {
         disk,
-        disk_type_local_storage,
+        disk_type_local_storage: _,
         local_storage_dataset_allocation,
     } = &local_storage_records[which];
 
@@ -687,7 +683,6 @@ async fn sis_ensure_local_storage(
     let sled_id = local_storage_dataset_allocation.sled_id();
     let dataset_size = local_storage_dataset_allocation.dataset_size.into();
     let volume_size = disk.size.into();
-    let block_size = disk.block_size.to_bytes();
 
     // Get a sled agent client
 
@@ -704,11 +699,7 @@ async fn sis_ensure_local_storage(
             .local_storage_dataset_ensure(
                 &pool_id,
                 &dataset_id,
-                &LocalStorageDatasetEnsureRequest {
-                    dataset_size,
-                    volume_size,
-                    block_size,
-                },
+                &LocalStorageDatasetEnsureRequest { dataset_size, volume_size },
             )
             .await
     };

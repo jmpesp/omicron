@@ -13,7 +13,6 @@ use crate::db::datastore::LocalStorageDisk;
 use crate::db::datastore::ValidateTransition;
 use crate::db::datastore::zpool::ZpoolGetResult;
 use crate::db::model::AffinityPolicy;
-use crate::db::model::DiskType;
 use crate::db::model::Sled;
 use crate::db::model::SledResourceVmm;
 use crate::db::model::SledState;
@@ -746,11 +745,15 @@ impl DataStore {
                     local_storage_disks
                         .iter()
                         .filter_map(|disk| {
-                            disk.local_storage_dataset_allocation
-                                .as_ref()
-                                .map(|allocation| ZpoolUuid::from_untyped_uuid(
-                                    allocation.pool_id().into_untyped_uuid()
-                                ))
+                            disk.local_storage_dataset_allocation.as_ref().map(
+                                |allocation| {
+                                    ZpoolUuid::from_untyped_uuid(
+                                        allocation
+                                            .pool_id()
+                                            .into_untyped_uuid(),
+                                    )
+                                },
+                            )
                         })
                         .collect();
 
@@ -850,14 +853,12 @@ impl DataStore {
                 // allocations, find a list of all valid request -> zpool
                 // mappings.
 
-                #[derive(Clone, Debug)]
                 struct PossibleAllocations {
                     allocations: Vec<LocalStorageAllocation>,
                     candidates_left: HashSet<CandidateDataset>,
                     request_index: usize,
                 }
 
-                #[derive(Clone, Debug)] // XXX required?
                 struct ValidatedAllocations {
                     allocations: Vec<LocalStorageAllocation>,
                 }
@@ -874,8 +875,6 @@ impl DataStore {
                     allocations: vec![],
                     candidates_left: zpools_for_sled
                         .iter()
-                        // XXX this maps again, we did this in the previous for
-                        // loop
                         .map(|zpool_get_result| CandidateDataset {
                             rendezvous_local_storage_dataset_id:
                                 zpool_get_result

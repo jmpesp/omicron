@@ -18,14 +18,12 @@ use crate::db::model::PhysicalDiskPolicy;
 use crate::db::model::PhysicalDiskState;
 use crate::db::model::Sled;
 use crate::db::model::Zpool;
-use crate::db::model::RendezvousLocalStorageDataset;
 use crate::db::pagination::Paginator;
 use crate::db::pagination::paginated;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel::upsert::excluded;
-use diesel::query_dsl::InternalJoinDsl;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::TransactionError;
 use nexus_db_errors::public_error_from_diesel;
@@ -40,13 +38,12 @@ use omicron_common::api::external::ListResultVec;
 use omicron_common::api::external::LookupResult;
 use omicron_common::api::external::LookupType;
 use omicron_common::api::external::ResourceType;
+use omicron_uuid_kinds::DatasetKind;
+use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::SledUuid;
 use omicron_uuid_kinds::ZpoolKind;
 use omicron_uuid_kinds::ZpoolUuid;
-use omicron_uuid_kinds::ExternalZpoolUuid;
-use omicron_uuid_kinds::DatasetUuid;
-use omicron_uuid_kinds::DatasetKind;
 use uuid::Uuid;
 
 // XXX comment and possible name change
@@ -383,8 +380,8 @@ impl DataStore {
 
         use nexus_db_schema::schema::crucible_dataset;
         use nexus_db_schema::schema::inv_zpool;
-        use nexus_db_schema::schema::rendezvous_local_storage_dataset;
         use nexus_db_schema::schema::physical_disk::dsl as physical_disk_dsl;
+        use nexus_db_schema::schema::rendezvous_local_storage_dataset;
         use nexus_db_schema::schema::zpool::dsl;
 
         let conn = self.pool_connection_authorized(opctx).await?;
@@ -413,12 +410,22 @@ impl DataStore {
                     .filter(crucible_dataset::pool_id.eq(dsl::id))
                     .single_value(),
                 rendezvous_local_storage_dataset::table
-                    .select(diesel::dsl::sum(rendezvous_local_storage_dataset::size_used))
-                    .filter(rendezvous_local_storage_dataset::time_tombstoned.is_null())
-                    .filter(rendezvous_local_storage_dataset::pool_id.eq(dsl::id))
+                    .select(diesel::dsl::sum(
+                        rendezvous_local_storage_dataset::size_used,
+                    ))
+                    .filter(
+                        rendezvous_local_storage_dataset::time_tombstoned
+                            .is_null(),
+                    )
+                    .filter(
+                        rendezvous_local_storage_dataset::pool_id.eq(dsl::id),
+                    )
                     // do not return zpool for provisioning if the local storage
                     // dataset has no_provision set
-                    .filter(rendezvous_local_storage_dataset::no_provision.eq(false))
+                    .filter(
+                        rendezvous_local_storage_dataset::no_provision
+                            .eq(false),
+                    )
                     .single_value(),
                 // last reported total size from inventory
                 inv_zpool::table
@@ -488,7 +495,7 @@ impl DataStore {
                 continue;
             };
 
-            let rendezvous_local_storage_dataset: DbTypedUuid<DatasetKind> = 
+            let rendezvous_local_storage_dataset: DbTypedUuid<DatasetKind> =
                 rendezvous_local_storage_dataset::dsl::rendezvous_local_storage_dataset
                     .filter(rendezvous_local_storage_dataset::time_tombstoned.is_null())
                     .filter(rendezvous_local_storage_dataset::pool_id.eq(to_db_typed_uuid(pool.id())))
@@ -503,7 +510,8 @@ impl DataStore {
 
             converted.push(ZpoolGetResult {
                 pool,
-                rendezvous_local_storage_dataset_id: rendezvous_local_storage_dataset.into(),
+                rendezvous_local_storage_dataset_id:
+                    rendezvous_local_storage_dataset.into(),
                 crucible_dataset_usage: crucible_dataset_usage.into(),
                 local_storage_usage: local_storage_usage.into(),
                 last_inv_total_size,

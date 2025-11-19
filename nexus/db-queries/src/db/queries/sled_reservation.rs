@@ -4,7 +4,6 @@
 
 //! Implementation of queries for affinity groups
 
-use crate::db::datastore::LocalStorageDisk;
 use crate::db::model::Resources;
 use crate::db::model::SledResourceVmm;
 use crate::db::raw_query_builder::QueryBuilder;
@@ -20,14 +19,10 @@ use omicron_uuid_kinds::SledUuid;
 use omicron_uuid_kinds::ZpoolUuid;
 use uuid::Uuid;
 
-// XXX do these need Debug? Clone?
-
-// XXX do these need pub?
-
 // XXX how much is needed in the query? is sled and pool need or can they be
 // looked up?
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LocalStorageAllocation {
     pub disk_id: Uuid,
     pub local_storage_dataset_allocation_id: DatasetUuid,
@@ -39,14 +34,11 @@ pub struct LocalStorageAllocation {
     pub sled_id: SledUuid,
 }
 
-// XXX Option(Vec<_>)) instead?
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum LocalStorageAllocationRequired {
     No,
     Yes { allocations: Vec<LocalStorageAllocation> },
 }
-
-// XXX did RustFmt butcher this file
 
 fn subquery_our_aa_groups(query: &mut QueryBuilder) {
     query
@@ -473,7 +465,7 @@ pub fn sled_insert_resource_query(
                 query.sql("(");
 
                 query.param().bind::<sql_types::Uuid, _>(
-                    local_storage_dataset_allocation_id.into_untyped_uuid()
+                    local_storage_dataset_allocation_id.into_untyped_uuid(),
                 );
                 query.sql(",");
 
@@ -481,7 +473,7 @@ pub fn sled_insert_resource_query(
                 query.sql("NULL,");
 
                 query.param().bind::<sql_types::Uuid, _>(
-                    rendezvous_local_storage_dataset_id.into_untyped_uuid()
+                    rendezvous_local_storage_dataset_id.into_untyped_uuid(),
                 );
                 query.sql(",");
 
@@ -495,7 +487,9 @@ pub fn sled_insert_resource_query(
                     .bind::<sql_types::Uuid, _>(sled_id.into_untyped_uuid());
                 query.sql(",");
 
-                query.param().bind::<sql_types::BigInt, _>(*required_dataset_size);
+                query
+                    .param()
+                    .bind::<sql_types::BigInt, _>(*required_dataset_size);
 
                 query.sql(")");
 
@@ -674,14 +668,18 @@ pub fn sled_insert_resource_query(
 
                 // and the rendezvous local dataset must be available
 
-                query.sql("(
+                query
+                    .sql(
+                        "(
                      SELECT time_tombstoned IS NULL AND no_provision IS FALSE
                      FROM rendezvous_local_storage_dataset
-                     WHERE rendezvous_local_storage_dataset.id = "
+                     WHERE rendezvous_local_storage_dataset.id = ",
                     )
                     .param()
                     .bind::<sql_types::Uuid, _>(
-                        allocation.rendezvous_local_storage_dataset_id.into_untyped_uuid()
+                        allocation
+                            .rendezvous_local_storage_dataset_id
+                            .into_untyped_uuid(),
                     );
 
                 query.sql(")");
@@ -910,7 +908,7 @@ mod test {
                 allocations: vec![
                     LocalStorageAllocation {
                         disk_id: Uuid::nil(),
-                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
+                        local_storage_dataset_allocation_id: DatasetUuid::nil(),
                         required_dataset_size: 128 * 1024 * 1024 * 1024,
                         rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
                         pool_id: ZpoolUuid::nil(),
@@ -918,7 +916,7 @@ mod test {
                     },
                     LocalStorageAllocation {
                         disk_id: Uuid::nil(),
-                    local_storage_dataset_allocation_id: DatasetUuid::nil(),
+                        local_storage_dataset_allocation_id: DatasetUuid::nil(),
                         required_dataset_size: 256 * 1024 * 1024 * 1024,
                         rendezvous_local_storage_dataset_id: DatasetUuid::nil(),
                         pool_id: ZpoolUuid::nil(),
