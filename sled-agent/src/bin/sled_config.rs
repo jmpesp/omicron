@@ -335,7 +335,9 @@ fn main() -> Result<()> {
                         n.instance().unwrap(),
                     );
 
-                    let (model, serial) = instance_map.get(instance.as_str()).unwrap();
+                    let Some((model, serial)) = instance_map.get(instance.as_str()) else {
+                        continue;
+                    };
                     let devfs_path = format!("/devices{}", n.devfs_path()?);
 
                     println!(
