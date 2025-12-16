@@ -572,6 +572,8 @@ fn main() -> Result<()> {
                         ereport_network_config: None,
 
                         cabooses: None,
+
+                        part_number: "FAKE_SIM_SIDECAR".to_string(),
                     }}
                 ]
             } else {
@@ -706,6 +708,8 @@ fn main() -> Result<()> {
                     ereport_network_config: None,
 
                     cabooses: None,
+
+                    part_number: sp_sim::FAKE_GIMLET_MODEL.to_string(),
                 }},
             ],
         },
