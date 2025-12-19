@@ -33,6 +33,7 @@ use illumos_utils::zfs::Zfs;
 use illumos_utils::zone;
 use illumos_utils::zone::Api;
 use illumos_utils::zone::Zones;
+use illumos_utils::zfs::EncryptionDetails;
 use omicron_common::FileKv;
 use omicron_common::address::Ipv6Subnet;
 use sled_agent_config_reconciler::ConfigReconcilerSpawnToken;
@@ -281,7 +282,7 @@ async fn ensure_zfs_ramdisk_dataset() -> Result<(), StartError> {
         )),
         can_mount: zfs::CanMount::On,
         zoned: false,
-        encryption_details: None,
+        encryption_details: EncryptionDetails::Inherit,
         size_details: None,
         id: None,
         additional_options: None,

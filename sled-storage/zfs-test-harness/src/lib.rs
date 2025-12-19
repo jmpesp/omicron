@@ -15,6 +15,7 @@ use illumos_utils::zfs::CanMount;
 use illumos_utils::zfs::DatasetEnsureArgs;
 use illumos_utils::zfs::Mountpoint;
 use illumos_utils::zfs::Zfs;
+use illumos_utils::zfs::EncryptionDetails;
 use key_manager::KeyManager;
 use key_manager::StorageKeyRequester;
 use omicron_common::disk::DatasetConfig;
@@ -308,7 +309,7 @@ impl Inner {
         let DatasetCreationDetails { zoned, mountpoint, full_name } = details;
         // The "crypt" dataset needs these details, but should already exist
         // by the time we're creating datasets inside.
-        let encryption_details = None;
+        let encryption_details = EncryptionDetails::Inherit;
         let size_details = Some(illumos_utils::zfs::SizeDetails {
             quota: config.quota,
             reservation: config.reservation,
