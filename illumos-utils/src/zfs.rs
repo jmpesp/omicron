@@ -1539,7 +1539,7 @@ impl Zfs {
 
         if params.raw {
             args.push("-o".to_string());
-            args.push("rawvol=true".to_string());
+            args.push("rawvol=on".to_string());
         }
 
         if let Some(volblocksize) = &params.volblocksize {
