@@ -74,7 +74,7 @@ fn main() -> Result<()> {
         }
     } else {
         match hostname {
-            "dinnerbone" | "gravytrain" | "kibblesnbits"  => SledMode::Sled,
+            "dinnerbone" | "gravytrain" | "kibblesnbits" => SledMode::Sled,
             "frostypaws" => SledMode::Scrimlet,
 
             _ => panic!("unknown hostname {}", hostname),
@@ -93,7 +93,12 @@ fn main() -> Result<()> {
     let user_password_hash = {
         let password = Password::new("testpostpleaseignore").unwrap();
         let mut hasher = Hasher::default();
-        hasher.create_password(&password).unwrap().to_string().try_into().unwrap()
+        hasher
+            .create_password(&password)
+            .unwrap()
+            .to_string()
+            .try_into()
+            .unwrap()
     };
 
     const BOOTSTRAP_INTERFACE_ID: u64 = 1;
@@ -104,26 +109,50 @@ fn main() -> Result<()> {
 
         // if you change a sled's data link, change these mac addresses!
         // dinnerbone ixgbe0
-        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("00:1b:21:c1:ff:e0".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
+        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip(
+            "00:1b:21:c1:ff:e0".parse().unwrap(),
+            BOOTSTRAP_INTERFACE_ID,
+        ));
         // kibblesnbits ixgbe0
-        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("00:1b:21:c1:fc:da".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
+        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip(
+            "00:1b:21:c1:fc:da".parse().unwrap(),
+            BOOTSTRAP_INTERFACE_ID,
+        ));
         // gravytrain ixgbe0
-        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("00:1b:21:c1:fd:24".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
+        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip(
+            "00:1b:21:c1:fd:24".parse().unwrap(),
+            BOOTSTRAP_INTERFACE_ID,
+        ));
         // frostypaws ixgbe3
-        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip("80:61:5f:11:ab:31".parse().unwrap(), BOOTSTRAP_INTERFACE_ID));
+        bootstrap_discovery_addrs.insert(mac_to_bootstrap_ip(
+            "80:61:5f:11:ab:31".parse().unwrap(),
+            BOOTSTRAP_INTERFACE_ID,
+        ));
 
         let rss_config = RackInitializeRequest {
             trust_quorum_peers: Some(vec![
-                Baseboard::new_pc(String::from("dinnerbone"), String::from("i86pc")),
-                Baseboard::new_pc(String::from("kibblesnbits"), String::from("i86pc")),
-                Baseboard::new_pc(String::from("gravytrain"), String::from("i86pc")),
-                Baseboard::new_pc(String::from("frostypaws"), String::from("i86pc")),
+                Baseboard::new_pc(
+                    String::from("dinnerbone"),
+                    String::from("i86pc"),
+                ),
+                Baseboard::new_pc(
+                    String::from("kibblesnbits"),
+                    String::from("i86pc"),
+                ),
+                Baseboard::new_pc(
+                    String::from("gravytrain"),
+                    String::from("i86pc"),
+                ),
+                Baseboard::new_pc(
+                    String::from("frostypaws"),
+                    String::from("i86pc"),
+                ),
                 // non-existent: will cause `Fsm error= RackInitTimeout { unacked_peers: {Pc { identifier: "meowmix", model: "i86pc" }} }`
                 // Baseboard::new_pc(String::from("meowmix"), String::from("i86pc")),
             ]),
 
             bootstrap_discovery: BootstrapAddressDiscovery::OnlyThese {
-                 addrs: bootstrap_discovery_addrs,
+                addrs: bootstrap_discovery_addrs,
             },
 
             /*gateway: Some(Gateway {
@@ -139,9 +168,7 @@ fn main() -> Result<()> {
                 String::from("10.0.0.1"),
             ],
 
-            dns_servers: vec![
-                "8.8.8.8".parse().unwrap(),
-            ],
+            dns_servers: vec!["8.8.8.8".parse().unwrap()],
 
             internal_services_ip_pool_ranges: vec![
                 IpRange::V4(Ipv4Range {
@@ -158,9 +185,7 @@ fn main() -> Result<()> {
 
             external_dns_zone_name: "oxide.test".into(),
 
-            external_dns_ips: vec![
-                "10.1.0.10".parse().unwrap(),
-            ],
+            external_dns_ips: vec!["10.1.0.10".parse().unwrap()],
 
             external_certificates: vec![],
 
@@ -233,9 +258,7 @@ fn main() -> Result<()> {
         if std::path::Path::new("smf/sled-agent/non-gimlet/config-rss.toml")
             .exists()
         {
-            std::fs::remove_file(
-                "smf/sled-agent/non-gimlet/config-rss.toml",
-            )?;
+            std::fs::remove_file("smf/sled-agent/non-gimlet/config-rss.toml")?;
         }
     }
 
@@ -335,17 +358,16 @@ fn main() -> Result<()> {
                         n.instance().unwrap(),
                     );
 
-                    let Some((model, serial)) = instance_map.get(instance.as_str()) else {
+                    let Some((model, serial)) =
+                        instance_map.get(instance.as_str())
+                    else {
                         continue;
                     };
                     let devfs_path = format!("/devices{}", n.devfs_path()?);
 
                     println!(
                         "> found {} / {} / {} / {}",
-                        instance,
-                        model,
-                        serial,
-                        devfs_path,
+                        instance, model, serial, devfs_path,
                     );
 
                     let mut bdi = devinfo::DevInfo::new_path(n.devfs_path()?)?;
@@ -357,7 +379,8 @@ fn main() -> Result<()> {
                             bail!("multiple blkdev?!");
                         }
 
-                        let devfs_path = format!("/devices{}", bn.devfs_path()?);
+                        let devfs_path =
+                            format!("/devices{}", bn.devfs_path()?);
 
                         println!(
                             ">> using {}{}: {}",
@@ -382,7 +405,7 @@ fn main() -> Result<()> {
                                 /*active_slot*/ 1, // NVMe spec has slots 1-7
                                 /*next_active_slot*/ None,
                                 /*slot1_read_only*/ true,
-                                /*number of slots*/1,
+                                /*number of slots*/ 1,
                                 /*slots*/ vec![Some(String::from("firmware"))],
                             ),
                         ));
@@ -438,20 +461,22 @@ fn main() -> Result<()> {
 
         switch_zone_maghemite_links: match hostname {
             "dinnerbone" => vec![],
-            "kibblesnbits" => if MULTI_SWITCH_MODE {
-                // kibblesnbits has e1000g3 and e1000g5 plugged into each other,
-                // choose e1000g5 as the opte and e1000g3 as the maghemite switch zone
-                // one.
-                vec![
-                    PhysicalLink("e1000g4".into()),
-                    PhysicalLink("e1000g0".into()),
-                    PhysicalLink("e1000g1".into()),
-                    PhysicalLink("e1000g2".into()),
-                    PhysicalLink("e1000g3".into()),
-                ]
-            } else {
-                vec![]
-            },
+            "kibblesnbits" => {
+                if MULTI_SWITCH_MODE {
+                    // kibblesnbits has e1000g3 and e1000g5 plugged into each
+                    // other, choose e1000g5 as the opte and e1000g3 as the
+                    // maghemite switch zone one.
+                    vec![
+                        PhysicalLink("e1000g4".into()),
+                        PhysicalLink("e1000g0".into()),
+                        PhysicalLink("e1000g1".into()),
+                        PhysicalLink("e1000g2".into()),
+                        PhysicalLink("e1000g3".into()),
+                    ]
+                } else {
+                    vec![]
+                }
+            }
             "gravytrain" => vec![],
             // frostypaws has ixgbe3 and ixgbe4 plugged into each other, choose
             // ixgbe3 as the opte and ixgbe4 as the maghemite switch zone one
@@ -467,29 +492,31 @@ fn main() -> Result<()> {
 
         sprockets: SprocketsConfig {
             resolve: ResolveSetting::Local {
-                priv_key: Utf8PathBuf::from(
-                    format!("/home/james/omicron/sprockets_tls/{hostname}.key.pem")
-                ),
+                priv_key: Utf8PathBuf::from(format!(
+                    "/home/james/omicron/sprockets_tls/{hostname}.key.pem"
+                )),
 
-                cert_chain: Utf8PathBuf::from(
-                    format!("/home/james/omicron/sprockets_tls/{hostname}.cert.pem")
-                ),
+                cert_chain: Utf8PathBuf::from(format!(
+                    "/home/james/omicron/sprockets_tls/{hostname}.cert.pem"
+                )),
             },
 
-            roots: vec![
-                Utf8PathBuf::from("/home/james/omicron/sprockets_tls/canada_region_ca.cert.pem"),
-            ],
+            roots: vec![Utf8PathBuf::from(
+                "/home/james/omicron/sprockets_tls/canada_region_ca.cert.pem",
+            )],
 
             attest: AttestConfig::Local {
-                priv_key: Utf8PathBuf::from(
-                    format!("/home/james/omicron/sprockets_tls/{hostname}.key.pem")
-                ),
+                priv_key: Utf8PathBuf::from(format!(
+                    "/home/james/omicron/sprockets_tls/{hostname}.key.pem"
+                )),
 
-                cert_chain: Utf8PathBuf::from(
-                    format!("/home/james/omicron/sprockets_tls/{hostname}.cert.pem")
-                ),
+                cert_chain: Utf8PathBuf::from(format!(
+                    "/home/james/omicron/sprockets_tls/{hostname}.cert.pem"
+                )),
 
-                log: Utf8PathBuf::from("/home/james/omicron/sprockets_tls/attest.bin"),
+                log: Utf8PathBuf::from(
+                    "/home/james/omicron/sprockets_tls/attest.bin",
+                ),
             },
         },
 
@@ -595,10 +622,12 @@ fn main() -> Result<()> {
         toml::to_string(&sp_sim_config)?.as_bytes(),
     )?;
 
-    const MGS_TO_SP_MULTICAST_ADDR: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0x1de, 2);
+    const MGS_TO_SP_MULTICAST_ADDR: Ipv6Addr =
+        Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0x1de, 2);
     pub const SP_PORT: u16 = 11111;
 
-    let multicast_addr = SocketAddrV6::new(MGS_TO_SP_MULTICAST_ADDR, SP_PORT, 0, 0);
+    let multicast_addr =
+        SocketAddrV6::new(MGS_TO_SP_MULTICAST_ADDR, SP_PORT, 0, 0);
 
     // Simulated SP in the global zone for the sled
     let sp_sim_config = sp_sim::config::Config {
@@ -761,7 +790,9 @@ fn main() -> Result<()> {
                                 slot: 1,
                             },
                         ),
-                    ].into_iter().collect(),
+                    ]
+                    .into_iter()
+                    .collect(),
                 },
             ];
 
@@ -897,13 +928,13 @@ fn main() -> Result<()> {
 
                                 "kibblesnbits" => {
                                     todo!("MULTI_SWITCH_MODE");
-                                },
+                                }
 
                                 _ => panic!("switch hostname not recognized"),
                             },
                             sp_port_1: vec![String::from("switch0")],
                             sp_port_2: vec![String::from("switch1")],
-                        }
+                        },
                     ],
                 },
 
