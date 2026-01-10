@@ -192,6 +192,8 @@ pub enum SledKind {
     ZpoolMissingZoneRootDataset { zpool: ZpoolUuid },
     /// A zpool is missing its LocalStorage dataset.
     ZpoolMissingLocalStorageDataset { zpool: ZpoolUuid },
+    /// A zpool is missing its LocalStorageUnencrypted dataset.
+    ZpoolMissingLocalStorageUnencryptedDataset { zpool: ZpoolUuid },
     /// A zone's filesystem dataset is missing from `blueprint_datasets`.
     ZoneMissingFilesystemDataset { zone: BlueprintZoneConfig },
     /// A zone's durable dataset is missing from `blueprint_datasets`.
@@ -363,6 +365,12 @@ impl fmt::Display for SledKind {
             SledKind::ZpoolMissingLocalStorageDataset { zpool } => {
                 write!(f, "zpool {zpool} is missing its LocalStorage dataset")
             }
+            SledKind::ZpoolMissingLocalStorageUnencryptedDataset { zpool } => {
+                write!(
+                    f,
+                    "zpool {zpool} is missing its LocalStorageUnencrypted dataset"
+                )
+            }
             SledKind::ZoneMissingFilesystemDataset { zone } => {
                 write!(
                     f,
@@ -409,6 +417,10 @@ impl fmt::Display for SledKind {
                     }
 
                     DatasetKind::LocalStorage => "local_storage",
+
+                    DatasetKind::LocalStorageUnencrypted => {
+                        "local_storage_unencrypted"
+                    }
                 };
                 write!(
                     f,
