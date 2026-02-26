@@ -10,6 +10,7 @@ use crate::db::datastore::OpContext;
 use crate::db::datastore::REGION_REDUNDANCY_THRESHOLD;
 use crate::db::datastore::RunnableQuery;
 use crate::db::datastore::SQL_BATCH_SIZE;
+use crate::db::datastore::volume;
 use crate::db::identity::Asset;
 use crate::db::model;
 use crate::db::model::CrucibleDataset;
@@ -28,7 +29,6 @@ use crate::db::model::VolumeResourceUsageType;
 use crate::db::model::to_db_typed_uuid;
 use crate::db::pagination::Paginator;
 use crate::db::pagination::paginated;
-use anyhow::bail;
 use async_bb8_diesel::AsyncRunQueryDsl;
 use chrono::Utc;
 use diesel::OptionalExtension;
@@ -60,7 +60,6 @@ use serde::Deserializer;
 use serde::Serialize;
 use sled_agent_client::VolumeConstructionRequest;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::net::AddrParseError;
 use std::net::SocketAddr;
 use std::net::SocketAddrV6;
@@ -198,15 +197,25 @@ impl FreedCrucibleResources {
 pub struct SourceVolume(pub VolumeUuid);
 pub struct DestVolume(pub VolumeUuid);
 
+#[derive(Debug, thiserror::Error)]
+pub enum VolumeUpdateError {
+    #[error("Serde error during Volume update: {0}")]
+    SerdeError(#[from] serde_json::Error),
+
+    #[error("Updated {0} database rows, expected {1}")]
+    UnexpectedDatabaseUpdate(usize, usize),
+}
+
 impl DataStore {
     pub async fn volume_create_in_txn(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<VolumeCreationError>,
-        volume_id: VolumeUuid,
-        vcr: VolumeConstructionRequest,
+        volume: volume::Volume,
         crucible_targets: CrucibleTargets,
-    ) -> Result<model::Volume, diesel::result::Error> {
+    ) -> Result<volume::Volume, diesel::result::Error> {
         use nexus_db_schema::schema::volume::dsl;
+
+        let volume_id = volume.id();
 
         let maybe_volume: Option<model::Volume> = dsl::volume
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
@@ -217,19 +226,13 @@ impl DataStore {
 
         // If the volume existed already, return it and do not increase usage
         // counts.
-        if let Some(volume) = maybe_volume {
+        if maybe_volume.is_some() {
             return Ok(volume);
         }
 
-        let vcr_string = serde_json::to_string(&vcr)
-            .map_err(|e| err.bail(VolumeCreationError::SerdeError(e)))?;
-
-        let volume = model::Volume::new(volume_id, vcr_string);
-
-        let volume: model::Volume = diesel::insert_into(dsl::volume)
-            .values(volume.clone())
-            .returning(model::Volume::as_returning())
-            .get_result_async(conn)
+        diesel::insert_into(dsl::volume)
+            .values(volume.model().clone())
+            .execute_async(conn)
             .await
             .map_err(|e| {
                 err.bail_retryable_or_else(e, |e| {
@@ -237,7 +240,7 @@ impl DataStore {
                         e,
                         ErrorHandler::Conflict(
                             ResourceType::Volume,
-                            volume.id().to_string().as_str(),
+                            volume_id.to_string().as_str(),
                         ),
                     ))
                 })
@@ -261,8 +264,7 @@ impl DataStore {
                 Some(usage) => {
                     diesel::insert_into(ru_dsl::volume_resource_usage)
                         .values(VolumeResourceUsageRecord::new(
-                            volume.id(),
-                            usage,
+                            volume_id, usage,
                         ))
                         .execute_async(conn)
                         .await?;
@@ -373,14 +375,17 @@ impl DataStore {
         &self,
         volume_id: VolumeUuid,
         vcr: VolumeConstructionRequest,
-    ) -> CreateResult<model::Volume> {
+    ) -> CreateResult<volume::Volume> {
+        let vcr_string = serde_json::to_string(&vcr)?;
+        let volume =
+            volume::Volume::new(model::Volume::new(volume_id, vcr_string), vcr);
+
         // Grab all the targets that the volume construction request references.
         // Do this outside the transaction, as the data inside volume doesn't
         // change and this would simply add to the transaction time.
         let crucible_targets = {
             let mut crucible_targets = CrucibleTargets::default();
-            read_only_resources_associated_with_volume(
-                &vcr,
+            volume.read_only_resources_associated_with_volume(
                 &mut crucible_targets,
             );
             crucible_targets
@@ -391,15 +396,14 @@ impl DataStore {
         self.transaction_retry_wrapper("volume_create")
             .transaction(&conn, |conn| {
                 let err = err.clone();
+                let volume = volume.clone();
                 let crucible_targets = crucible_targets.clone();
-                let vcr = vcr.clone();
 
                 async move {
                     Self::volume_create_in_txn(
                         &conn,
                         err,
-                        volume_id,
-                        vcr,
+                        volume,
                         crucible_targets,
                     )
                     .await
@@ -417,26 +421,88 @@ impl DataStore {
 
     pub(super) async fn volume_get_impl(
         conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<serde_json::Error>,
         volume_id: VolumeUuid,
-    ) -> Result<Option<model::Volume>, diesel::result::Error> {
+    ) -> Result<Option<volume::Volume>, diesel::result::Error> {
         use nexus_db_schema::schema::volume::dsl;
-        dsl::volume
+
+        let Some(db_model) = dsl::volume
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
             .select(model::Volume::as_select())
             .first_async::<model::Volume>(conn)
             .await
-            .optional()
+            .optional()?
+        else {
+            return Ok(None);
+        };
+
+        let volume_construction_request =
+            serde_json::from_str(db_model.data()).map_err(|e| err.bail(e))?;
+
+        // All volumes are v1 for now
+        Ok(Some(volume::Volume::V1(volume::VolumeV1 {
+            db_model,
+            volume_construction_request,
+        })))
     }
 
-    /// Return a `Option<model::Volume>` based on id, even if it's soft deleted.
+    /// Return a `Option<Volume>` based on id, even if it's soft deleted.
     pub async fn volume_get(
         &self,
         volume_id: VolumeUuid,
-    ) -> LookupResult<Option<model::Volume>> {
+    ) -> LookupResult<Option<volume::Volume>> {
         let conn = self.pool_connection_unauthorized().await?;
-        Self::volume_get_impl(&conn, volume_id)
-            .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))
+        let err = OptionalError::new();
+        Self::volume_get_impl(&conn, err.clone(), volume_id).await.map_err(
+            |e| {
+                if let Some(err) = err.take() {
+                    return Error::from(err);
+                }
+
+                public_error_from_diesel(e, ErrorHandler::Server)
+            },
+        )
+    }
+
+    /// Write new data into the Volume given an ID
+    //
+    // XXX is accepting an ID wrong here?
+    //
+    // XXX this may be wrong unless we can say also that crucible resources are
+    // serialized and time_deleted is set and all that
+    pub(super) async fn volume_update_impl(
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<VolumeUpdateError>,
+        volume_id: VolumeUuid,
+        volume: volume::Volume,
+    ) -> Result<(), diesel::result::Error> {
+        use nexus_db_schema::schema::volume::dsl;
+
+        let data = match volume.data() {
+            Ok(data) => data,
+            Err(e) => {
+                return Err(err.bail(VolumeUpdateError::SerdeError(e)));
+            }
+        };
+
+        // XXX richer filtering for not deleted, generation number, etc
+
+        let num_updated = diesel::update(dsl::volume)
+            .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
+            .set(dsl::data.eq(data))
+            .execute_async(conn)
+            .await?;
+
+        // This should update just one row. If it does not, then something is
+        // terribly wrong in the database.
+        if num_updated != 1 {
+            return Err(err.bail(VolumeUpdateError::UnexpectedDatabaseUpdate(
+                num_updated,
+                1,
+            )));
+        }
+
+        Ok(())
     }
 
     /// Delete the volume if it exists. If it was already deleted, this is a
@@ -562,7 +628,7 @@ impl DataStore {
 
     async fn volume_checkout_allowed(
         reason: &VolumeCheckoutReason,
-        vcr: &VolumeConstructionRequest,
+        volume: &volume::Volume,
         maybe_disk: Option<Disk>,
         maybe_instance: Option<Instance>,
     ) -> Result<(), VolumeGetError> {
@@ -575,24 +641,15 @@ impl DataStore {
                 // read-only, and will not take over from other read-only
                 // Upstairs.
 
-                match volume_is_read_only(&vcr) {
-                    Ok(read_only) => {
-                        if !read_only {
-                            return Err(
-                                VolumeGetError::CheckoutConditionFailed(
-                                    String::from(
-                                        "Non-read-only Volume Checkout \
-                                for use Copy!",
-                                    ),
-                                ),
-                            );
-                        }
-
-                        Ok(())
-                    }
-
-                    Err(e) => Err(VolumeGetError::InvalidVolume(e.to_string())),
+                if !volume.read_only() {
+                    return Err(VolumeGetError::CheckoutConditionFailed(
+                        String::from(
+                            "Non-read-only Volume Checkout for use Copy!",
+                        ),
+                    ));
                 }
+
+                Ok(())
             }
 
             VolumeCheckoutReason::CopyAndModify => {
@@ -816,20 +873,33 @@ impl DataStore {
         err: OptionalError<VolumeGetError>,
         volume_id: VolumeUuid,
         reason: VolumeCheckoutReason,
-    ) -> Result<model::Volume, diesel::result::Error> {
-        use nexus_db_schema::schema::volume::dsl;
-
+    ) -> Result<volume::Volume, diesel::result::Error> {
         // Grab the volume in question.
-        let volume = dsl::volume
-            .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-            .select(model::Volume::as_select())
-            .get_result_async(conn)
-            .await?;
+        let volume = {
+            let sub_err = OptionalError::new();
+            let maybe_volume =
+                match Self::volume_get_impl(conn, sub_err.clone(), volume_id)
+                    .await
+                {
+                    Ok(maybe_volume) => maybe_volume,
+                    Err(e) => {
+                        if let Some(e) = sub_err.take() {
+                            return Err(err.bail(VolumeGetError::SerdeError(e)));
+                        }
 
-        // Turn the volume.data into the VolumeConstructionRequest
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(volume.data())
-                .map_err(|e| err.bail(VolumeGetError::SerdeError(e)))?;
+                        return Err(e);
+                    }
+                };
+
+            let Some(volume) = maybe_volume else {
+                // XXX specific variant for hard deleted?
+                return Err(err.bail(VolumeGetError::InvalidVolume(
+                    String::from("hard deleted"),
+                )));
+            };
+
+            volume
+        };
 
         // The VolumeConstructionRequest resulting from this checkout will have
         // its generation numbers bumped, and as result will (if it has
@@ -885,7 +955,7 @@ impl DataStore {
 
         if let Err(e) = Self::volume_checkout_allowed(
             &reason,
-            &vcr,
+            &volume,
             maybe_disk,
             maybe_instance,
         )
@@ -899,96 +969,43 @@ impl DataStore {
         // generation numbers and record that update back to the database. We
         // return to the caller whatever the original volume data was we pulled
         // from the database.
-        match vcr {
-            VolumeConstructionRequest::Volume {
-                id,
-                block_size,
-                sub_volumes,
-                read_only_parent,
-            } => {
-                let mut update_needed = false;
-                let mut new_sv = Vec::new();
-                for sv in sub_volumes {
-                    match sv {
-                        VolumeConstructionRequest::Region {
-                            block_size,
-                            blocks_per_extent,
-                            extent_count,
-                            opts,
-                            generation,
-                        } => {
-                            update_needed = true;
-                            new_sv.push(VolumeConstructionRequest::Region {
-                                block_size,
-                                blocks_per_extent,
-                                extent_count,
-                                opts,
-                                generation: generation + 1,
-                            });
+        //
+        // XXX have bump and store cloned volume because we're returning the
+        // original to the caller
+        let mut orig_volume = volume.clone();
+        if orig_volume.bump_generation_numbers() {
+            let sub_err = OptionalError::new();
+
+            // Update the original volume_id with the new volume.data that has
+            // the bumped generation numbers.
+            Self::volume_update_impl(
+                conn,
+                sub_err.clone(),
+                volume_id,
+                orig_volume,
+            )
+            .await
+            .map_err(|e| {
+                if let Some(e) = sub_err.take() {
+                    err.bail(match e {
+                        VolumeUpdateError::SerdeError(e) => {
+                            VolumeGetError::SerdeError(e)
                         }
-                        _ => {
-                            new_sv.push(sv);
-                        }
-                    }
+
+                        // XXX does it make sense to have different variants for
+                        // each Volume operation? yes because different
+                        // operations can produce different errors
+                        VolumeUpdateError::UnexpectedDatabaseUpdate(
+                            actual,
+                            expected,
+                        ) => VolumeGetError::UnexpectedDatabaseUpdate(
+                            actual, expected,
+                        ),
+                    })
+                } else {
+                    e
                 }
-
-                // Only update the volume data if we found the type of volume
-                // that needed it.
-                if update_needed {
-                    // Create a new VCR and fill in the contents from what the
-                    // original volume had, but with our updated sub_volume
-                    // records.
-                    let new_vcr = VolumeConstructionRequest::Volume {
-                        id,
-                        block_size,
-                        sub_volumes: new_sv,
-                        read_only_parent,
-                    };
-
-                    let new_volume_data = serde_json::to_string(&new_vcr)
-                        .map_err(|e| err.bail(VolumeGetError::SerdeError(e)))?;
-
-                    // Update the original volume_id with the new volume.data.
-                    use nexus_db_schema::schema::volume::dsl as volume_dsl;
-                    let num_updated = diesel::update(volume_dsl::volume)
-                        .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_id)))
-                        .set(volume_dsl::data.eq(new_volume_data))
-                        .execute_async(conn)
-                        .await?;
-
-                    // This should update just one row.  If it does not, then
-                    // something is terribly wrong in the database.
-                    if num_updated != 1 {
-                        return Err(err.bail(
-                            VolumeGetError::UnexpectedDatabaseUpdate(
-                                num_updated,
-                                1,
-                            ),
-                        ));
-                    }
-                }
-            }
-            VolumeConstructionRequest::Region {
-                block_size: _,
-                blocks_per_extent: _,
-                extent_count: _,
-                opts: _,
-                generation: _,
-            } => {
-                // We don't support a pure Region VCR at the volume level in the
-                // database, so this choice should never be encountered, but I
-                // want to know if it is.
-                return Err(err.bail(VolumeGetError::InvalidVolume(
-                    String::from("Region not supported as a top level volume"),
-                )));
-            }
-            VolumeConstructionRequest::File {
-                id: _,
-                block_size: _,
-                path: _,
-            }
-            | VolumeConstructionRequest::Url { id: _, block_size: _, url: _ } =>
-                {}
+            })?;
         }
 
         Ok(volume)
@@ -1004,7 +1021,7 @@ impl DataStore {
         &self,
         volume_id: VolumeUuid,
         reason: VolumeCheckoutReason,
-    ) -> LookupResult<model::Volume> {
+    ) -> LookupResult<volume::Volume> {
         // We perform a transaction here, to be sure that on completion
         // of this, the database contains an updated version of the
         // volume with the generation number incremented (for the volume
@@ -1032,63 +1049,6 @@ impl DataStore {
             })
     }
 
-    /// Create new UUIDs for the volume construction request layers
-    pub fn randomize_ids(
-        vcr: &VolumeConstructionRequest,
-    ) -> anyhow::Result<VolumeConstructionRequest> {
-        let mut new_vcr = vcr.clone();
-
-        let mut parts: VecDeque<&mut VolumeConstructionRequest> =
-            VecDeque::new();
-        parts.push_back(&mut new_vcr);
-
-        while let Some(vcr_part) = parts.pop_front() {
-            match vcr_part {
-                VolumeConstructionRequest::Volume {
-                    id,
-                    sub_volumes,
-                    read_only_parent,
-                    ..
-                } => {
-                    *id = Uuid::new_v4();
-
-                    for sub_volume in sub_volumes {
-                        parts.push_back(sub_volume);
-                    }
-
-                    if let Some(read_only_parent) = read_only_parent {
-                        parts.push_back(read_only_parent);
-                    }
-                }
-
-                VolumeConstructionRequest::Url { id, .. } => {
-                    *id = Uuid::new_v4();
-                }
-
-                VolumeConstructionRequest::Region { opts, .. } => {
-                    if !opts.read_only {
-                        // Only one volume can "own" a Region, and that volume's
-                        // UUID is recorded in the region table accordingly. It
-                        // is an error to make a copy of a volume construction
-                        // request that references non-read-only Regions.
-                        bail!(
-                            "only one Volume can reference a Region \
-                            non-read-only!"
-                        );
-                    }
-
-                    opts.id = Uuid::new_v4();
-                }
-
-                VolumeConstructionRequest::File { id, .. } => {
-                    *id = Uuid::new_v4();
-                }
-            }
-        }
-
-        Ok(new_vcr)
-    }
-
     /// Checkout a copy of the Volume from the database using `volume_checkout`,
     /// then randomize the UUIDs in the construction request. Because this is a
     /// new volume, it is immediately passed to `volume_create` so that the
@@ -1101,16 +1061,22 @@ impl DataStore {
         source_volume_id: SourceVolume,
         dest_volume_id: DestVolume,
         reason: VolumeCheckoutReason,
-    ) -> CreateResult<model::Volume> {
-        let volume = self.volume_checkout(source_volume_id.0, reason).await?;
+    ) -> CreateResult<volume::Volume> {
+        let mut volume =
+            self.volume_checkout(source_volume_id.0, reason).await?;
 
-        let vcr: sled_agent_client::VolumeConstructionRequest =
-            serde_json::from_str(volume.data())?;
-
-        let randomized_vcr = Self::randomize_ids(&vcr)
+        volume
+            .randomize_ids()
             .map_err(|e| Error::internal_error(&e.to_string()))?;
 
-        self.volume_create(dest_volume_id.0, randomized_vcr).await
+        // XXX a little goofy to round-trip  like this
+        // XXX can;t detect when volume not randomized unless whole object
+        // passed in
+        self.volume_create(
+            dest_volume_id.0,
+            volume.volume_construction_request(),
+        )
+        .await
     }
 
     /// Find read/write regions for deleted volumes that do not have associated
@@ -1281,12 +1247,10 @@ impl DataStore {
             return Ok(CrucibleTargets::default());
         };
 
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(&volume.data())?;
-
         let mut crucible_targets = CrucibleTargets::default();
 
-        read_only_resources_associated_with_volume(&vcr, &mut crucible_targets);
+        volume
+            .read_only_resources_associated_with_volume(&mut crucible_targets);
 
         Ok(crucible_targets)
     }
@@ -1324,14 +1288,22 @@ impl DataStore {
         // the transaction, and returning the previously serialized list of
         // resources to clean up.
         let volume = {
-            use nexus_db_schema::schema::volume::dsl;
+            let sub_err = OptionalError::new();
 
-            let volume = dsl::volume
-                .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-                .select(model::Volume::as_select())
-                .get_result_async(conn)
-                .await
-                .optional()?;
+            let volume =
+                match Self::volume_get_impl(conn, sub_err.clone(), volume_id)
+                    .await
+                {
+                    Ok(volume) => volume,
+                    Err(e) => {
+                        if let Some(e) = sub_err.take() {
+                            return Err(
+                                err.bail(SoftDeleteError::SerdeError(e))
+                            );
+                        }
+                        return Err(e);
+                    }
+                };
 
             let volume = if let Some(v) = volume {
                 v
@@ -1342,13 +1314,10 @@ impl DataStore {
                 ));
             };
 
-            if volume.time_deleted.is_some() {
+            if volume.time_deleted().is_some() {
                 // this volume was already soft-deleted, return the existing
                 // serialized CrucibleResources
-                let existing_resources = match volume
-                    .resources_to_clean_up
-                    .as_ref()
-                {
+                let existing_resources = match volume.resources_to_clean_up() {
                     Some(v) => serde_json::from_str(v)
                         .map_err(|e| err.bail(e.into()))?,
 
@@ -1368,17 +1337,12 @@ impl DataStore {
             volume
         };
 
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(&volume.data())
-                .map_err(|e| err.bail(e.into()))?;
-
         // Grab all the targets that the volume construction request references.
         // Do this _inside_ the transaction, as the data inside volumes can
         // change as a result of region / region snapshot replacement.
         let crucible_targets = {
             let mut crucible_targets = CrucibleTargets::default();
-            read_only_resources_associated_with_volume(
-                &vcr,
+            volume.read_only_resources_associated_with_volume(
                 &mut crucible_targets,
             );
             crucible_targets
@@ -1388,15 +1352,7 @@ impl DataStore {
         // references, collecting the regions and region snapshots that were
         // freed up for deletion.
 
-        let num_read_write_subvolumes =
-            match count_read_write_sub_volumes(&vcr) {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(err.bail(SoftDeleteError::InvalidVolume(
-                        format!("volume {} invalid: {e}", volume.id()),
-                    )));
-                }
-            };
+        let num_read_write_subvolumes = volume.count_read_write_sub_volumes();
 
         let mut regions: Vec<Uuid> = Vec::with_capacity(
             REGION_REDUNDANCY_THRESHOLD * num_read_write_subvolumes,
@@ -1411,8 +1367,7 @@ impl DataStore {
             REGION_REDUNDANCY_THRESHOLD * num_read_write_subvolumes,
         );
 
-        read_write_resources_associated_with_volume(
-            &vcr,
+        volume.read_write_resources_associated_with_volume(
             &mut read_write_targets,
         );
 
@@ -1668,6 +1623,8 @@ impl DataStore {
             .map_err(|e| err.bail(e.into()))?;
 
         {
+            // XXX make a separate volume_delete_impl function? fold into v
+            // volume_update_impl?
             use nexus_db_schema::schema::volume::dsl;
             let updated_rows = diesel::update(dsl::volume)
                 .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
@@ -1730,15 +1687,22 @@ impl DataStore {
     ) -> Result<bool, diesel::result::Error> {
         // Grab the volume in question. If the volume record was already deleted
         // then we can just return.
-        let volume = {
-            use nexus_db_schema::schema::volume::dsl;
+        let mut volume = {
+            let sub_err = OptionalError::new();
 
-            let volume = dsl::volume
-                .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-                .select(model::Volume::as_select())
-                .get_result_async(conn)
-                .await
-                .optional()?;
+            let volume =
+                match Self::volume_get_impl(conn, sub_err.clone(), volume_id)
+                    .await
+                {
+                    Ok(volume) => volume,
+                    Err(e) => {
+                        if let Some(e) = sub_err.take() {
+                            return Err(err.bail(RemoveRopError::SerdeError(e)));
+                        }
+
+                        return Err(e);
+                    }
+                };
 
             let volume = if let Some(v) = volume {
                 v
@@ -1747,7 +1711,7 @@ impl DataStore {
                 return Ok(false);
             };
 
-            if volume.time_deleted.is_some() {
+            if volume.time_deleted().is_some() {
                 // this volume is deleted, so let whatever is deleting it clean
                 // it up.
                 return Ok(false);
@@ -1758,154 +1722,166 @@ impl DataStore {
             }
         };
 
-        // If a read_only_parent exists, remove it from volume_id, and attach it
-        // to temp_volume_id.
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(volume.data())
-                .map_err(|e| err.bail(RemoveRopError::SerdeError(e)))?;
+        // Also grab the temp volume
+        let mut temp_volume = {
+            let sub_err = OptionalError::new();
 
-        match vcr {
-            VolumeConstructionRequest::Volume {
-                id,
-                block_size,
-                sub_volumes,
-                read_only_parent,
-            } => {
-                if read_only_parent.is_none() {
-                    // This volume has no read_only_parent
-                    Ok(false)
-                } else {
-                    // Create a new VCR and fill in the contents from what the
-                    // original volume had.
-                    let new_vcr = VolumeConstructionRequest::Volume {
-                        id,
-                        block_size,
-                        sub_volumes,
-                        read_only_parent: None,
-                    };
-
-                    let new_volume_data = serde_json::to_string(&new_vcr)
-                        .map_err(|e| err.bail(RemoveRopError::SerdeError(e)))?;
-
-                    // Update the original volume_id with the new volume.data.
-                    use nexus_db_schema::schema::volume::dsl as volume_dsl;
-                    let num_updated = diesel::update(volume_dsl::volume)
-                        .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_id)))
-                        .set(volume_dsl::data.eq(new_volume_data))
-                        .execute_async(conn)
-                        .await?;
-
-                    // This should update just one row.  If it does not, then
-                    // something is terribly wrong in the database.
-                    if num_updated != 1 {
-                        return Err(err.bail(
-                            RemoveRopError::UnexpectedDatabaseUpdate(
-                                num_updated,
-                                1,
-                            ),
-                        ));
+            let volume = match Self::volume_get_impl(
+                conn,
+                sub_err.clone(),
+                temp_volume_id,
+            )
+            .await
+            {
+                Ok(volume) => volume,
+                Err(e) => {
+                    if let Some(e) = sub_err.take() {
+                        return Err(err.bail(RemoveRopError::SerdeError(e)));
                     }
 
-                    // Make a new VCR, with the information from our
-                    // temp_volume_id, but the read_only_parent from the
-                    // original volume.
-                    let rop_vcr = VolumeConstructionRequest::Volume {
-                        id: *temp_volume_id.as_untyped_uuid(),
-                        block_size,
-                        sub_volumes: vec![],
-                        read_only_parent,
-                    };
-
-                    let rop_volume_data = serde_json::to_string(&rop_vcr)
-                        .map_err(|e| err.bail(RemoveRopError::SerdeError(e)))?;
-
-                    // Update the temp_volume_id with the volume data that
-                    // contains the read_only_parent.
-                    let num_updated = diesel::update(volume_dsl::volume)
-                        .filter(
-                            volume_dsl::id.eq(to_db_typed_uuid(temp_volume_id)),
-                        )
-                        .filter(volume_dsl::time_deleted.is_null())
-                        .set(volume_dsl::data.eq(rop_volume_data))
-                        .execute_async(conn)
-                        .await?;
-
-                    if num_updated != 1 {
-                        return Err(err.bail(
-                            RemoveRopError::UnexpectedDatabaseUpdate(
-                                num_updated,
-                                1,
-                            ),
-                        ));
-                    }
-
-                    // Update the volume resource usage record for every
-                    // read-only resource in the ROP
-                    let crucible_targets = {
-                        let mut crucible_targets = CrucibleTargets::default();
-                        read_only_resources_associated_with_volume(
-                            &rop_vcr,
-                            &mut crucible_targets,
-                        );
-                        crucible_targets
-                    };
-
-                    for read_only_target in crucible_targets.read_only_targets {
-                        let read_only_target =
-                            read_only_target.parse().map_err(|e| {
-                                err.bail(RemoveRopError::AddressParseError(e))
-                            })?;
-
-                        let maybe_usage =
-                            Self::read_only_target_to_volume_resource_usage(
-                                conn,
-                                &read_only_target,
-                            )
-                            .await?;
-
-                        let Some(usage) = maybe_usage else {
-                            return Err(err.bail(
-                                RemoveRopError::CouldNotFindResource(format!(
-                                    "could not find resource for \
-                                    {read_only_target}"
-                                )),
-                            ));
-                        };
-
-                        Self::swap_volume_usage_records_for_resources(
-                            conn,
-                            usage,
-                            volume_id,
-                            temp_volume_id,
-                        )
-                        .await
-                        .map_err(|e| {
-                            err.bail_retryable_or_else(e, |e| {
-                                RemoveRopError::Public(
-                                    public_error_from_diesel(
-                                        e,
-                                        ErrorHandler::Server,
-                                    ),
-                                )
-                            })
-                        })?;
-                    }
-
-                    // After read-only parent removal, validate invariants for
-                    // all volumes
-                    #[cfg(any(test, feature = "testing"))]
-                    Self::validate_volume_invariants(conn).await?;
-
-                    Ok(true)
+                    return Err(e);
                 }
+            };
+
+            let volume = if let Some(v) = volume {
+                v
+            } else {
+                // the volume does not exist, nothing to do.
+                return Ok(false);
+            };
+
+            if volume.time_deleted().is_some() {
+                // this volume is deleted, so let whatever is deleting it clean
+                // it up.
+                return Ok(false);
+            } else {
+                // A volume record exists, and was not deleted.
+                volume
+            }
+        };
+
+        // If a read_only_parent exists, remove it from volume, and attach it
+        // to temp_volume.
+
+        let move_occurred = volume.move_rop(&mut temp_volume).map_err(|e| {
+            err.bail(RemoveRopError::Public(Error::invalid_request(
+                e.to_string(),
+            )))
+        })?;
+
+        if move_occurred {
+            // Update the original volume_id with the new volume.data.
+            let sub_err = OptionalError::new();
+
+            Self::volume_update_impl(conn, sub_err.clone(), volume_id, volume)
+                .await
+                .map_err(|e| {
+                    if let Some(e) = sub_err.take() {
+                        err.bail(match e {
+                            VolumeUpdateError::SerdeError(e) => {
+                                RemoveRopError::SerdeError(e)
+                            }
+
+                            VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                actual,
+                                expected,
+                            ) => RemoveRopError::UnexpectedDatabaseUpdate(
+                                actual, expected,
+                            ),
+                        })
+                    } else {
+                        e
+                    }
+                })?;
+
+            let sub_err = OptionalError::new();
+
+            // Update the temp_volume_id with the volume data that
+            // contains the read_only_parent.
+            Self::volume_update_impl(
+                conn,
+                sub_err.clone(),
+                temp_volume_id,
+                temp_volume.clone(),
+            )
+            .await
+            .map_err(|e| {
+                if let Some(e) = sub_err.take() {
+                    err.bail(match e {
+                        VolumeUpdateError::SerdeError(e) => {
+                            RemoveRopError::SerdeError(e)
+                        }
+
+                        VolumeUpdateError::UnexpectedDatabaseUpdate(
+                            actual,
+                            expected,
+                        ) => RemoveRopError::UnexpectedDatabaseUpdate(
+                            actual, expected,
+                        ),
+                    })
+                } else {
+                    e
+                }
+            })?;
+
+            // Update the volume resource usage record for every
+            // read-only resource in the ROP
+            let crucible_targets = {
+                let mut crucible_targets = CrucibleTargets::default();
+                temp_volume.read_only_resources_associated_with_volume(
+                    &mut crucible_targets,
+                );
+                crucible_targets
+            };
+
+            for read_only_target in crucible_targets.read_only_targets {
+                let read_only_target =
+                    read_only_target.parse().map_err(|e| {
+                        err.bail(RemoveRopError::AddressParseError(e))
+                    })?;
+
+                let maybe_usage =
+                    Self::read_only_target_to_volume_resource_usage(
+                        conn,
+                        &read_only_target,
+                    )
+                    .await?;
+
+                let Some(usage) = maybe_usage else {
+                    return Err(err.bail(
+                        RemoveRopError::CouldNotFindResource(format!(
+                            "could not find resource for \
+                            {read_only_target}"
+                        )),
+                    ));
+                };
+
+                Self::swap_volume_usage_records_for_resources(
+                    conn,
+                    usage,
+                    volume_id,
+                    temp_volume_id,
+                )
+                .await
+                .map_err(|e| {
+                    err.bail_retryable_or_else(e, |e| {
+                        RemoveRopError::Public(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ))
+                    })
+                })?;
             }
 
-            VolumeConstructionRequest::File { .. }
-            | VolumeConstructionRequest::Region { .. }
-            | VolumeConstructionRequest::Url { .. } => {
-                // Volume has a format that does not contain ROPs
-                Ok(false)
-            }
+            // After read-only parent removal, validate invariants for
+            // all volumes
+            #[cfg(any(test, feature = "testing"))]
+            Self::validate_volume_invariants(conn).await?;
+
+            Ok(true)
+        } else {
+            // Move already occurred XXX richer enum
+            Ok(false)
         }
     }
 
@@ -1988,17 +1964,12 @@ impl DataStore {
             return Err(Error::internal_error("volume is gone!?"));
         };
 
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(&volume.data())?;
-
         let mut targets: Vec<SocketAddrV6> = vec![];
 
-        find_matching_rw_regions_in_volume(
-            &vcr,
+        volume.find_matching_rw_regions_in_volume(
             dataset.address().ip(),
             &mut targets,
-        )
-        .map_err(|e| Error::internal_error(&e.to_string()))?;
+        );
 
         Ok(targets)
     }
@@ -2338,7 +2309,7 @@ impl DataStore {
         volume_id: VolumeUuid,
     ) -> Result<bool, Error> {
         match self.volume_get(volume_id).await? {
-            Some(v) => Ok(v.time_deleted.is_some()),
+            Some(v) => Ok(v.time_deleted().is_some()),
             None => Ok(true),
         }
     }
@@ -2542,475 +2513,6 @@ impl DataStore {
     }
 }
 
-/// Check if a region is present in a Volume Construction Request
-pub fn region_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    region: &SocketAddrV6,
-) -> anyhow::Result<bool> {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(vcr);
-
-    let mut region_found = false;
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                // Skip looking at read-only parent, this function only looks
-                // for R/W regions
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                for target in &opts.target {
-                    match target {
-                        SocketAddr::V6(t) if *t == *region => {
-                            region_found = true;
-                            break;
-                        }
-                        SocketAddr::V6(_) => {}
-                        SocketAddr::V4(_) => {
-                            bail!("region target contains an IPv4 address");
-                        }
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    Ok(region_found)
-}
-
-/// Check if a read-only target is present anywhere in a Volume Construction
-/// Request
-pub fn read_only_target_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    read_only_target: &SocketAddrV6,
-) -> anyhow::Result<bool> {
-    struct Work<'a> {
-        vcr_part: &'a VolumeConstructionRequest,
-        under_read_only_parent: bool,
-    }
-
-    let mut parts: VecDeque<Work> = VecDeque::new();
-    parts.push_back(Work { vcr_part: &vcr, under_read_only_parent: false });
-
-    while let Some(work) = parts.pop_front() {
-        match work.vcr_part {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(Work {
-                        vcr_part: &sub_volume,
-                        under_read_only_parent: work.under_read_only_parent,
-                    });
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(Work {
-                        vcr_part: &read_only_parent,
-                        under_read_only_parent: true,
-                    });
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                if work.under_read_only_parent && !opts.read_only {
-                    // This VCR isn't constructed properly, there's a read/write
-                    // region under a read-only parent
-                    bail!("read-write region under read-only parent");
-                }
-
-                for target in &opts.target {
-                    match target {
-                        SocketAddr::V6(t)
-                            if *t == *read_only_target && opts.read_only =>
-                        {
-                            return Ok(true);
-                        }
-                        SocketAddr::V6(_) => {}
-                        SocketAddr::V4(_) => {
-                            bail!("region target contains an IPv4 address");
-                        }
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    Ok(false)
-}
-
-/// Return the read-only targets from a VolumeConstructionRequest.
-///
-/// The targets of a volume construction request map to resources.
-pub fn read_only_resources_associated_with_volume(
-    vcr: &VolumeConstructionRequest,
-    crucible_targets: &mut CrucibleTargets,
-) {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(&vcr);
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(read_only_parent);
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // no action required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                for target in &opts.target {
-                    if opts.read_only {
-                        crucible_targets
-                            .read_only_targets
-                            .push(target.to_string());
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // no action required
-            }
-        }
-    }
-}
-
-/// Return the read-write targets from a VolumeConstructionRequest.
-///
-/// The targets of a volume construction request map to resources.
-pub fn read_write_resources_associated_with_volume(
-    vcr: &VolumeConstructionRequest,
-    targets: &mut Vec<String>,
-) {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(&vcr);
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                // No need to look under read-only parent
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // no action required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                if !opts.read_only {
-                    for target in &opts.target {
-                        targets.push(target.to_string());
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // no action required
-            }
-        }
-    }
-}
-
-/// Return the number of read-write subvolumes in a VolumeConstructionRequest.
-pub fn count_read_write_sub_volumes(
-    vcr: &VolumeConstructionRequest,
-) -> anyhow::Result<usize> {
-    Ok(match vcr {
-        VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-            sub_volumes.len()
-        }
-
-        VolumeConstructionRequest::Url { .. } => 0,
-
-        VolumeConstructionRequest::Region { .. } => {
-            // We don't support a pure Region VCR at the volume
-            // level in the database, so this choice should
-            // never be encountered.
-            bail!("Region not supported as a top level volume");
-        }
-
-        VolumeConstructionRequest::File { .. } => 0,
-    })
-}
-
-/// Returns true if the sub-volumes of a Volume are all read-only
-pub fn volume_is_read_only(
-    vcr: &VolumeConstructionRequest,
-) -> anyhow::Result<bool> {
-    match vcr {
-        VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-            for sv in sub_volumes {
-                match sv {
-                    VolumeConstructionRequest::Region { opts, .. } => {
-                        if !opts.read_only {
-                            return Ok(false);
-                        }
-                    }
-
-                    _ => {
-                        bail!("Saw non-Region in sub-volume {:?}", sv);
-                    }
-                }
-            }
-
-            Ok(true)
-        }
-
-        VolumeConstructionRequest::Region { .. } => {
-            // We don't support a pure Region VCR at the volume
-            // level in the database, so this choice should
-            // never be encountered, but I want to know if it is.
-            bail!("Region not supported as a top level volume");
-        }
-
-        VolumeConstructionRequest::File { .. } => {
-            // Effectively, this is read-only, as this BlockIO implementation
-            // does not have a `write` implementation. This will be hit if
-            // trying to make a snapshot or image out of a
-            // `YouCanBootAnythingAsLongAsItsAlpine` image source.
-            Ok(true)
-        }
-
-        VolumeConstructionRequest::Url { .. } => {
-            // ImageSource::Url was deprecated
-            bail!("Saw VolumeConstructionRequest::Url");
-        }
-    }
-}
-
-/// Find Regions in a Volume's subvolumes list whose target match the argument
-/// IP, and add them to the supplied Vec.
-fn find_matching_rw_regions_in_volume(
-    vcr: &VolumeConstructionRequest,
-    ip: &std::net::Ipv6Addr,
-    matched_targets: &mut Vec<SocketAddrV6>,
-) -> anyhow::Result<()> {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(vcr);
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                if !opts.read_only {
-                    for target in &opts.target {
-                        if let SocketAddr::V6(target) = target {
-                            if target.ip() == ip {
-                                matched_targets.push(*target);
-                            }
-                        }
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn region_sets(
-    vcr: &VolumeConstructionRequest,
-    region_sets: &mut Vec<Vec<SocketAddrV6>>,
-) {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(vcr);
-
-    while let Some(work) = parts.pop_front() {
-        match work {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(&sub_volume);
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(&read_only_parent);
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                let mut targets = vec![];
-
-                for target in &opts.target {
-                    match target {
-                        SocketAddr::V6(v6) => {
-                            targets.push(*v6);
-                        }
-                        SocketAddr::V4(_) => {}
-                    }
-                }
-
-                if targets.len() == opts.target.len() {
-                    region_sets.push(targets);
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-}
-
-/// Check if an ipv6 address is referenced in a Volume Construction Request
-fn ipv6_addr_referenced_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    ip: &std::net::Ipv6Addr,
-) -> bool {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(vcr);
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(read_only_parent);
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                for target in &opts.target {
-                    match target {
-                        SocketAddr::V6(t) => {
-                            if t.ip() == ip {
-                                return true;
-                            }
-                        }
-
-                        SocketAddr::V4(_) => {}
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    false
-}
-
-/// Check if an ipv6 net is referenced in a Volume Construction Request
-fn ipv6_net_referenced_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    net: &oxnet::Ipv6Net,
-) -> bool {
-    let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(vcr);
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(read_only_parent);
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                for target in &opts.target {
-                    match target {
-                        SocketAddr::V6(t) => {
-                            if net.contains(*t.ip()) {
-                                return true;
-                            }
-                        }
-
-                        SocketAddr::V4(_) => {}
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    false
-}
-
 pub enum VolumeCookedResult {
     HardDeleted,
     Ok,
@@ -3024,7 +2526,7 @@ impl DataStore {
         &self,
         opctx: &OpContext,
         address: SocketAddr,
-    ) -> ListResultVec<model::Volume> {
+    ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
         let mut volumes = Vec::new();
@@ -3060,21 +2562,31 @@ impl DataStore {
                 p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
 
             for volume in haystack {
-                let vcr: VolumeConstructionRequest =
-                    match serde_json::from_str(&volume.data()) {
-                        Ok(vcr) => vcr,
-                        Err(e) => {
-                            return Err(Error::internal_error(&format!(
-                                "cannot deserialize volume data for {}: {e}",
-                                volume.id(),
-                            )));
-                        }
-                    };
+                let err = OptionalError::new();
 
-                let rw_reference = region_in_vcr(&vcr, &needle)
-                    .map_err(|e| Error::internal_error(&e.to_string()))?;
-                let ro_reference = read_only_target_in_vcr(&vcr, &needle)
-                    .map_err(|e| Error::internal_error(&e.to_string()))?;
+                let volume =
+                    Self::volume_get_impl(&conn, err.clone(), volume.id())
+                        .await
+                        .map_err(|e| {
+                            if let Some(e) = err.take() {
+                                Error::internal_error(&format!(
+                                    "volume_get_impl returned {e}",
+                                ))
+                            } else {
+                                public_error_from_diesel(
+                                    e,
+                                    ErrorHandler::Server,
+                                )
+                            }
+                        })?;
+
+                let Some(volume) = volume else {
+                    // Volume hard deleted between paginated select and now.
+                    continue;
+                };
+
+                let rw_reference = volume.region_in_vcr(&needle);
+                let ro_reference = volume.read_only_target_in_vcr(&needle);
 
                 if rw_reference || ro_reference {
                     volumes.push(volume);
@@ -3089,7 +2601,7 @@ impl DataStore {
         &self,
         opctx: &OpContext,
         needle: std::net::Ipv6Addr,
-    ) -> ListResultVec<model::Volume> {
+    ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
         let mut volumes = Vec::new();
@@ -3115,18 +2627,30 @@ impl DataStore {
                 p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
 
             for volume in haystack {
-                let vcr: VolumeConstructionRequest =
-                    match serde_json::from_str(&volume.data()) {
-                        Ok(vcr) => vcr,
-                        Err(e) => {
-                            return Err(Error::internal_error(&format!(
-                                "cannot deserialize volume data for {}: {e}",
-                                volume.id(),
-                            )));
-                        }
-                    };
+                let err = OptionalError::new();
 
-                if ipv6_addr_referenced_in_vcr(&vcr, &needle) {
+                let volume =
+                    Self::volume_get_impl(&conn, err.clone(), volume.id())
+                        .await
+                        .map_err(|e| {
+                            if let Some(e) = err.take() {
+                                Error::internal_error(&format!(
+                                    "volume_get_impl returned {e}",
+                                ))
+                            } else {
+                                public_error_from_diesel(
+                                    e,
+                                    ErrorHandler::Server,
+                                )
+                            }
+                        })?;
+
+                let Some(volume) = volume else {
+                    // Volume hard deleted between paginated select and now.
+                    continue;
+                };
+
+                if volume.ipv6_addr_referenced_in_vcr(&needle) {
                     volumes.push(volume);
                 }
             }
@@ -3139,7 +2663,7 @@ impl DataStore {
         &self,
         opctx: &OpContext,
         needle: oxnet::Ipv6Net,
-    ) -> ListResultVec<model::Volume> {
+    ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
         let mut volumes = Vec::new();
@@ -3165,18 +2689,30 @@ impl DataStore {
                 p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
 
             for volume in haystack {
-                let vcr: VolumeConstructionRequest =
-                    match serde_json::from_str(&volume.data()) {
-                        Ok(vcr) => vcr,
-                        Err(e) => {
-                            return Err(Error::internal_error(&format!(
-                                "cannot deserialize volume data for {}: {e}",
-                                volume.id(),
-                            )));
-                        }
-                    };
+                let err = OptionalError::new();
 
-                if ipv6_net_referenced_in_vcr(&vcr, &needle) {
+                let volume =
+                    Self::volume_get_impl(&conn, err.clone(), volume.id())
+                        .await
+                        .map_err(|e| {
+                            if let Some(e) = err.take() {
+                                Error::internal_error(&format!(
+                                    "volume_get_impl returned {e}",
+                                ))
+                            } else {
+                                public_error_from_diesel(
+                                    e,
+                                    ErrorHandler::Server,
+                                )
+                            }
+                        })?;
+
+                let Some(volume) = volume else {
+                    // Volume hard deleted between paginated select and now.
+                    continue;
+                };
+
+                if volume.ipv6_net_referenced_in_vcr(&needle) {
                     volumes.push(volume);
                 }
             }
@@ -3196,27 +2732,7 @@ impl DataStore {
             return Ok(None);
         };
 
-        let vcr: VolumeConstructionRequest =
-            match serde_json::from_str(&volume.data()) {
-                Ok(vcr) => vcr,
-
-                Err(e) => {
-                    return Err(Error::internal_error(&format!(
-                        "cannot deserialize volume data for {}: {e}",
-                        volume.id(),
-                    )));
-                }
-            };
-
-        let reference =
-            read_only_target_in_vcr(&vcr, &address).map_err(|e| {
-                Error::internal_error(&format!(
-                    "cannot deserialize volume data for {}: {e}",
-                    volume.id(),
-                ))
-            })?;
-
-        Ok(Some(reference))
+        Ok(Some(volume.read_only_target_in_vcr(&address)))
     }
 
     pub async fn volume_cooked(
@@ -3227,18 +2743,6 @@ impl DataStore {
         let Some(volume) = self.volume_get(volume_id).await? else {
             return Ok(VolumeCookedResult::HardDeleted);
         };
-
-        let vcr: VolumeConstructionRequest =
-            match serde_json::from_str(&volume.data()) {
-                Ok(vcr) => vcr,
-
-                Err(e) => {
-                    return Err(Error::internal_error(&format!(
-                        "cannot deserialize volume data for {}: {e}",
-                        volume.id(),
-                    )));
-                }
-            };
 
         let expunged_regions: Vec<Region> = vec![
             self.find_read_only_regions_on_expunged_physical_disks(opctx)
@@ -3256,7 +2760,7 @@ impl DataStore {
 
         let region_sets = {
             let mut result = vec![];
-            region_sets(&vcr, &mut result);
+            volume.region_sets(&mut result);
             result
         };
 
@@ -3407,6 +2911,23 @@ impl DataStore {
                 p.found_batch(&haystack, &|v| *v.id().as_untyped_uuid());
 
             for volume in haystack {
+                let err = OptionalError::new();
+
+                let volume =
+                    Self::volume_get_impl(&conn, err.clone(), volume.id())
+                        .await?;
+
+                if let Some(e) = err.take() {
+                    return Err(Self::volume_invariant_violated(format!(
+                        "volume_get_impl returned {e}",
+                    )));
+                }
+
+                let Some(volume) = volume else {
+                    // Volume hard deleted between paginated select and now.
+                    continue;
+                };
+
                 Self::validate_volume_has_all_resources(&conn, &volume).await?;
                 Self::validate_volume_region_sets_have_unique_targets(&volume)
                     .await?;
@@ -3441,35 +2962,22 @@ impl DataStore {
     /// been prematurely deleted.
     async fn validate_volume_has_all_resources(
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        volume: &model::Volume,
+        volume: &volume::Volume,
     ) -> Result<(), diesel::result::Error> {
-        if volume.time_deleted.is_some() {
+        if volume.time_deleted().is_some() {
             // Do not need to validate resources for soft-deleted volumes
             return Ok(());
         }
 
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(&volume.data()).unwrap();
-
         // validate all read/write resources still exist
 
-        let num_read_write_subvolumes = match count_read_write_sub_volumes(&vcr)
-        {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(Self::volume_invariant_violated(format!(
-                    "volume {} had error: {e}",
-                    volume.id(),
-                )));
-            }
-        };
+        let num_read_write_subvolumes = volume.count_read_write_sub_volumes();
 
         let mut read_write_targets = Vec::with_capacity(
             REGION_REDUNDANCY_THRESHOLD * num_read_write_subvolumes,
         );
 
-        read_write_resources_associated_with_volume(
-            &vcr,
+        volume.read_write_resources_associated_with_volume(
             &mut read_write_targets,
         );
 
@@ -3501,8 +3009,7 @@ impl DataStore {
 
         let crucible_targets = {
             let mut crucible_targets = CrucibleTargets::default();
-            read_only_resources_associated_with_volume(
-                &vcr,
+            volume.read_only_resources_associated_with_volume(
                 &mut crucible_targets,
             );
             crucible_targets
@@ -3534,54 +3041,26 @@ impl DataStore {
 
     /// Assert that all the region sets have three distinct targets
     async fn validate_volume_region_sets_have_unique_targets(
-        volume: &model::Volume,
+        volume: &volume::Volume,
     ) -> Result<(), diesel::result::Error> {
-        let vcr: VolumeConstructionRequest =
-            serde_json::from_str(&volume.data()).unwrap();
+        let mut region_sets = vec![];
+        volume.region_sets(&mut region_sets);
 
-        let mut parts = VecDeque::new();
-        parts.push_back(&vcr);
+        for region_set in region_sets {
+            let mut set = HashSet::new();
+            let mut count = 0;
 
-        while let Some(part) = parts.pop_front() {
-            match part {
-                VolumeConstructionRequest::Volume {
-                    sub_volumes,
-                    read_only_parent,
-                    ..
-                } => {
-                    for sub_volume in sub_volumes {
-                        parts.push_back(sub_volume);
-                    }
-                    if let Some(read_only_parent) = read_only_parent {
-                        parts.push_back(read_only_parent);
-                    }
-                }
+            for target in &region_set {
+                set.insert(target);
+                count += 1;
+            }
 
-                VolumeConstructionRequest::Url { .. } => {
-                    // nothing required
-                }
-
-                VolumeConstructionRequest::Region { opts, .. } => {
-                    let mut set = HashSet::new();
-                    let mut count = 0;
-
-                    for target in &opts.target {
-                        set.insert(target);
-                        count += 1;
-                    }
-
-                    if set.len() != count {
-                        return Err(Self::volume_invariant_violated(format!(
-                            "volume {} has a region set with {} unique targets",
-                            volume.id(),
-                            set.len(),
-                        )));
-                    }
-                }
-
-                VolumeConstructionRequest::File { .. } => {
-                    // nothing required
-                }
+            if set.len() != count {
+                return Err(Self::volume_invariant_violated(format!(
+                    "volume {} has a region set with {} unique targets",
+                    volume.id(),
+                    set.len(),
+                )));
             }
         }
 

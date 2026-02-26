@@ -1505,25 +1505,16 @@ async fn ssc_create_volume_record(
         .await
         .map_err(ActionError::action_failed)?;
 
-    info!(log, "disk volume construction request {}", disk_volume.data());
-
-    let disk_volume_construction_request =
-        serde_json::from_str(&disk_volume.data()).map_err(|e| {
-            ActionError::action_failed(Error::internal_error(&format!(
-                "failed to deserialize disk {} volume data: {}",
-                params.disk.id(),
-                e,
-            )))
-        })?;
-
     // The volume construction request must then be modified to point to the
     // read-only crucible agent downstairs (corresponding to this snapshot)
     // launched through this saga.
+
     let replace_sockets_map =
         sagactx.lookup::<ReplaceSocketsMap>("replace_sockets_map")?;
+
     let snapshot_volume_construction_request: VolumeConstructionRequest =
         create_snapshot_from_disk(
-            &disk_volume_construction_request,
+            &disk_volume.volume_construction_request(),
             &replace_sockets_map,
         )
         .map_err(|e| {

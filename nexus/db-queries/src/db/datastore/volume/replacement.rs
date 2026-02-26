@@ -3,15 +3,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use crate::db::DataStore;
-use crate::db::datastore::volume::read_only_target_in_vcr;
-use crate::db::datastore::volume::region_in_vcr;
-use crate::db::model;
 use crate::db::model::VolumeResourceUsageRecord;
 use crate::db::model::to_db_typed_uuid;
 use anyhow::anyhow;
-use anyhow::bail;
 use async_bb8_diesel::AsyncRunQueryDsl;
-use diesel::OptionalExtension;
 use diesel::prelude::*;
 use nexus_db_errors::ErrorHandler;
 use nexus_db_errors::OptionalError;
@@ -23,9 +18,7 @@ use omicron_uuid_kinds::VolumeUuid;
 use serde::Deserialize;
 use serde::Serialize;
 use sled_agent_client::VolumeConstructionRequest;
-use std::collections::VecDeque;
 use std::net::AddrParseError;
-use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use uuid::Uuid;
 
@@ -210,23 +203,20 @@ impl DataStore {
 
         // Grab the old volume first
         let maybe_old_volume = {
-            volume_dsl::volume
-                .filter(volume_dsl::id.eq(to_db_typed_uuid(existing.volume_id)))
-                .select(model::Volume::as_select())
-                .first_async::<model::Volume>(conn)
+            let sub_err = OptionalError::new();
+
+            Self::volume_get_impl(conn, sub_err.clone(), existing.volume_id)
                 .await
-                .optional()
                 .map_err(|e| {
-                    err.bail_retryable_or_else(e, |e| {
-                        ReplaceRegionError::Public(public_error_from_diesel(
-                            e,
-                            ErrorHandler::Server,
-                        ))
-                    })
+                    if let Some(e) = sub_err.take() {
+                        err.bail(ReplaceRegionError::SerdeError(e))
+                    } else {
+                        e
+                    }
                 })?
         };
 
-        let old_volume = if let Some(old_volume) = maybe_old_volume {
+        let mut old_volume = if let Some(old_volume) = maybe_old_volume {
             old_volume
         } else {
             // Existing volume was hard-deleted, so return here. We can't
@@ -236,40 +226,18 @@ impl DataStore {
             return Ok(VolumeReplaceResult::ExistingVolumeHardDeleted);
         };
 
-        if old_volume.time_deleted.is_some() {
+        if old_volume.time_deleted().is_some() {
             // Existing volume was soft-deleted, so return here for the same
             // reason: the region replacement process should be short-circuited
             // now.
             return Ok(VolumeReplaceResult::ExistingVolumeSoftDeleted);
         }
 
-        let old_vcr: VolumeConstructionRequest =
-            match serde_json::from_str(&old_volume.data()) {
-                Ok(vcr) => vcr,
-                Err(e) => {
-                    return Err(err.bail(ReplaceRegionError::SerdeError(e)));
-                }
-            };
-
         // Does it look like this replacement already happened?
-        let old_region_in_vcr =
-            match region_in_vcr(&old_vcr, &existing.region_addr) {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(
-                        err.bail(ReplaceRegionError::RegionReplacementError(e))
-                    );
-                }
-            };
+        let old_region_in_vcr = old_volume.region_in_vcr(&existing.region_addr);
+
         let new_region_in_vcr =
-            match region_in_vcr(&old_vcr, &replacement.region_addr) {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(
-                        err.bail(ReplaceRegionError::RegionReplacementError(e))
-                    );
-                }
-            };
+            old_volume.region_in_vcr(&replacement.region_addr);
 
         if !old_region_in_vcr && new_region_in_vcr {
             // It does seem like the replacement happened - if this function is
@@ -333,7 +301,6 @@ impl DataStore {
         }
 
         use nexus_db_schema::schema::region::dsl as region_dsl;
-        use nexus_db_schema::schema::volume::dsl as volume_dsl;
 
         // Set the existing region's volume id to the replacement's volume id
         diesel::update(region_dsl::region)
@@ -371,37 +338,35 @@ impl DataStore {
         // Update the existing volume's construction request to replace the
         // existing region's SocketAddrV6 with the replacement region's
 
-        // Copy the old volume's VCR, changing out the old region for the new.
-        let new_vcr = match replace_region_in_vcr(
-            &old_vcr,
+        if let Err(e) = old_volume.replace_region_in_vcr(
             existing.region_addr,
             replacement.region_addr,
         ) {
-            Ok(new_vcr) => new_vcr,
-            Err(e) => {
-                return Err(
-                    err.bail(ReplaceRegionError::RegionReplacementError(e))
-                );
-            }
-        };
-
-        let new_volume_data = serde_json::to_string(&new_vcr)
-            .map_err(|e| err.bail(ReplaceRegionError::SerdeError(e)))?;
+            return Err(err.bail(ReplaceRegionError::RegionReplacementError(e)));
+        }
 
         // Update the existing volume's data
-        diesel::update(volume_dsl::volume)
-            .filter(volume_dsl::id.eq(to_db_typed_uuid(existing.volume_id)))
-            .set(volume_dsl::data.eq(new_volume_data))
-            .execute_async(conn)
-            .await
-            .map_err(|e| {
-                err.bail_retryable_or_else(e, |e| {
+        let sub_err = OptionalError::new();
+
+        Self::volume_update_impl(
+            conn,
+            sub_err.clone(),
+            existing.volume_id,
+            old_volume,
+        )
+        .await
+        .map_err(|e| {
+            err.bail_retryable_or_else(e, |e| {
+                if let Some(e) = sub_err.take() {
+                    ReplaceRegionError::RegionReplacementError(e.into())
+                } else {
                     ReplaceRegionError::Public(public_error_from_diesel(
                         e,
                         ErrorHandler::Server,
                     ))
-                })
-            })?;
+                }
+            })
+        })?;
 
         // After region replacement, validate invariants for all volumes
         #[cfg(any(test, feature = "testing"))]
@@ -462,88 +427,60 @@ impl DataStore {
         replacement: ReplacementTarget,
         volume_to_delete_id: VolumeToDelete,
     ) -> Result<VolumeReplaceResult, diesel::result::Error> {
-        use nexus_db_schema::schema::volume::dsl as volume_dsl;
         use nexus_db_schema::schema::volume_resource_usage::dsl as ru_dsl;
 
         // Grab the old volume first
         let maybe_old_volume = {
-            volume_dsl::volume
-                .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_id.0)))
-                .select(model::Volume::as_select())
-                .first_async::<model::Volume>(conn)
+            let sub_err = OptionalError::new();
+
+            Self::volume_get_impl(conn, sub_err.clone(), volume_id.0)
                 .await
-                .optional()
                 .map_err(|e| {
-                    err.bail_retryable_or_else(e, |e| {
-                        ReplaceSnapshotError::Public(public_error_from_diesel(
-                            e,
-                            ErrorHandler::Server,
-                        ))
-                    })
+                    if let Some(e) = sub_err.take() {
+                        err.bail(ReplaceSnapshotError::SerdeError(e))
+                    } else {
+                        e
+                    }
                 })?
         };
 
-        let old_volume = if let Some(old_volume) = maybe_old_volume {
+        let mut old_volume = if let Some(old_volume) = maybe_old_volume {
             old_volume
         } else {
             // Existing volume was hard-deleted, so return here. We can't
-            // perform the region replacement now, and this will short-circuit
-            // the rest of the process.
+            // perform the region snapshot replacement now, and this will
+            // short-circuit the rest of the process.
 
             return Ok(VolumeReplaceResult::ExistingVolumeHardDeleted);
         };
 
-        if old_volume.time_deleted.is_some() {
+        if old_volume.time_deleted().is_some() {
             // Existing volume was soft-deleted, so return here for the same
-            // reason: the region replacement process should be short-circuited
-            // now.
+            // reason: the region snapshot replacement process should be
+            // short-circuited now.
             return Ok(VolumeReplaceResult::ExistingVolumeSoftDeleted);
         }
 
-        let old_vcr: VolumeConstructionRequest =
-            match serde_json::from_str(&old_volume.data()) {
-                Ok(vcr) => vcr,
-                Err(e) => {
-                    return Err(err.bail(ReplaceSnapshotError::SerdeError(e)));
-                }
-            };
-
         // Does it look like this replacement already happened?
-        let old_target_in_vcr =
-            match read_only_target_in_vcr(&old_vcr, &existing.0) {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(err.bail(
-                        ReplaceSnapshotError::SnapshotReplacementError(e),
-                    ));
-                }
-            };
-
+        let old_target_in_vcr = old_volume.read_only_target_in_vcr(&existing.0);
         let new_target_in_vcr =
-            match read_only_target_in_vcr(&old_vcr, &replacement.0) {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(err.bail(
-                        ReplaceSnapshotError::SnapshotReplacementError(e),
-                    ));
-                }
-            };
+            old_volume.read_only_target_in_vcr(&replacement.0);
 
         if !old_target_in_vcr && new_target_in_vcr {
             // It does seem like the replacement happened
             return Ok(VolumeReplaceResult::AlreadyHappened);
         }
 
+        // XXX does this need more cases like region replacement checks?
+
         // Update the existing volume's construction request to replace the
         // existing target's SocketAddrV6 with the replacement target's
 
         // Copy the old volume's VCR, changing out the old target for the new.
-        let (new_vcr, replacements) = match replace_read_only_target_in_vcr(
-            &old_vcr,
-            existing,
-            replacement,
-        ) {
-            Ok(new_vcr) => new_vcr,
+        let replacements = match old_volume
+            .replace_read_only_target_in_vcr(existing, replacement)
+        {
+            Ok(replacements) => replacements,
             Err(e) => {
                 return Err(
                     err.bail(ReplaceSnapshotError::SnapshotReplacementError(e))
@@ -563,23 +500,28 @@ impl DataStore {
             ));
         }
 
-        let new_volume_data = serde_json::to_string(&new_vcr)
-            .map_err(|e| err.bail(ReplaceSnapshotError::SerdeError(e)))?;
-
         // Update the existing volume's data
-        diesel::update(volume_dsl::volume)
-            .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_id.0)))
-            .set(volume_dsl::data.eq(new_volume_data))
-            .execute_async(conn)
-            .await
-            .map_err(|e| {
-                err.bail_retryable_or_else(e, |e| {
+        let sub_err = OptionalError::new();
+
+        Self::volume_update_impl(
+            conn,
+            sub_err.clone(),
+            volume_id.0,
+            old_volume,
+        )
+        .await
+        .map_err(|e| {
+            err.bail_retryable_or_else(e, |e| {
+                if let Some(e) = sub_err.take() {
+                    ReplaceSnapshotError::SnapshotReplacementError(e.into())
+                } else {
                     ReplaceSnapshotError::Public(public_error_from_diesel(
                         e,
                         ErrorHandler::Server,
                     ))
-                })
-            })?;
+                }
+            })
+        })?;
 
         // Make a new VCR that will stash the target to delete. The values here
         // don't matter, just that it gets fed into the volume_delete machinery
@@ -610,6 +552,8 @@ impl DataStore {
 
         let volume_data = serde_json::to_string(&vcr)
             .map_err(|e| err.bail(ReplaceSnapshotError::SerdeError(e)))?;
+
+        use nexus_db_schema::schema::volume::dsl as volume_dsl;
 
         // Update the volume to delete data
         let num_updated = diesel::update(volume_dsl::volume)
@@ -822,148 +766,4 @@ impl DataStore {
                 }
             })
     }
-}
-
-/// Replace a Region in a VolumeConstructionRequest
-///
-/// Note that UUIDs are not randomized by this step: Crucible will reject a
-/// `target_replace` call if the replacement VolumeConstructionRequest does not
-/// exactly match the original, except for a single Region difference.
-///
-/// Note that the generation number _is_ bumped in this step, otherwise
-/// `compare_vcr_for_update` will reject the update.
-pub fn replace_region_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    old_region: SocketAddrV6,
-    new_region: SocketAddrV6,
-) -> anyhow::Result<VolumeConstructionRequest> {
-    let mut new_vcr = vcr.clone();
-
-    let mut parts: VecDeque<&mut VolumeConstructionRequest> = VecDeque::new();
-    parts.push_back(&mut new_vcr);
-
-    let mut old_region_found = false;
-
-    while let Some(vcr_part) = parts.pop_front() {
-        match vcr_part {
-            VolumeConstructionRequest::Volume { sub_volumes, .. } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(sub_volume);
-                }
-
-                // Skip looking at read-only parent, this function only replaces
-                // R/W regions
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, generation, .. } => {
-                for target in &mut opts.target {
-                    if let SocketAddr::V6(target) = target {
-                        if *target == old_region {
-                            *target = new_region;
-                            old_region_found = true;
-                        }
-                    }
-                }
-
-                // Bump generation number, otherwise update will be rejected
-                *generation = *generation + 1;
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    if !old_region_found {
-        bail!("old region {old_region} not found!");
-    }
-
-    Ok(new_vcr)
-}
-
-/// Replace a read-only target in a VolumeConstructionRequest
-///
-/// Note that UUIDs are not randomized by this step: Crucible will reject a
-/// `target_replace` call if the replacement VolumeConstructionRequest does not
-/// exactly match the original, except for a single Region difference.
-///
-/// Note that the generation number _is not_ bumped in this step.
-pub fn replace_read_only_target_in_vcr(
-    vcr: &VolumeConstructionRequest,
-    old_target: ExistingTarget,
-    new_target: ReplacementTarget,
-) -> anyhow::Result<(VolumeConstructionRequest, usize)> {
-    struct Work<'a> {
-        vcr_part: &'a mut VolumeConstructionRequest,
-        under_read_only_parent: bool,
-    }
-    let mut new_vcr = vcr.clone();
-
-    let mut parts: VecDeque<Work> = VecDeque::new();
-    parts.push_back(Work {
-        vcr_part: &mut new_vcr,
-        under_read_only_parent: false,
-    });
-
-    let mut replacements = 0;
-
-    while let Some(work) = parts.pop_front() {
-        match work.vcr_part {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sub_volume in sub_volumes {
-                    parts.push_back(Work {
-                        vcr_part: sub_volume,
-                        under_read_only_parent: work.under_read_only_parent,
-                    });
-                }
-
-                if let Some(read_only_parent) = read_only_parent {
-                    parts.push_back(Work {
-                        vcr_part: read_only_parent,
-                        under_read_only_parent: true,
-                    });
-                }
-            }
-
-            VolumeConstructionRequest::Url { .. } => {
-                // nothing required
-            }
-
-            VolumeConstructionRequest::Region { opts, .. } => {
-                if work.under_read_only_parent && !opts.read_only {
-                    // This VCR isn't constructed properly, there's a read/write
-                    // region under a read-only parent
-                    bail!("read-write region under read-only parent");
-                }
-
-                for target in &mut opts.target {
-                    if let SocketAddr::V6(target) = target {
-                        if *target == old_target.0 && opts.read_only {
-                            *target = new_target.0;
-                            replacements += 1;
-                        }
-                    }
-                }
-            }
-
-            VolumeConstructionRequest::File { .. } => {
-                // nothing required
-            }
-        }
-    }
-
-    if replacements == 0 {
-        bail!("target {old_target:?} not found!");
-    }
-
-    Ok((new_vcr, replacements))
 }

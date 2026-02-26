@@ -762,6 +762,7 @@ async fn srrs_update_request_record(
 
 #[cfg(test)]
 pub(crate) mod test {
+    use crate::app::db::datastore::volume::Volume;
     use crate::{
         app::RegionAllocationStrategy, app::db::DataStore,
         app::db::datastore::Disk, app::saga::create_saga_dag,
@@ -775,7 +776,6 @@ pub(crate) mod test {
     use nexus_db_model::Region;
     use nexus_db_model::RegionReplacement;
     use nexus_db_model::RegionReplacementState;
-    use nexus_db_model::Volume;
     use nexus_db_queries::authn::saga::Serialized;
     use nexus_db_queries::context::OpContext;
     use nexus_test_utils::resource_helpers::create_disk;
@@ -785,7 +785,6 @@ pub(crate) mod test {
     use omicron_uuid_kinds::DatasetUuid;
     use omicron_uuid_kinds::VolumeUuid;
     use omicron_uuid_kinds::ZpoolUuid;
-    use sled_agent_client::VolumeConstructionRequest;
     use uuid::Uuid;
 
     type ControlPlaneTestContext =
@@ -1059,50 +1058,25 @@ pub(crate) mod test {
         assert_eq!(db_request.operating_saga_id, None);
     }
 
-    fn zero_out_gen_number(vcr: &mut VolumeConstructionRequest) {
-        match vcr {
-            VolumeConstructionRequest::Volume {
-                sub_volumes,
-                read_only_parent,
-                ..
-            } => {
-                for sv in sub_volumes {
-                    zero_out_gen_number(sv);
-                }
-
-                if let Some(rop) = read_only_parent {
-                    zero_out_gen_number(rop);
-                }
-            }
-
-            VolumeConstructionRequest::Region { generation, .. } => {
-                *generation = 0;
-            }
-
-            _ => {}
-        }
-    }
-
     async fn assert_volume_untouched(
         datastore: &DataStore,
         affected_volume_original: &Volume,
     ) {
-        let affected_volume = datastore
+        let mut affected_volume = datastore
             .volume_get(affected_volume_original.id())
             .await
             .unwrap()
             .unwrap();
 
-        let mut actual: VolumeConstructionRequest =
-            serde_json::from_str(&affected_volume.data()).unwrap();
+        affected_volume.zero_out_gen_number();
 
-        let mut expected: VolumeConstructionRequest =
-            serde_json::from_str(&affected_volume_original.data()).unwrap();
+        let mut expected = affected_volume_original.clone();
+        expected.zero_out_gen_number();
 
-        zero_out_gen_number(&mut actual);
-        zero_out_gen_number(&mut expected);
-
-        assert_eq!(actual, expected);
+        assert_eq!(
+            affected_volume.volume_construction_request(),
+            expected.volume_construction_request(),
+        );
     }
 
     async fn assert_region_untouched(

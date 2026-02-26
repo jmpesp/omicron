@@ -15,7 +15,6 @@ use nexus_db_queries::authz;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db;
 use nexus_db_queries::db::datastore::CrucibleDisk;
-use omicron_common::api::external::Error;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetry;
 use omicron_common::progenitor_operation_retry::ProgenitorOperationRetryError;
 use slog::Logger;
@@ -96,20 +95,11 @@ pub(crate) async fn call_pantry_attach_for_disk(
         .await
         .map_err(ActionError::action_failed)?;
 
-    let volume_construction_request: VolumeConstructionRequest =
-        serde_json::from_str(&disk_volume.data()).map_err(|e| {
-            ActionError::action_failed(Error::internal_error(&format!(
-                "failed to deserialize disk {} volume data: {}",
-                disk.id(),
-                e,
-            )))
-        })?;
-
     call_pantry_attach_for_volume(
         log,
         nexus,
         disk.id(),
-        volume_construction_request,
+        disk_volume.crucible_pantry_volume_construction_request(),
         pantry_address,
     )
     .await

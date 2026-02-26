@@ -500,7 +500,12 @@ async fn rsrss_notify_upstairs(
         .await
         .map_err(ActionError::action_failed)?
     {
-        Some(volume) => volume.data().to_string(),
+        Some(volume) => volume.data().map_err(|e| {
+            ActionError::action_failed(format!(
+                "failed to get volume {} data: {e}",
+                params.request.volume_id()
+            ))
+        })?,
 
         None => {
             return Err(ActionError::action_failed(Error::internal_error(

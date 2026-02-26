@@ -34,7 +34,6 @@ use nexus_db_model::RegionSnapshotReplacementStep;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
 use nexus_db_queries::db::datastore::region_snapshot_replacement::*;
-use nexus_types::identity::Asset;
 use nexus_types::internal_api::background::RegionSnapshotReplacementStepStatus;
 use omicron_common::api::external::Error;
 use serde_json::json;
@@ -302,7 +301,7 @@ impl RegionSnapshotReplacementFindAffected {
                 // If the volume was soft deleted, then skip making a step for
                 // it.
 
-                if volume.time_deleted.is_some() {
+                if volume.time_deleted().is_some() {
                     info!(
                         log,
                         "volume was soft-deleted, skipping creating a step for \

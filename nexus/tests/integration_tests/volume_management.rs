@@ -20,7 +20,6 @@ use nexus_db_lookup::LookupPath;
 use nexus_db_model::CrucibleDataset;
 use nexus_db_model::RegionSnapshotReplacement;
 use nexus_db_model::RegionSnapshotReplacementState;
-use nexus_db_model::Volume;
 use nexus_db_model::VolumeResourceUsage;
 use nexus_db_model::VolumeResourceUsageRecord;
 use nexus_db_model::to_db_typed_uuid;
@@ -36,6 +35,7 @@ use nexus_db_queries::db::datastore::volume::DestVolume;
 use nexus_db_queries::db::datastore::volume::ExistingTarget;
 use nexus_db_queries::db::datastore::volume::ReplacementTarget;
 use nexus_db_queries::db::datastore::volume::SourceVolume;
+use nexus_db_queries::db::datastore::volume::Volume;
 use nexus_db_queries::db::datastore::volume::VolumeReplaceResult;
 use nexus_db_queries::db::datastore::volume::VolumeToDelete;
 use nexus_db_queries::db::datastore::volume::VolumeWithTarget;
@@ -1456,10 +1456,8 @@ async fn test_volume_remove_read_only_parent_base(
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1481,10 +1479,8 @@ async fn test_volume_remove_read_only_parent_base(
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1514,10 +1510,8 @@ async fn test_volume_remove_read_only_parent_base(
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1656,10 +1650,8 @@ async fn test_volume_remove_rop_saga(cptestctx: &ControlPlaneTestContext) {
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1714,10 +1706,8 @@ async fn test_volume_remove_rop_saga_twice(
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1778,8 +1768,13 @@ async fn test_volume_remove_rop_saga_volume_not_volume(
 
     let int_client = cptestctx.internal_client();
 
-    // Call the internal API endpoint for removal of the read only parent
-    int_client.cpapi_volume_remove_read_only_parent(&volume_id).await.unwrap();
+    // Call the internal API endpoint for removal of the read only parent, and
+    // expect that Nexus errors due to the VCR::File variant being invalid
+    int_client
+        .cpapi_volume_remove_read_only_parent(&volume_id)
+        .await
+        .err()
+        .unwrap();
 }
 
 #[nexus_test]
@@ -1817,11 +1812,9 @@ async fn test_volume_remove_rop_saga_deleted_volume(
         )
         .await
         .unwrap();
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(new_vol.data()).unwrap();
 
     // Volume should still have read only parent
-    match vcr {
+    match new_vol.volume_construction_request() {
         VolumeConstructionRequest::Volume {
             id: _,
             block_size: _,
@@ -1869,7 +1862,7 @@ async fn test_volume_checkout(cptestctx: &ControlPlaneTestContext) {
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(1)]);
+    volume_match_gen(new_vol.volume_construction_request(), vec![Some(1)]);
 
     // Request again, we should get 2 now.
     let new_vol = datastore
@@ -1879,7 +1872,7 @@ async fn test_volume_checkout(cptestctx: &ControlPlaneTestContext) {
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(2)]);
+    volume_match_gen(new_vol.volume_construction_request(), vec![Some(2)]);
 }
 
 #[nexus_test]
@@ -1920,7 +1913,8 @@ async fn test_volume_checkout_updates_nothing(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![None]);
+    volume_match_gen(new_vol.volume_construction_request(), vec![None]);
+
     let new_vol = datastore
         .volume_checkout(
             volume_id,
@@ -1928,7 +1922,7 @@ async fn test_volume_checkout_updates_nothing(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![None]);
+    volume_match_gen(new_vol.volume_construction_request(), vec![None]);
 }
 
 #[nexus_test]
@@ -1970,7 +1964,10 @@ async fn test_volume_checkout_updates_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(3), Some(8)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![Some(3), Some(8)],
+    );
 
     // Request again, we should see the incremented values now..
     let new_vol = datastore
@@ -1980,7 +1977,10 @@ async fn test_volume_checkout_updates_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(4), Some(9)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![Some(4), Some(9)],
+    );
 
     // Request one more, because why not.
     let new_vol = datastore
@@ -1990,7 +1990,10 @@ async fn test_volume_checkout_updates_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(5), Some(10)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![Some(5), Some(10)],
+    );
 }
 
 #[nexus_test]
@@ -2038,7 +2041,10 @@ async fn test_volume_checkout_updates_sparse_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![None, Some(7), Some(9)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![None, Some(7), Some(9)],
+    );
 
     // Request again, we should see the incremented values now..
     let new_vol = datastore
@@ -2048,7 +2054,10 @@ async fn test_volume_checkout_updates_sparse_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![None, Some(8), Some(10)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![None, Some(8), Some(10)],
+    );
 }
 
 #[nexus_test]
@@ -2096,7 +2105,10 @@ async fn test_volume_checkout_updates_sparse_mid_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(7), None, Some(9)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![Some(7), None, Some(9)],
+    );
 
     // Request again, we should see the incremented values now..
     let new_vol = datastore
@@ -2106,7 +2118,10 @@ async fn test_volume_checkout_updates_sparse_mid_multiple_gen(
         )
         .await
         .unwrap();
-    volume_match_gen(new_vol, vec![Some(8), None, Some(10)]);
+    volume_match_gen(
+        new_vol.volume_construction_request(),
+        vec![Some(8), None, Some(10)],
+    );
 }
 
 #[nexus_test]
@@ -2633,13 +2648,11 @@ fn create_region(
 // that index in the list of sub_volumes should not be a Region, and therefore
 // will not have a generation number field.
 fn volume_match_gen(
-    volume: nexus_db_model::Volume,
+    vcr: VolumeConstructionRequest,
     expected_gen: Vec<Option<u64>>,
 ) {
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(volume.data()).unwrap();
-
     println!("VCR is: {:?}", vcr);
+
     // Volume should have what we started with.
     match vcr {
         VolumeConstructionRequest::Volume {
@@ -5826,14 +5839,13 @@ async fn test_no_zombie_region_snapshots(cptestctx: &ControlPlaneTestContext) {
             panic!("snapshot {:?} should exist", snapshot.identity.id)
         });
 
-    let snapshot_volume: Volume = datastore
+    let snapshot_volume = datastore
         .volume_get(db_snapshot.volume_id())
         .await
         .expect("volume_get without error")
         .expect("volume exists");
 
-    let snapshot_vcr: VolumeConstructionRequest =
-        serde_json::from_str(snapshot_volume.data()).unwrap();
+    let snapshot_vcr = snapshot_volume.volume_construction_request();
 
     let step_3_volume_id = VolumeUuid::new_v4();
     datastore
@@ -6015,8 +6027,7 @@ async fn test_no_zombie_read_only_regions(cptestctx: &ControlPlaneTestContext) {
         .expect("volume_get without error")
         .expect("volume exists");
 
-    let step_1_vcr: VolumeConstructionRequest =
-        serde_json::from_str(step_1_volume.data()).unwrap();
+    let step_1_vcr = step_1_volume.volume_construction_request();
 
     let step_2_volume_id = VolumeUuid::new_v4();
 
@@ -6200,8 +6211,7 @@ async fn test_no_zombie_read_write_regions(
         .expect("volume_get without error")
         .expect("volume exists");
 
-    let step_1_vcr: VolumeConstructionRequest =
-        serde_json::from_str(step_1_volume.data()).unwrap();
+    let step_1_vcr = step_1_volume.volume_construction_request();
 
     let step_2_volume_id = VolumeUuid::new_v4();
 
@@ -6415,8 +6425,7 @@ async fn test_volume_create_wont_use_deleted_region_snapshots(
     let _cr =
         datastore.soft_delete_volume(db_snapshot.volume_id()).await.unwrap();
 
-    let vcr: VolumeConstructionRequest =
-        serde_json::from_str(volume_copy.data()).unwrap();
+    let vcr = volume_copy.volume_construction_request();
 
     assert!(datastore.volume_create(VolumeUuid::new_v4(), vcr).await.is_err());
 }

@@ -54,9 +54,7 @@ use omicron_uuid_kinds::InstanceUuid;
 use omicron_uuid_kinds::VolumeUuid;
 use omicron_uuid_kinds::ZpoolUuid;
 use sled_agent_client::TestInterfaces as _;
-use sled_agent_client::VolumeConstructionRequest;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use uuid::Uuid;
@@ -3131,68 +3129,20 @@ async fn test_read_only_disk_different_vcr(
         .expect("volume_get without error")
         .expect("volume exists");
 
-    let vcr_1: VolumeConstructionRequest =
-        serde_json::from_str(ro_db_volume_1.data()).expect("valid VCR");
-
     let ro_db_volume_2 = datastore
         .volume_get(ro_db_disk_2.volume_id())
         .await
         .expect("volume_get without error")
         .expect("volume exists");
 
-    let vcr_2: VolumeConstructionRequest =
-        serde_json::from_str(ro_db_volume_2.data()).expect("valid VCR");
-
     // Gather the unique IDs present in the volumes, and ensure there is no
     // overlap.
-    fn gather_ids(ids: &mut HashSet<Uuid>, vcr: &VolumeConstructionRequest) {
-        let mut parts: VecDeque<&VolumeConstructionRequest> = VecDeque::new();
-        parts.push_back(&vcr);
-
-        while let Some(vcr_part) = parts.pop_front() {
-            match vcr_part {
-                VolumeConstructionRequest::Volume {
-                    sub_volumes,
-                    read_only_parent,
-                    ..
-                } => {
-                    // Do not insert the volume's ID as that will not be used
-                    // when constructing upstairs, and this test is specifically
-                    // trying to catch when upstairs IDs are reused.
-
-                    for sub_volume in sub_volumes {
-                        parts.push_back(sub_volume);
-                    }
-
-                    if let Some(read_only_parent) = read_only_parent {
-                        parts.push_back(read_only_parent);
-                    }
-                }
-
-                VolumeConstructionRequest::Region { opts, .. } => {
-                    if !ids.insert(opts.id) {
-                        // Panic if there is ID reuse in different region sets
-                        // in the same VCR
-                        panic!(
-                            "ID {} used in more than one region set!",
-                            opts.id
-                        );
-                    }
-                }
-
-                VolumeConstructionRequest::Url { .. }
-                | VolumeConstructionRequest::File { .. } => {
-                    panic!("should not be constructing these anymore");
-                }
-            }
-        }
-    }
 
     let mut volume_1_ids = HashSet::new();
-    gather_ids(&mut volume_1_ids, &vcr_1);
+    ro_db_volume_1.gather_ids(&mut volume_1_ids);
 
     let mut volume_2_ids = HashSet::new();
-    gather_ids(&mut volume_2_ids, &vcr_2);
+    ro_db_volume_2.gather_ids(&mut volume_2_ids);
 
     assert_eq!(volume_1_ids.intersection(&volume_2_ids).count(), 0);
 }

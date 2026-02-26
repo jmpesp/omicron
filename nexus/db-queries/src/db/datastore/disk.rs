@@ -47,7 +47,6 @@ use nexus_db_errors::OptionalError;
 use nexus_db_errors::public_error_from_diesel;
 use nexus_db_lookup::LookupPath;
 use nexus_types::external_api::disk as disk_types;
-use nexus_types::identity::Asset;
 use omicron_common::api;
 use omicron_common::api::external;
 use omicron_common::api::external::CreateResult;
@@ -1891,8 +1890,6 @@ impl DataStore {
     ) -> Result<db::datastore::Disk, diesel::result::Error> {
         use crate::db::datastore::volume::CrucibleTargets;
         use crate::db::datastore::volume::VolumeCheckoutReason;
-        use crate::db::datastore::volume::read_only_resources_associated_with_volume;
-        use sled_agent_client::VolumeConstructionRequest;
 
         // For idempotency, first check if the disk already exists, and if it
         // does, just return that.
@@ -1905,6 +1902,7 @@ impl DataStore {
                 .await
                 .optional()?
         };
+
         if let Some(disk) = maybe_disk {
             if disk.disk_type != db::model::DiskType::Crucible {
                 // this is *probably* a UUID collision. Seems bad.
@@ -1970,7 +1968,7 @@ impl DataStore {
         };
 
         let sub_err = OptionalError::new();
-        let copy_of_volume = Self::volume_checkout_in_txn(
+        let mut copy_of_volume = Self::volume_checkout_in_txn(
             conn,
             sub_err.clone(),
             volume_id,
@@ -1987,19 +1985,10 @@ impl DataStore {
             }
         })?;
 
-        let copy_of_vcr: VolumeConstructionRequest =
-            serde_json::from_str(copy_of_volume.data()).map_err(|e| {
-                err.bail(Error::InternalError {
-                    internal_message: format!(
-                        "failed to deserialize base volume VCR: {e}"
-                    ),
-                })
-            })?;
-
         // Randomize the IDs in the copied VCR: even read-only downstairs will
         // still be sad if multiple connections share upstairs UUIDs and try to
         // connect.
-        let copy_of_vcr = Self::randomize_ids(&copy_of_vcr).map_err(|e| {
+        copy_of_volume.randomize_ids().map_err(|e| {
             err.bail(Error::InternalError {
                 internal_message: format!("failed to randomize VCR IDs: {e}"),
             })
@@ -2007,20 +1996,29 @@ impl DataStore {
 
         let crucible_targets = {
             let mut crucible_targets = CrucibleTargets::default();
-            read_only_resources_associated_with_volume(
-                &copy_of_vcr,
+            copy_of_volume.read_only_resources_associated_with_volume(
                 &mut crucible_targets,
             );
             crucible_targets
         };
 
+        // XXX not idempotent with random id?
+        let copy_of_volume =
+            copy_of_volume.new_id(VolumeUuid::new_v4()).map_err(|e| {
+                err.bail(Error::InternalError {
+                    internal_message: format!(
+                        "failed to randomize VCR IDs: {e}"
+                    ),
+                })
+            })?;
+
         let sub_err = OptionalError::new();
+
         let read_only_disk_volume =
             Self::volume_create_in_txn(
                 conn,
                 sub_err.clone(),
-                VolumeUuid::new_v4(),
-                copy_of_vcr,
+                copy_of_volume,
                 crucible_targets,
             )
             .await

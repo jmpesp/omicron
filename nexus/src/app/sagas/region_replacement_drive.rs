@@ -1237,7 +1237,9 @@ async fn srrd_drive_region_replacement_execute(
                 .await
                 .map_err(ActionError::action_failed)?
             {
-                Some(volume) => volume.data().to_string(),
+                Some(volume) => volume.data().map_err(|e| {
+                    ActionError::action_failed(format!("volume data fail: {e}"))
+                })?,
 
                 None => {
                     return Err(ActionError::action_failed(
@@ -1450,17 +1452,10 @@ async fn execute_pantry_drive_action(
         .await
         .map_err(ActionError::action_failed)?;
 
-    let volume_construction_request:
-        crucible_pantry_client::types::VolumeConstructionRequest =
-        serde_json::from_str(&disk_volume.data()).map_err(|e| {
-            ActionError::action_failed(Error::internal_error(&format!(
-                "failed to deserialize volume {volume_id} data: {e}",
-            )))
-        })?;
-
     let attach_request =
         crucible_pantry_client::types::AttachBackgroundRequest {
-            volume_construction_request,
+            volume_construction_request: disk_volume
+                .crucible_pantry_volume_construction_request(),
             job_id: job_id.to_string(),
         };
 

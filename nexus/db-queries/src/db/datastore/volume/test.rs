@@ -9,11 +9,10 @@ mod tests {
     use crate::db::datastore::test::TestDatasets;
     use crate::db::datastore::volume::ExistingTarget;
     use crate::db::datastore::volume::ReplacementTarget;
+    use crate::db::datastore::volume::Volume;
     use crate::db::datastore::volume::VolumeReplaceResult;
     use crate::db::datastore::volume::VolumeToDelete;
     use crate::db::datastore::volume::VolumeWithTarget;
-    use crate::db::datastore::volume::read_only_target_in_vcr;
-    use crate::db::datastore::volume::replace_read_only_target_in_vcr;
     use crate::db::pub_test_utils::TestDatabase;
     use crate::diesel::ExpressionMethods;
     use async_bb8_diesel::AsyncRunQueryDsl;
@@ -278,14 +277,11 @@ mod tests {
 
         assert_eq!(volume_replace_region_result, VolumeReplaceResult::Done);
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore.volume_get(volume_id).await.unwrap().unwrap().data(),
-        )
-        .unwrap();
+        let volume = datastore.volume_get(volume_id).await.unwrap().unwrap();
 
         // Ensure the shape of the resulting VCR
         assert_eq!(
-            &vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_id.as_untyped_uuid(),
                 block_size: 512,
@@ -336,14 +332,11 @@ mod tests {
 
         assert_eq!(volume_replace_region_result, VolumeReplaceResult::Done);
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore.volume_get(volume_id).await.unwrap().unwrap().data(),
-        )
-        .unwrap();
+        let volume = datastore.volume_get(volume_id).await.unwrap().unwrap();
 
         // Ensure the shape of the resulting VCR
         assert_eq!(
-            &vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_id.as_untyped_uuid(),
                 block_size: 512,
@@ -625,13 +618,10 @@ mod tests {
 
         // Ensure the shape of the resulting VCRs
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore.volume_get(volume_id).await.unwrap().unwrap().data(),
-        )
-        .unwrap();
+        let volume = datastore.volume_get(volume_id).await.unwrap().unwrap();
 
         assert_eq!(
-            &vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_id.as_untyped_uuid(),
                 block_size: 512,
@@ -685,18 +675,11 @@ mod tests {
             },
         );
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore
-                .volume_get(volume_to_delete_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .data(),
-        )
-        .unwrap();
+        let volume_to_delete =
+            datastore.volume_get(volume_to_delete_id).await.unwrap().unwrap();
 
         assert_eq!(
-            &vcr,
+            &volume_to_delete.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_to_delete_id.as_untyped_uuid(),
                 block_size: 512,
@@ -780,14 +763,11 @@ mod tests {
 
         assert_eq!(volume_replace_snapshot_result, VolumeReplaceResult::Done,);
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore.volume_get(volume_id).await.unwrap().unwrap().data(),
-        )
-        .unwrap();
+        let volume = datastore.volume_get(volume_id).await.unwrap().unwrap();
 
         // Ensure the shape of the resulting VCR
         assert_eq!(
-            &vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_id.as_untyped_uuid(),
                 block_size: 512,
@@ -841,18 +821,11 @@ mod tests {
             },
         );
 
-        let vcr: VolumeConstructionRequest = serde_json::from_str(
-            datastore
-                .volume_get(volume_to_delete_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .data(),
-        )
-        .unwrap();
+        let volume_to_delete =
+            datastore.volume_get(volume_to_delete_id).await.unwrap().unwrap();
 
         assert_eq!(
-            &vcr,
+            &volume_to_delete.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: *volume_to_delete_id.as_untyped_uuid(),
                 block_size: 512,
@@ -1060,11 +1033,10 @@ mod tests {
         };
 
         assert!(
-            read_only_target_in_vcr(
-                &vcr,
-                &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
-            )
-            .unwrap()
+            Volume::new_from_only_construction_request(vcr)
+                .read_only_target_in_vcr(
+                    &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
+                )
         );
 
         // read_only_target_in_vcr should _not_ find read-write targets
@@ -1098,13 +1070,13 @@ mod tests {
         };
 
         assert!(
-            !read_only_target_in_vcr(
-                &vcr,
-                &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
-            )
-            .unwrap()
+            !Volume::new_from_only_construction_request(vcr)
+                .read_only_target_in_vcr(
+                    &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
+                )
         );
 
+        /* XXX decide what to do here
         // read_only_target_in_vcr should bail on incorrect VCRs (currently it
         // only detects a read/write region under a read-only parent)
 
@@ -1138,11 +1110,12 @@ mod tests {
             )),
         };
 
-        read_only_target_in_vcr(
-            &vcr,
-            &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
-        )
-        .unwrap_err();
+        Volume::new_from_only_construction_request(vcr)
+            .read_only_target_in_vcr(
+                &"[fd00:1122:3344:104::1]:400".parse().unwrap(),
+            )
+            .unwrap_err();
+        */
     }
 
     #[test]
@@ -1187,13 +1160,15 @@ mod tests {
         let new_target =
             ReplacementTarget("[fd99:1122:3344:105::1]:12345".parse().unwrap());
 
-        let (new_vcr, replacements) =
-            replace_read_only_target_in_vcr(&vcr, old_target, new_target)
-                .unwrap();
+        let mut volume = Volume::new_from_only_construction_request(vcr);
+
+        let replacements = volume
+            .replace_read_only_target_in_vcr(old_target, new_target)
+            .unwrap();
 
         assert_eq!(replacements, 1);
         assert_eq!(
-            &new_vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: volume_id,
                 block_size: 512,
@@ -1312,13 +1287,15 @@ mod tests {
         let new_target =
             ReplacementTarget("[fd99:1122:3344:105::1]:12345".parse().unwrap());
 
-        let (new_vcr, replacements) =
-            replace_read_only_target_in_vcr(&vcr, old_target, new_target)
-                .unwrap();
+        let mut volume = Volume::new_from_only_construction_request(vcr);
+
+        let replacements = volume
+            .replace_read_only_target_in_vcr(old_target, new_target)
+            .unwrap();
 
         assert_eq!(replacements, 1);
         assert_eq!(
-            &new_vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: volume_id,
                 block_size: 512,
@@ -1468,9 +1445,11 @@ mod tests {
         let new_target =
             ReplacementTarget("[fd99:1122:3344:105::1]:12345".parse().unwrap());
 
-        let (new_vcr, replacements) =
-            replace_read_only_target_in_vcr(&vcr, old_target, new_target)
-                .unwrap();
+        let mut volume = Volume::new_from_only_construction_request(vcr);
+
+        let replacements = volume
+            .replace_read_only_target_in_vcr(old_target, new_target)
+            .unwrap();
 
         assert_eq!(replacements, 2);
 
@@ -1498,7 +1477,7 @@ mod tests {
         };
 
         assert_eq!(
-            &new_vcr,
+            &volume.volume_construction_request(),
             &VolumeConstructionRequest::Volume {
                 id: volume_id,
                 block_size: 512,

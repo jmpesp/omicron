@@ -1217,6 +1217,7 @@ async fn rsrss_update_request_record(
 
 #[cfg(test)]
 pub(crate) mod test {
+    use crate::app::db::datastore::volume::Volume;
     use crate::{
         app::RegionAllocationStrategy, app::db::DataStore,
         app::db::datastore::Disk, app::saga::create_saga_dag,
@@ -1227,7 +1228,6 @@ pub(crate) mod test {
     use nexus_db_model::PhysicalDiskPolicy;
     use nexus_db_model::RegionSnapshotReplacement;
     use nexus_db_model::RegionSnapshotReplacementState;
-    use nexus_db_model::Volume;
     use nexus_db_queries::authn::saga::Serialized;
     use nexus_db_queries::context::OpContext;
     use nexus_test_utils::resource_helpers::DiskTest;
@@ -1238,8 +1238,6 @@ pub(crate) mod test {
     use nexus_test_utils_macros::nexus_test;
     use nexus_types::external_api::snapshot;
     use nexus_types::identity::Asset;
-
-    use sled_agent_client::VolumeConstructionRequest;
 
     type ControlPlaneTestContext =
         nexus_test_utils::ControlPlaneTestContext<crate::Server>;
@@ -1562,13 +1560,12 @@ pub(crate) mod test {
             .unwrap()
             .unwrap();
 
-        let actual: VolumeConstructionRequest =
-            serde_json::from_str(&affected_volume.data()).unwrap();
+        let expected = affected_volume_original.clone();
 
-        let expected: VolumeConstructionRequest =
-            serde_json::from_str(&affected_volume_original.data()).unwrap();
-
-        assert_eq!(actual, expected);
+        assert_eq!(
+            affected_volume.volume_construction_request(),
+            expected.volume_construction_request(),
+        );
     }
 
     #[nexus_test(server = crate::Server)]

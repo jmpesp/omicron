@@ -260,12 +260,12 @@ impl DisksByIdBuilder {
     fn add_crucible_disk(
         &mut self,
         disk: &Disk,
-        volume: &db::model::Volume,
+        volume: &db::datastore::volume::Volume,
     ) -> Result<(), Error> {
         let backend =
             ComponentV0::CrucibleStorageBackend(CrucibleStorageBackend {
                 readonly: disk.is_read_only(),
-                request_json: volume.data().to_owned(),
+                request_json: volume.data()?,
             });
 
         self.add_generic_disk(disk, backend)

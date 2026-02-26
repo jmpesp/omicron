@@ -13,7 +13,7 @@ use crate::app::db::datastore::volume::VolumeCheckoutReason;
 use crate::app::sagas::declare_saga_actions;
 use crate::app::{authn, authz, db};
 use nexus_db_lookup::LookupPath;
-use nexus_db_queries::db::identity::{Asset, Resource};
+use nexus_db_queries::db::identity::Resource;
 use nexus_types::external_api::disk;
 use omicron_common::api::external::DiskState;
 use omicron_common::api::external::Error;
@@ -574,24 +574,9 @@ async fn sdc_regions_ensure(
                     .await
                     .map_err(ActionError::action_failed)?;
 
-                debug!(
-                    log,
-                    "grabbed volume {}, with data {}",
-                    volume.id(),
-                    volume.data()
-                );
-
-                Some(Box::new(serde_json::from_str(volume.data()).map_err(
-                    |e| {
-                        ActionError::action_failed(Error::internal_error(
-                            &format!(
-                                "failed to deserialize volume data: {}",
-                                e,
-                            ),
-                        ))
-                    },
-                )?))
+                Some(Box::new(volume.volume_construction_request()))
             }
+
             disk::DiskSource::Image { image_id, read_only: false } => {
                 debug!(log, "grabbing image {}", image_id);
 
@@ -619,24 +604,9 @@ async fn sdc_regions_ensure(
                     .await
                     .map_err(ActionError::action_failed)?;
 
-                debug!(
-                    log,
-                    "grabbed volume {}, with data {}",
-                    volume.id(),
-                    volume.data()
-                );
-
-                Some(Box::new(serde_json::from_str(volume.data()).map_err(
-                    |e| {
-                        ActionError::action_failed(Error::internal_error(
-                            &format!(
-                                "failed to deserialize volume data: {}",
-                                e,
-                            ),
-                        ))
-                    },
-                )?))
+                Some(Box::new(volume.volume_construction_request()))
             }
+
             disk::DiskSource::ImportingBlocks { block_size: _ } => None,
         };
 

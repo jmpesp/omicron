@@ -24,7 +24,7 @@ Crucible Agent (client: crucible-agent-client)
 Crucible Control (for testing only) (client: crucible-control-client)
 
 Crucible Pantry (client: crucible-pantry-client)
-    consumed by: omicron-nexus (omicron/nexus) via 1 path
+    consumed by: omicron-nexus (omicron/nexus) via 2 paths
 
 Maghemite DDM Admin (client: ddm-admin-client)
     consumed by: installinator (omicron/installinator) via 1 path

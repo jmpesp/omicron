@@ -1022,7 +1022,7 @@ async fn test_racing_replacements_for_soft_deleted_disk_volume(
 
     let volume = datastore.volume_get(db_disk.volume_id()).await.unwrap();
     assert!(volume.is_some());
-    assert!(volume.unwrap().time_deleted.is_some());
+    assert!(volume.unwrap().time_deleted().is_some());
 
     // 4) region snapshot replacement garbage collect will delete the temporary
     //    volume with the stashed reference to the region snapshot, bringing the

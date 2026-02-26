@@ -6996,6 +6996,7 @@ dependencies = [
  "cockroach-admin-types",
  "const_format",
  "criterion",
+ "crucible-pantry-client",
  "db-macros",
  "diesel",
  "diesel-dtrace",

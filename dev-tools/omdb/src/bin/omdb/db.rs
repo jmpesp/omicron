@@ -124,7 +124,6 @@ use nexus_db_queries::db::datastore::LocalStorageDisk;
 use nexus_db_queries::db::datastore::SQL_BATCH_SIZE;
 use nexus_db_queries::db::datastore::volume::CrucibleTargets;
 use nexus_db_queries::db::datastore::volume::VolumeCookedResult;
-use nexus_db_queries::db::datastore::volume::read_only_resources_associated_with_volume;
 use nexus_db_queries::db::identity::Asset;
 use nexus_db_queries::db::model::ServiceKind;
 use nexus_db_queries::db::pagination::Paginator;
@@ -6308,22 +6307,28 @@ async fn cmd_db_validate_volume_references(
         };
 
         // The Crucible Agent will reuse ports for regions and running snapshots
-        // when they're deleted. Check that the matching volume construction requests
-        // reference this snapshot addr as a read-only target.
-        let matching_volumes = matching_volumes
-            .into_iter()
-            .filter(|volume| {
-                let vcr: VolumeConstructionRequest =
-                    serde_json::from_str(&volume.data()).unwrap();
+        // when they're deleted. Check that the matching volume construction
+        // requests reference this snapshot addr as a read-only target.
+        let mut matching_volumes_count = 0;
 
-                let mut targets = CrucibleTargets::default();
-                read_only_resources_associated_with_volume(&vcr, &mut targets);
+        for matching_volume in matching_volumes {
+            let Some(volume) =
+                datastore.volume_get(matching_volume.id()).await.unwrap()
+            else {
+                // deleted between above `get_results_async` and now
+                continue;
+            };
 
-                targets
-                    .read_only_targets
-                    .contains(&region_snapshot.snapshot_addr)
-            })
-            .count();
+            let mut targets = CrucibleTargets::default();
+            volume.read_only_resources_associated_with_volume(&mut targets);
+
+            if targets
+                .read_only_targets
+                .contains(&region_snapshot.snapshot_addr)
+            {
+                matching_volumes_count += 1;
+            }
+        }
 
         let volume_usage_records = datastore
             .volume_usage_records_for_resource(
@@ -6335,7 +6340,7 @@ async fn cmd_db_validate_volume_references(
             )
             .await?;
 
-        if matching_volumes != volume_usage_records.len() {
+        if matching_volumes_count != volume_usage_records.len() {
             rows.push(Row {
                 dataset_id: region_snapshot.dataset_id.into(),
                 region_id: region_snapshot.region_id,
@@ -6343,18 +6348,18 @@ async fn cmd_db_validate_volume_references(
                 error: format!(
                     "record has {} volume usage records when it should be {}!",
                     volume_usage_records.len(),
-                    matching_volumes,
+                    matching_volumes_count,
                 ),
             });
         } else {
             // The volume references are correct, but additionally check to see
-            // deleting is true when matching_volumes is 0. Be careful: in the
-            // snapshot create saga, the region snapshot record is created
+            // deleting is true when matching_volumes_count is 0. Be careful: in
+            // the snapshot create saga, the region snapshot record is created
             // before the snapshot's volume is inserted into the DB. There's a
             // time between these operations that this function would flag that
             // this region snapshot should have `deleting` set to true.
 
-            if matching_volumes == 0 && !region_snapshot.deleting {
+            if matching_volumes_count == 0 && !region_snapshot.deleting {
                 rows.push(Row {
                     dataset_id: region_snapshot.dataset_id.into(),
                     region_id: region_snapshot.region_id,
