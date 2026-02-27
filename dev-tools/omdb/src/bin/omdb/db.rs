@@ -1051,7 +1051,7 @@ enum VolumeCommands {
 #[derive(Debug, Args, Clone)]
 struct VolumeInfoArgs {
     /// The UUID of the volume
-    uuid: Uuid,
+    uuid: VolumeUuid,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -2585,26 +2585,19 @@ async fn get_and_display_vcr(
     datastore: &DataStore,
 ) -> Result<(), anyhow::Error> {
     // Get the VCR from the volume and display selected parts.
-    use nexus_db_schema::schema::volume::dsl as volume_dsl;
-    let volumes = volume_dsl::volume
-        .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_id)))
-        .limit(1)
-        .select(Volume::as_select())
-        .load_async(&*datastore.pool_connection_for_tests().await?)
+
+    let volume = datastore
+        .volume_get(volume_id)
         .await
         .context("loading requested volume")?;
 
-    for v in volumes {
-        match serde_json::from_str(&v.data()) {
-            Ok(vcr) => {
-                println!("VCR from volume ID {volume_id}");
-                print_vcr(vcr, 0);
-            }
-            Err(e) => {
-                println!("Volume had invalid VCR in data field: {e}");
-            }
-        }
+    if let Some(volume) = volume {
+        println!("VCR from volume ID {volume_id}");
+        print_vcr(volume.volume_construction_request(), 0);
+    } else {
+        eprintln!("volume {volume_id} does not exist or was hard-deleted");
     }
+
     Ok(())
 }
 
@@ -3173,6 +3166,7 @@ async fn cmd_db_volume_list(
     let ctx = || "listing volumes".to_string();
 
     use nexus_db_schema::schema::volume::dsl;
+
     let mut query = dsl::volume.into_boxed();
     if !fetch_opts.include_deleted {
         query = query.filter(dsl::time_deleted.is_null());
@@ -3220,37 +3214,24 @@ async fn cmd_db_volume_info(
         deleted: String,
     }
 
-    use nexus_db_schema::schema::volume::dsl as volume_dsl;
-
-    let volumes = volume_dsl::volume
-        .filter(volume_dsl::id.eq(args.uuid))
-        .limit(1)
-        .select(Volume::as_select())
-        .load_async(&*datastore.pool_connection_for_tests().await?)
+    let volume = datastore
+        .volume_get(args.uuid)
         .await
-        .context("loading requested volume")?;
+        .context("loading requested volume")?
+        .expect("volume does not exist or was hard-deleted");
 
-    let mut vcrs = Vec::new();
-    let rows = volumes.into_iter().map(|volume| {
-        match serde_json::from_str(&volume.data()) {
-            Ok(vcr) => {
-                vcrs.push(vcr);
-            }
-            Err(e) => {
-                println!("Volume had invalid VCR in data field: {e}");
-            }
-        }
-
+    let rows = [
         VolumeRow {
             id: volume.id().to_string(),
             created: volume.time_created().to_string(),
             modified: volume.time_modified().to_string(),
-            deleted: match volume.time_deleted {
+            deleted: match volume.time_deleted() {
                 Some(time) => time.to_string(),
                 None => "NULL".to_string(),
             },
         }
-    });
+    ];
+
     let table = tabled::Table::new(rows)
         .with(tabled::settings::Style::empty())
         .with(tabled::settings::Padding::new(0, 1, 0, 0))
@@ -3258,9 +3239,8 @@ async fn cmd_db_volume_info(
 
     println!("{}", table);
 
-    for vcr in vcrs {
-        print_vcr(vcr, 0);
-    }
+    print_vcr(volume.volume_construction_request(), 0);
+
     Ok(())
 }
 
@@ -3556,8 +3536,10 @@ async fn cmd_db_volume_cannot_activate(
 
     let mut paginator =
         Paginator::new(SQL_BATCH_SIZE, dropshot::PaginationOrder::Ascending);
+
     while let Some(p) = paginator.next() {
         use nexus_db_schema::schema::volume::dsl;
+
         let batch = paginated(dsl::volume, dsl::id, &p.current_pagparams())
             .filter(dsl::time_deleted.is_null())
             .select(Volume::as_select())
