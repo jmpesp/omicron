@@ -111,6 +111,14 @@ impl Volume {
         self.model().id()
     }
 
+    pub fn time_created(&self) -> DateTime<Utc> {
+        self.model().time_created()
+    }
+
+    pub fn time_modified(&self) -> DateTime<Utc> {
+        self.model().time_modified()
+    }
+
     pub fn time_deleted(&self) -> Option<DateTime<Utc>> {
         self.model().time_deleted
     }

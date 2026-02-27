@@ -3220,17 +3220,15 @@ async fn cmd_db_volume_info(
         .context("loading requested volume")?
         .expect("volume does not exist or was hard-deleted");
 
-    let rows = [
-        VolumeRow {
-            id: volume.id().to_string(),
-            created: volume.time_created().to_string(),
-            modified: volume.time_modified().to_string(),
-            deleted: match volume.time_deleted() {
-                Some(time) => time.to_string(),
-                None => "NULL".to_string(),
-            },
-        }
-    ];
+    let rows = [VolumeRow {
+        id: volume.id().to_string(),
+        created: volume.time_created().to_string(),
+        modified: volume.time_modified().to_string(),
+        deleted: match volume.time_deleted() {
+            Some(time) => time.to_string(),
+            None => "NULL".to_string(),
+        },
+    }];
 
     let table = tabled::Table::new(rows)
         .with(tabled::settings::Style::empty())

@@ -467,9 +467,6 @@ impl DataStore {
     /// Write new data into the Volume given an ID
     //
     // XXX is accepting an ID wrong here?
-    //
-    // XXX this may be wrong unless we can say also that crucible resources are
-    // serialized and time_deleted is set and all that
     pub(super) async fn volume_update_impl(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<VolumeUpdateError>,
@@ -485,11 +482,9 @@ impl DataStore {
             }
         };
 
-        // XXX richer filtering for not deleted, generation number, etc
-
         let num_updated = diesel::update(dsl::volume)
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-            .set(dsl::data.eq(data))
+            .set((dsl::time_modified.eq(Utc::now()), dsl::data.eq(data)))
             .execute_async(conn)
             .await?;
 
@@ -1623,8 +1618,6 @@ impl DataStore {
             .map_err(|e| err.bail(e.into()))?;
 
         {
-            // XXX make a separate volume_delete_impl function? fold into v
-            // volume_update_impl?
             use nexus_db_schema::schema::volume::dsl;
             let updated_rows = diesel::update(dsl::volume)
                 .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
@@ -2521,6 +2514,71 @@ pub enum VolumeCookedResult {
     TargetNotFound { target: SocketAddrV6 },
 }
 
+/// Return all volumes (even soft-deleted)
+async fn return_all_volumes(
+    conn: &async_bb8_diesel::Connection<DbConnection>,
+    insert_filter: impl Fn(&volume::Volume) -> bool,
+) -> Result<Vec<volume::Volume>, Error> {
+    use nexus_db_schema::schema::volume::dsl;
+
+    let volume_count: i64 = dsl::volume
+        .select(diesel::dsl::count_star())
+        .first_async(conn)
+        .await
+        .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+    let volume_count: usize = volume_count.try_into().map_err(|e| {
+        Error::internal_error(&format!(
+            "{volume_count} does not fit in usize: {e}"
+        ))
+    })?;
+
+    let mut volumes = Vec::with_capacity(volume_count);
+
+    let mut paginator =
+        Paginator::new(SQL_BATCH_SIZE, dropshot::PaginationOrder::Ascending);
+
+    while let Some(p) = paginator.next() {
+        let haystack = paginated(dsl::volume, dsl::id, &p.current_pagparams())
+            .select(dsl::id)
+            .get_results_async::<Uuid>(conn)
+            .await
+            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+
+        paginator = p.found_batch(&haystack, &|r| *r);
+
+        for volume_id in haystack {
+            let err = OptionalError::new();
+
+            let volume_id = VolumeUuid::from_untyped_uuid(volume_id);
+
+            let volume =
+                DataStore::volume_get_impl(conn, err.clone(), volume_id)
+                    .await
+                    .map_err(|e| {
+                        if let Some(e) = err.take() {
+                            Error::internal_error(&format!(
+                                "volume_get_impl returned {e}",
+                            ))
+                        } else {
+                            public_error_from_diesel(e, ErrorHandler::Server)
+                        }
+                    })?;
+
+            let Some(volume) = volume else {
+                // Volume hard deleted between paginated select and now.
+                continue;
+            };
+
+            if insert_filter(&volume) {
+                volumes.push(volume);
+            }
+        }
+    }
+
+    Ok(volumes)
+}
+
 impl DataStore {
     pub async fn find_volumes_referencing_socket_addr(
         &self,
@@ -2528,13 +2586,6 @@ impl DataStore {
         address: SocketAddr,
     ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
-
-        let mut volumes = Vec::new();
-        let mut paginator = Paginator::new(
-            SQL_BATCH_SIZE,
-            dropshot::PaginationOrder::Ascending,
-        );
-        let conn = self.pool_connection_authorized(opctx).await?;
 
         let needle = match address {
             SocketAddr::V4(_) => {
@@ -2546,55 +2597,16 @@ impl DataStore {
             SocketAddr::V6(addr) => addr,
         };
 
-        while let Some(p) = paginator.next() {
-            use nexus_db_schema::schema::volume::dsl;
-
-            let haystack =
-                paginated(dsl::volume, dsl::id, &p.current_pagparams())
-                    .select(model::Volume::as_select())
-                    .get_results_async::<model::Volume>(&*conn)
-                    .await
-                    .map_err(|e| {
-                        public_error_from_diesel(e, ErrorHandler::Server)
-                    })?;
-
-            paginator =
-                p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
-
-            for volume in haystack {
-                let err = OptionalError::new();
-
-                let volume =
-                    Self::volume_get_impl(&conn, err.clone(), volume.id())
-                        .await
-                        .map_err(|e| {
-                            if let Some(e) = err.take() {
-                                Error::internal_error(&format!(
-                                    "volume_get_impl returned {e}",
-                                ))
-                            } else {
-                                public_error_from_diesel(
-                                    e,
-                                    ErrorHandler::Server,
-                                )
-                            }
-                        })?;
-
-                let Some(volume) = volume else {
-                    // Volume hard deleted between paginated select and now.
-                    continue;
-                };
-
+        return_all_volumes(
+            &*self.pool_connection_authorized(opctx).await?,
+            |volume| {
                 let rw_reference = volume.region_in_vcr(&needle);
                 let ro_reference = volume.read_only_target_in_vcr(&needle);
 
-                if rw_reference || ro_reference {
-                    volumes.push(volume);
-                }
-            }
-        }
-
-        Ok(volumes)
+                rw_reference || ro_reference
+            },
+        )
+        .await
     }
 
     pub async fn find_volumes_referencing_ipv6_addr(
@@ -2604,59 +2616,11 @@ impl DataStore {
     ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
-        let mut volumes = Vec::new();
-        let mut paginator = Paginator::new(
-            SQL_BATCH_SIZE,
-            dropshot::PaginationOrder::Ascending,
-        );
-        let conn = self.pool_connection_authorized(opctx).await?;
-
-        while let Some(p) = paginator.next() {
-            use nexus_db_schema::schema::volume::dsl;
-
-            let haystack =
-                paginated(dsl::volume, dsl::id, &p.current_pagparams())
-                    .select(model::Volume::as_select())
-                    .get_results_async::<model::Volume>(&*conn)
-                    .await
-                    .map_err(|e| {
-                        public_error_from_diesel(e, ErrorHandler::Server)
-                    })?;
-
-            paginator =
-                p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
-
-            for volume in haystack {
-                let err = OptionalError::new();
-
-                let volume =
-                    Self::volume_get_impl(&conn, err.clone(), volume.id())
-                        .await
-                        .map_err(|e| {
-                            if let Some(e) = err.take() {
-                                Error::internal_error(&format!(
-                                    "volume_get_impl returned {e}",
-                                ))
-                            } else {
-                                public_error_from_diesel(
-                                    e,
-                                    ErrorHandler::Server,
-                                )
-                            }
-                        })?;
-
-                let Some(volume) = volume else {
-                    // Volume hard deleted between paginated select and now.
-                    continue;
-                };
-
-                if volume.ipv6_addr_referenced_in_vcr(&needle) {
-                    volumes.push(volume);
-                }
-            }
-        }
-
-        Ok(volumes)
+        return_all_volumes(
+            &*self.pool_connection_authorized(opctx).await?,
+            |volume| volume.ipv6_addr_referenced_in_vcr(&needle),
+        )
+        .await
     }
 
     pub async fn find_volumes_referencing_ipv6_net(
@@ -2666,59 +2630,11 @@ impl DataStore {
     ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
-        let mut volumes = Vec::new();
-        let mut paginator = Paginator::new(
-            SQL_BATCH_SIZE,
-            dropshot::PaginationOrder::Ascending,
-        );
-        let conn = self.pool_connection_authorized(opctx).await?;
-
-        while let Some(p) = paginator.next() {
-            use nexus_db_schema::schema::volume::dsl;
-
-            let haystack =
-                paginated(dsl::volume, dsl::id, &p.current_pagparams())
-                    .select(model::Volume::as_select())
-                    .get_results_async::<model::Volume>(&*conn)
-                    .await
-                    .map_err(|e| {
-                        public_error_from_diesel(e, ErrorHandler::Server)
-                    })?;
-
-            paginator =
-                p.found_batch(&haystack, &|r| *r.id().as_untyped_uuid());
-
-            for volume in haystack {
-                let err = OptionalError::new();
-
-                let volume =
-                    Self::volume_get_impl(&conn, err.clone(), volume.id())
-                        .await
-                        .map_err(|e| {
-                            if let Some(e) = err.take() {
-                                Error::internal_error(&format!(
-                                    "volume_get_impl returned {e}",
-                                ))
-                            } else {
-                                public_error_from_diesel(
-                                    e,
-                                    ErrorHandler::Server,
-                                )
-                            }
-                        })?;
-
-                let Some(volume) = volume else {
-                    // Volume hard deleted between paginated select and now.
-                    continue;
-                };
-
-                if volume.ipv6_net_referenced_in_vcr(&needle) {
-                    volumes.push(volume);
-                }
-            }
-        }
-
-        Ok(volumes)
+        return_all_volumes(
+            &*self.pool_connection_authorized(opctx).await?,
+            |volume| volume.ipv6_net_referenced_in_vcr(&needle),
+        )
+        .await
     }
 
     /// Returns Some(bool) depending on if a read-only target exists in a
@@ -2894,44 +2810,17 @@ impl DataStore {
     pub(crate) async fn validate_volume_invariants(
         conn: &async_bb8_diesel::Connection<DbConnection>,
     ) -> Result<(), diesel::result::Error> {
-        let mut paginator = Paginator::new(
-            SQL_BATCH_SIZE,
-            dropshot::PaginationOrder::Ascending,
-        );
+        let volumes =
+            return_all_volumes(conn, |_| true).await.map_err(|e| {
+                // This isn't the best error variant, but this is only used in
+                // tests right now so I'm going with it :)
+                Self::volume_invariant_violated(format!("{e}"))
+            })?;
 
-        while let Some(p) = paginator.next() {
-            use nexus_db_schema::schema::volume::dsl;
-            let haystack =
-                paginated(dsl::volume, dsl::id, &p.current_pagparams())
-                    .select(model::Volume::as_select())
-                    .get_results_async::<model::Volume>(conn)
-                    .await?;
-
-            paginator =
-                p.found_batch(&haystack, &|v| *v.id().as_untyped_uuid());
-
-            for volume in haystack {
-                let err = OptionalError::new();
-
-                let volume =
-                    Self::volume_get_impl(&conn, err.clone(), volume.id())
-                        .await?;
-
-                if let Some(e) = err.take() {
-                    return Err(Self::volume_invariant_violated(format!(
-                        "volume_get_impl returned {e}",
-                    )));
-                }
-
-                let Some(volume) = volume else {
-                    // Volume hard deleted between paginated select and now.
-                    continue;
-                };
-
-                Self::validate_volume_has_all_resources(&conn, &volume).await?;
-                Self::validate_volume_region_sets_have_unique_targets(&volume)
-                    .await?;
-            }
+        for volume in volumes {
+            Self::validate_volume_has_all_resources(&conn, &volume).await?;
+            Self::validate_volume_region_sets_have_unique_targets(&volume)
+                .await?;
         }
 
         let mut paginator = Paginator::new(
