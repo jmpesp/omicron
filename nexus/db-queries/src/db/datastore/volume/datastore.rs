@@ -465,12 +465,9 @@ impl DataStore {
     }
 
     /// Write new data into the Volume given an ID
-    //
-    // XXX is accepting an ID wrong here?
     pub(super) async fn volume_update_impl(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<VolumeUpdateError>,
-        volume_id: VolumeUuid,
         volume: volume::Volume,
     ) -> Result<(), diesel::result::Error> {
         use nexus_db_schema::schema::volume::dsl;
@@ -481,6 +478,8 @@ impl DataStore {
                 return Err(err.bail(VolumeUpdateError::SerdeError(e)));
             }
         };
+
+        let volume_id = volume.id();
 
         let num_updated = diesel::update(dsl::volume)
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
@@ -973,34 +972,29 @@ impl DataStore {
 
             // Update the original volume_id with the new volume.data that has
             // the bumped generation numbers.
-            Self::volume_update_impl(
-                conn,
-                sub_err.clone(),
-                volume_id,
-                orig_volume,
-            )
-            .await
-            .map_err(|e| {
-                if let Some(e) = sub_err.take() {
-                    err.bail(match e {
-                        VolumeUpdateError::SerdeError(e) => {
-                            VolumeGetError::SerdeError(e)
-                        }
+            Self::volume_update_impl(conn, sub_err.clone(), orig_volume)
+                .await
+                .map_err(|e| {
+                    if let Some(e) = sub_err.take() {
+                        err.bail(match e {
+                            VolumeUpdateError::SerdeError(e) => {
+                                VolumeGetError::SerdeError(e)
+                            }
 
-                        // XXX does it make sense to have different variants for
-                        // each Volume operation? yes because different
-                        // operations can produce different errors
-                        VolumeUpdateError::UnexpectedDatabaseUpdate(
-                            actual,
-                            expected,
-                        ) => VolumeGetError::UnexpectedDatabaseUpdate(
-                            actual, expected,
-                        ),
-                    })
-                } else {
-                    e
-                }
-            })?;
+                            // XXX does it make sense to have different variants for
+                            // each Volume operation? yes because different
+                            // operations can produce different errors
+                            VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                actual,
+                                expected,
+                            ) => VolumeGetError::UnexpectedDatabaseUpdate(
+                                actual, expected,
+                            ),
+                        })
+                    } else {
+                        e
+                    }
+                })?;
         }
 
         Ok(volume)
@@ -1766,7 +1760,7 @@ impl DataStore {
             // Update the original volume_id with the new volume.data.
             let sub_err = OptionalError::new();
 
-            Self::volume_update_impl(conn, sub_err.clone(), volume_id, volume)
+            Self::volume_update_impl(conn, sub_err.clone(), volume)
                 .await
                 .map_err(|e| {
                     if let Some(e) = sub_err.take() {
@@ -1794,7 +1788,6 @@ impl DataStore {
             Self::volume_update_impl(
                 conn,
                 sub_err.clone(),
-                temp_volume_id,
                 temp_volume.clone(),
             )
             .await
@@ -2514,26 +2507,14 @@ pub enum VolumeCookedResult {
     TargetNotFound { target: SocketAddrV6 },
 }
 
-/// Return all volumes (even soft-deleted)
+/// Return all volumes (even soft-deleted), filtering based on some provided Fn
 async fn return_all_volumes(
     conn: &async_bb8_diesel::Connection<DbConnection>,
     insert_filter: impl Fn(&volume::Volume) -> bool,
 ) -> Result<Vec<volume::Volume>, Error> {
     use nexus_db_schema::schema::volume::dsl;
 
-    let volume_count: i64 = dsl::volume
-        .select(diesel::dsl::count_star())
-        .first_async(conn)
-        .await
-        .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
-
-    let volume_count: usize = volume_count.try_into().map_err(|e| {
-        Error::internal_error(&format!(
-            "{volume_count} does not fit in usize: {e}"
-        ))
-    })?;
-
-    let mut volumes = Vec::with_capacity(volume_count);
+    let mut volumes = vec![];
 
     let mut paginator =
         Paginator::new(SQL_BATCH_SIZE, dropshot::PaginationOrder::Ascending);

@@ -348,25 +348,20 @@ impl DataStore {
         // Update the existing volume's data
         let sub_err = OptionalError::new();
 
-        Self::volume_update_impl(
-            conn,
-            sub_err.clone(),
-            existing.volume_id,
-            old_volume,
-        )
-        .await
-        .map_err(|e| {
-            err.bail_retryable_or_else(e, |e| {
-                if let Some(e) = sub_err.take() {
-                    ReplaceRegionError::RegionReplacementError(e.into())
-                } else {
-                    ReplaceRegionError::Public(public_error_from_diesel(
-                        e,
-                        ErrorHandler::Server,
-                    ))
-                }
-            })
-        })?;
+        Self::volume_update_impl(conn, sub_err.clone(), old_volume)
+            .await
+            .map_err(|e| {
+                err.bail_retryable_or_else(e, |e| {
+                    if let Some(e) = sub_err.take() {
+                        ReplaceRegionError::RegionReplacementError(e.into())
+                    } else {
+                        ReplaceRegionError::Public(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ))
+                    }
+                })
+            })?;
 
         // After region replacement, validate invariants for all volumes
         #[cfg(any(test, feature = "testing"))]
@@ -503,25 +498,20 @@ impl DataStore {
         // Update the existing volume's data
         let sub_err = OptionalError::new();
 
-        Self::volume_update_impl(
-            conn,
-            sub_err.clone(),
-            volume_id.0,
-            old_volume,
-        )
-        .await
-        .map_err(|e| {
-            err.bail_retryable_or_else(e, |e| {
-                if let Some(e) = sub_err.take() {
-                    ReplaceSnapshotError::SnapshotReplacementError(e.into())
-                } else {
-                    ReplaceSnapshotError::Public(public_error_from_diesel(
-                        e,
-                        ErrorHandler::Server,
-                    ))
-                }
-            })
-        })?;
+        Self::volume_update_impl(conn, sub_err.clone(), old_volume)
+            .await
+            .map_err(|e| {
+                err.bail_retryable_or_else(e, |e| {
+                    if let Some(e) = sub_err.take() {
+                        ReplaceSnapshotError::SnapshotReplacementError(e.into())
+                    } else {
+                        ReplaceSnapshotError::Public(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ))
+                    }
+                })
+            })?;
 
         // Make a new VCR that will stash the target to delete. The values here
         // don't matter, just that it gets fed into the volume_delete machinery
