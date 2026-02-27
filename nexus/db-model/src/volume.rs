@@ -23,6 +23,15 @@ pub struct Volume {
     data: String,
 
     pub resources_to_clean_up: Option<String>,
+
+    /// The version of the higher level Volume enum serialized into the data
+    /// column
+    version: Generation,
+
+    /// Generation number for optimistic concurrency when updating the
+    /// serialized Volume enum
+    #[diesel(column_name = "gen")]
+    generation: Generation,
 }
 
 impl Volume {
@@ -33,7 +42,13 @@ impl Volume {
             rcgen: Generation::new(),
             data,
             resources_to_clean_up: None,
+            version: Generation::new(),
+            generation: Generation::new(),
         }
+    }
+
+    pub fn generation(&self) -> i64 {
+        (&self.generation.0).into()
     }
 
     pub fn data(&self) -> &str {

@@ -85,24 +85,24 @@ pub enum VolumeCheckoutReason {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum VolumeGetError {
-    #[error("Serde error during volume_checkout: {0}")]
+pub enum VolumeCheckoutError {
+    #[error("serde error during volume checkout: {0}")]
     SerdeError(#[from] serde_json::Error),
 
-    #[error("Updated {0} database rows, expected {1}")]
-    UnexpectedDatabaseUpdate(usize, usize),
+    #[error("update error during volume checkout: {0}")]
+    Update(VolumeUpdateError),
 
     #[error("Checkout condition failed: {0}")]
     CheckoutConditionFailed(String),
 
-    #[error("Invalid Volume: {0}")]
-    InvalidVolume(String),
+    #[error("Volume {0} hard-deleted")]
+    VolumeHardDeleted(VolumeUuid),
 }
 
-impl From<VolumeGetError> for Error {
-    fn from(err: VolumeGetError) -> Self {
+impl From<VolumeCheckoutError> for Error {
+    fn from(err: VolumeCheckoutError) -> Self {
         match err {
-            VolumeGetError::CheckoutConditionFailed(message) => {
+            VolumeCheckoutError::CheckoutConditionFailed(message) => {
                 Self::conflict(message)
             }
 
@@ -204,6 +204,9 @@ pub enum VolumeUpdateError {
 
     #[error("Updated {0} database rows, expected {1}")]
     UnexpectedDatabaseUpdate(usize, usize),
+
+    #[error("Volume's generation number has already been updated")]
+    GenerationAlreadyUpdated,
 }
 
 impl DataStore {
@@ -464,13 +467,31 @@ impl DataStore {
         )
     }
 
-    /// Write new data into the Volume given an ID
+    /// Write new data into the Volume given an ID as long as the Volume hasn't
+    /// been updated by something else.
     pub(super) async fn volume_update_impl(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<VolumeUpdateError>,
-        volume: volume::Volume,
+        volume: volume::Volume, // XXX list of volumes to update
+        // XXX list of volume resource usage record operations to perform in txn
+        // XXX or not?
     ) -> Result<(), diesel::result::Error> {
         use nexus_db_schema::schema::volume::dsl;
+
+        let volume_id = volume.id();
+
+        let db_model = dsl::volume
+            .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
+            .select(model::Volume::as_select())
+            .first_async(conn)
+            .await?;
+
+        // Check if the generation number has been updated by another change to
+        // the Volume. If it has, then the higher level caller has to perform
+        // the change again (and check that the Volume wasn't soft-deleted!)
+        if db_model.generation() != (volume.generation() + 1) {
+            return Err(err.bail(VolumeUpdateError::GenerationAlreadyUpdated));
+        }
 
         let data = match volume.data() {
             Ok(data) => data,
@@ -479,11 +500,17 @@ impl DataStore {
             }
         };
 
-        let volume_id = volume.id();
-
+        // XXX filter on time_deleted being null, or is that taken care of by
+        // generation check? because soft_delete will update generation number
+        // too
         let num_updated = diesel::update(dsl::volume)
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-            .set((dsl::time_modified.eq(Utc::now()), dsl::data.eq(data)))
+            .filter(dsl::r#gen.eq(volume.generation()))
+            .set((
+                dsl::time_modified.eq(Utc::now()),
+                dsl::r#gen.eq(volume.generation() + 1),
+                dsl::data.eq(data),
+            ))
             .execute_async(conn)
             .await?;
 
@@ -625,7 +652,7 @@ impl DataStore {
         volume: &volume::Volume,
         maybe_disk: Option<Disk>,
         maybe_instance: Option<Instance>,
-    ) -> Result<(), VolumeGetError> {
+    ) -> Result<(), VolumeCheckoutError> {
         match reason {
             VolumeCheckoutReason::ReadOnlyCopy => {
                 // When checking out to make a copy (usually for use as a
@@ -636,7 +663,7 @@ impl DataStore {
                 // Upstairs.
 
                 if !volume.read_only() {
-                    return Err(VolumeGetError::CheckoutConditionFailed(
+                    return Err(VolumeCheckoutError::CheckoutConditionFailed(
                         String::from(
                             "Non-read-only Volume Checkout for use Copy!",
                         ),
@@ -664,7 +691,7 @@ impl DataStore {
                 // propolis_id.
 
                 let Some(instance) = &maybe_instance else {
-                    return Err(VolumeGetError::CheckoutConditionFailed(
+                    return Err(VolumeCheckoutError::CheckoutConditionFailed(
                         format!(
                             "InstanceStart {}: instance does not exist",
                             vmm_id
@@ -675,7 +702,7 @@ impl DataStore {
                 let runtime = instance.runtime();
                 match (runtime.propolis_id, runtime.dst_propolis_id) {
                     (Some(_), Some(_)) => {
-                        Err(VolumeGetError::CheckoutConditionFailed(format!(
+                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} is undergoing \
                                 migration",
                             vmm_id,
@@ -684,7 +711,7 @@ impl DataStore {
                     }
 
                     (None, None) => {
-                        Err(VolumeGetError::CheckoutConditionFailed(format!(
+                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} has no \
                                 propolis ids",
                             vmm_id,
@@ -695,7 +722,7 @@ impl DataStore {
                     (Some(propolis_id), None) => {
                         if propolis_id != vmm_id.into_untyped_uuid() {
                             return Err(
-                                VolumeGetError::CheckoutConditionFailed(
+                                VolumeCheckoutError::CheckoutConditionFailed(
                                     format!(
                                         "InstanceStart {}: instance {} propolis \
                                     id {} mismatch",
@@ -711,7 +738,7 @@ impl DataStore {
                     }
 
                     (None, Some(dst_propolis_id)) => {
-                        Err(VolumeGetError::CheckoutConditionFailed(format!(
+                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} has no \
                                 propolis id but dst propolis id {}",
                             vmm_id,
@@ -728,7 +755,7 @@ impl DataStore {
                 // VMM.
 
                 let Some(instance) = &maybe_instance else {
-                    return Err(VolumeGetError::CheckoutConditionFailed(
+                    return Err(VolumeCheckoutError::CheckoutConditionFailed(
                         format!(
                             "InstanceMigrate {} {}: instance does not exist",
                             vmm_id, target_vmm_id
@@ -744,7 +771,7 @@ impl DataStore {
                                 != target_vmm_id.into_untyped_uuid()
                         {
                             return Err(
-                                VolumeGetError::CheckoutConditionFailed(
+                                VolumeCheckoutError::CheckoutConditionFailed(
                                     format!(
                                         "InstanceMigrate {} {}: instance {} \
                                     propolis id mismatches {} {}",
@@ -762,7 +789,7 @@ impl DataStore {
                     }
 
                     (None, None) => {
-                        Err(VolumeGetError::CheckoutConditionFailed(format!(
+                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceMigrate {} {}: instance {} has no \
                                 propolis ids",
                             vmm_id,
@@ -775,7 +802,7 @@ impl DataStore {
                         // XXX is this right?
                         if propolis_id != vmm_id.into_untyped_uuid() {
                             return Err(
-                                VolumeGetError::CheckoutConditionFailed(
+                                VolumeCheckoutError::CheckoutConditionFailed(
                                     format!(
                                         "InstanceMigrate {} {}: instance {} \
                                     propolis id {} mismatch",
@@ -792,7 +819,7 @@ impl DataStore {
                     }
 
                     (None, Some(dst_propolis_id)) => {
-                        Err(VolumeGetError::CheckoutConditionFailed(format!(
+                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceMigrate {} {}: instance {} has no \
                                 propolis id but dst propolis id {}",
                             vmm_id,
@@ -833,7 +860,7 @@ impl DataStore {
                     // attached to, doesn't exist?
                     //
                     // XXX this is a Nexus bug!
-                    return Err(VolumeGetError::CheckoutConditionFailed(
+                    return Err(VolumeCheckoutError::CheckoutConditionFailed(
                         format!(
                             "Pantry: instance {} backing disk {} does not \
                             exist?",
@@ -848,7 +875,7 @@ impl DataStore {
                     // attached to, exists and has an active propolis ID.  A
                     // propolis _may_ exist, so bail here - an activation from
                     // the Pantry is not allowed to take over from a Propolis.
-                    Err(VolumeGetError::CheckoutConditionFailed(format!(
+                    Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
                         "Pantry: possible Propolis {}",
                         propolis_id
                     )))
@@ -864,7 +891,7 @@ impl DataStore {
 
     pub async fn volume_checkout_in_txn(
         conn: &async_bb8_diesel::Connection<DbConnection>,
-        err: OptionalError<VolumeGetError>,
+        err: OptionalError<VolumeCheckoutError>,
         volume_id: VolumeUuid,
         reason: VolumeCheckoutReason,
     ) -> Result<volume::Volume, diesel::result::Error> {
@@ -878,7 +905,9 @@ impl DataStore {
                     Ok(maybe_volume) => maybe_volume,
                     Err(e) => {
                         if let Some(e) = sub_err.take() {
-                            return Err(err.bail(VolumeGetError::SerdeError(e)));
+                            return Err(
+                                err.bail(VolumeCheckoutError::SerdeError(e))
+                            );
                         }
 
                         return Err(e);
@@ -886,10 +915,9 @@ impl DataStore {
                 };
 
             let Some(volume) = maybe_volume else {
-                // XXX specific variant for hard deleted?
-                return Err(err.bail(VolumeGetError::InvalidVolume(
-                    String::from("hard deleted"),
-                )));
+                return Err(
+                    err.bail(VolumeCheckoutError::VolumeHardDeleted(volume_id))
+                );
             };
 
             volume
@@ -976,21 +1004,7 @@ impl DataStore {
                 .await
                 .map_err(|e| {
                     if let Some(e) = sub_err.take() {
-                        err.bail(match e {
-                            VolumeUpdateError::SerdeError(e) => {
-                                VolumeGetError::SerdeError(e)
-                            }
-
-                            // XXX does it make sense to have different variants for
-                            // each Volume operation? yes because different
-                            // operations can produce different errors
-                            VolumeUpdateError::UnexpectedDatabaseUpdate(
-                                actual,
-                                expected,
-                            ) => VolumeGetError::UnexpectedDatabaseUpdate(
-                                actual, expected,
-                            ),
-                        })
+                        err.bail(VolumeCheckoutError::Update(e))
                     } else {
                         e
                     }
@@ -1613,6 +1627,18 @@ impl DataStore {
 
         {
             use nexus_db_schema::schema::volume::dsl;
+
+            // Has the generation number changed? XXX do we need to check this
+            // if soft-delete operates in a txn? what if we only make a few
+            // things opportunistically concurrent?
+            /*
+            let db_model = dsl::volume
+                .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
+                .select(model::Volume::as_select())
+                .first_async(conn)
+                .await?;
+            */
+
             let updated_rows = diesel::update(dsl::volume)
                 .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
                 .set((

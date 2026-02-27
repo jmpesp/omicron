@@ -1306,6 +1306,9 @@ table! {
          * clean up will be written here, along with setting time_deleted.
          */
         resources_to_clean_up -> Nullable<Text>,
+
+        version -> Int8,
+        r#gen -> Int8,
     }
 }
 

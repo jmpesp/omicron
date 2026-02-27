@@ -838,7 +838,19 @@ CREATE TABLE IF NOT EXISTS omicron.public.volume (
      * volume. The Rust type of this column should be the CrucibleResources
      * enum.
      */
-    resources_to_clean_up TEXT
+    resources_to_clean_up TEXT,
+
+    /*
+     * The version of the higher level datastore Volume enum corresponding to
+     * the JSON document serialized into the data column.
+     */
+    version INT NOT NULL,
+
+    /*
+     * A generation number for optimistic concurrency when updating the
+     * serialized Volume enum
+     */
+    gen INT NOT NULL,
 );
 
 /* Quickly find deleted volumes */

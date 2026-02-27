@@ -36,8 +36,6 @@ pub enum Volume {
 pub struct VolumeV1 {
     db_model: model::Volume,
     // XXX state: requires randomization?
-    // XXX generation
-    // XXX source volume, to validate that it wasn't deleted
     volume_construction_request: VolumeConstructionRequest,
 }
 
@@ -127,6 +125,10 @@ impl Volume {
         self.model().resources_to_clean_up.as_deref()
     }
 
+    pub fn generation(&self) -> i64 {
+        self.model().generation()
+    }
+
     /// Returns true if the sub-volumes of a Volume are all read-only
     pub fn read_only(&self) -> bool {
         match self {
@@ -157,6 +159,7 @@ impl Volume {
 
     // XXX comment about returns true when volume update required
     // XXX consume self?
+    // XXX clearly state this is about the VCR gen numbers, not the model
     pub fn bump_generation_numbers(&mut self) -> bool {
         match self {
             Volume::V1(volume) => volume.bump_generation_numbers(),
