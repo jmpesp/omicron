@@ -167,8 +167,8 @@ enum RemoveRopError {
     #[error("Serde error removing read-only parent: {0}")]
     SerdeError(#[from] serde_json::Error),
 
-    #[error("Updated {0} database rows, expected {1}")]
-    UnexpectedDatabaseUpdate(usize, usize),
+    #[error("Error from underlying update: {0}")]
+    Update(#[from] VolumeUpdateError),
 
     #[error("Address parsing error during ROP removal: {0}")]
     AddressParseError(#[from] AddrParseError),
@@ -205,8 +205,11 @@ pub enum VolumeUpdateError {
     #[error("Updated {0} database rows, expected {1}")]
     UnexpectedDatabaseUpdate(usize, usize),
 
-    #[error("Volume's generation number has already been updated")]
-    GenerationAlreadyUpdated,
+    #[error("Volume {0} generation number has already been updated")]
+    GenerationAlreadyUpdated(VolumeUuid),
+
+    #[error("Volume {0} deleted")]
+    Deleted(VolumeUuid),
 }
 
 impl DataStore {
@@ -472,9 +475,7 @@ impl DataStore {
     pub(super) async fn volume_update_impl(
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<VolumeUpdateError>,
-        volume: volume::Volume, // XXX list of volumes to update
-        // XXX list of volume resource usage record operations to perform in txn
-        // XXX or not?
+        volume: volume::Volume,
     ) -> Result<(), diesel::result::Error> {
         use nexus_db_schema::schema::volume::dsl;
 
@@ -486,11 +487,16 @@ impl DataStore {
             .first_async(conn)
             .await?;
 
+        if db_model.time_deleted.is_some() {
+            return Err(err.bail(VolumeUpdateError::Deleted(volume_id)));
+        }
+
         // Check if the generation number has been updated by another change to
         // the Volume. If it has, then the higher level caller has to perform
         // the change again (and check that the Volume wasn't soft-deleted!)
         if db_model.generation() != (volume.generation() + 1) {
-            return Err(err.bail(VolumeUpdateError::GenerationAlreadyUpdated));
+            return Err(err
+                .bail(VolumeUpdateError::GenerationAlreadyUpdated(volume_id)));
         }
 
         let data = match volume.data() {
@@ -500,9 +506,6 @@ impl DataStore {
             }
         };
 
-        // XXX filter on time_deleted being null, or is that taken care of by
-        // generation check? because soft_delete will update generation number
-        // too
         let num_updated = diesel::update(dsl::volume)
             .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
             .filter(dsl::r#gen.eq(volume.generation()))
@@ -701,23 +704,23 @@ impl DataStore {
 
                 let runtime = instance.runtime();
                 match (runtime.propolis_id, runtime.dst_propolis_id) {
-                    (Some(_), Some(_)) => {
-                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
+                    (Some(_), Some(_)) => Err(
+                        VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} is undergoing \
                                 migration",
                             vmm_id,
                             instance.id(),
-                        )))
-                    }
+                        )),
+                    ),
 
-                    (None, None) => {
-                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
+                    (None, None) => Err(
+                        VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} has no \
                                 propolis ids",
                             vmm_id,
                             instance.id(),
-                        )))
-                    }
+                        )),
+                    ),
 
                     (Some(propolis_id), None) => {
                         if propolis_id != vmm_id.into_untyped_uuid() {
@@ -737,15 +740,15 @@ impl DataStore {
                         Ok(())
                     }
 
-                    (None, Some(dst_propolis_id)) => {
-                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
+                    (None, Some(dst_propolis_id)) => Err(
+                        VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceStart {}: instance {} has no \
                                 propolis id but dst propolis id {}",
                             vmm_id,
                             instance.id(),
                             dst_propolis_id,
-                        )))
-                    }
+                        )),
+                    ),
                 }
             }
 
@@ -788,15 +791,15 @@ impl DataStore {
                         Ok(())
                     }
 
-                    (None, None) => {
-                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
+                    (None, None) => Err(
+                        VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceMigrate {} {}: instance {} has no \
                                 propolis ids",
                             vmm_id,
                             target_vmm_id,
                             instance.id(),
-                        )))
-                    }
+                        )),
+                    ),
 
                     (Some(propolis_id), None) => {
                         // XXX is this right?
@@ -818,16 +821,16 @@ impl DataStore {
                         Ok(())
                     }
 
-                    (None, Some(dst_propolis_id)) => {
-                        Err(VolumeCheckoutError::CheckoutConditionFailed(format!(
+                    (None, Some(dst_propolis_id)) => Err(
+                        VolumeCheckoutError::CheckoutConditionFailed(format!(
                             "InstanceMigrate {} {}: instance {} has no \
                                 propolis id but dst propolis id {}",
                             vmm_id,
                             target_vmm_id,
                             instance.id(),
                             dst_propolis_id,
-                        )))
-                    }
+                        )),
+                    ),
                 }
             }
 
@@ -1692,14 +1695,19 @@ impl DataStore {
             })
     }
 
-    async fn volume_remove_rop_in_txn(
+    async fn volume_remove_rop_impl(
+        &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<RemoveRopError>,
         volume_id: VolumeUuid,
         temp_volume_id: VolumeUuid,
     ) -> Result<bool, diesel::result::Error> {
-        // Grab the volume in question. If the volume record was already deleted
-        // then we can just return.
+        // Grab the volumes in question. If either volume record was already
+        // deleted then we can just return. It isn't necessary to do this in a
+        // transaction: if another query writes a new generation of volume then
+        // there will be a VolumeUpdateError that should cause the caller of
+        // this function to retry.
+
         let mut volume = {
             let sub_err = OptionalError::new();
 
@@ -1773,8 +1781,8 @@ impl DataStore {
             }
         };
 
-        // If a read_only_parent exists, remove it from volume, and attach it
-        // to temp_volume.
+        // If a read_only_parent exists, remove it from volume, and attach it to
+        // temp_volume.
 
         let move_occurred = volume.move_rop(&mut temp_volume).map_err(|e| {
             err.bail(RemoveRopError::Public(Error::invalid_request(
@@ -1783,170 +1791,226 @@ impl DataStore {
         })?;
 
         if move_occurred {
-            // Update the original volume_id with the new volume.data.
+            // In this single transaction, update both volume records, and
+            // update the volume resource usage records to account for the swap.
             let sub_err = OptionalError::new();
 
-            Self::volume_update_impl(conn, sub_err.clone(), volume)
+            self.transaction_retry_wrapper("volume_remove_rop")
+                .transaction(&conn, |conn| {
+                    let sub_err = sub_err.clone();
+                    let volume = volume.clone();
+                    let temp_volume = temp_volume.clone();
+
+                    async move {
+                        Self::volume_remove_rop_in_txn(
+                            &conn,
+                            sub_err,
+                            volume,
+                            temp_volume,
+                        )
+                        .await
+                    }
+                })
                 .await
                 .map_err(|e| {
-                    if let Some(e) = sub_err.take() {
-                        err.bail(match e {
-                            VolumeUpdateError::SerdeError(e) => {
-                                RemoveRopError::SerdeError(e)
-                            }
+                    if let Some(e) = sub_err.take() { err.bail(e) } else { e }
+                })
+        } else {
+            // Move already occurred XXX richer enum?
+            Ok(false)
+        }
+    }
 
-                            VolumeUpdateError::UnexpectedDatabaseUpdate(
-                                actual,
-                                expected,
-                            ) => RemoveRopError::UnexpectedDatabaseUpdate(
-                                actual, expected,
-                            ),
-                        })
-                    } else {
-                        e
-                    }
-                })?;
+    /// Perform the Volume update required to move a read-only parent from
+    /// volume to temp_volume.
+    async fn volume_remove_rop_in_txn(
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<RemoveRopError>,
+        volume: volume::Volume,
+        temp_volume: volume::Volume,
+    ) -> Result<bool, diesel::result::Error> {
+        let volume_id = volume.id();
+        let temp_volume_id = temp_volume.id();
 
-            let sub_err = OptionalError::new();
+        // Update the original volume_id with the new volume.data.
+        let sub_err = OptionalError::new();
 
-            // Update the temp_volume_id with the volume data that
-            // contains the read_only_parent.
-            Self::volume_update_impl(
-                conn,
-                sub_err.clone(),
-                temp_volume.clone(),
-            )
+        Self::volume_update_impl(conn, sub_err.clone(), volume).await.map_err(
+            |e| {
+                if let Some(e) = sub_err.take() {
+                    err.bail(RemoveRopError::Update(e))
+                } else {
+                    e
+                }
+            },
+        )?;
+
+        let sub_err = OptionalError::new();
+
+        // Update the temp_volume_id with the volume data that contains the
+        // read_only_parent.
+        Self::volume_update_impl(conn, sub_err.clone(), temp_volume.clone())
             .await
             .map_err(|e| {
                 if let Some(e) = sub_err.take() {
-                    err.bail(match e {
-                        VolumeUpdateError::SerdeError(e) => {
-                            RemoveRopError::SerdeError(e)
-                        }
-
-                        VolumeUpdateError::UnexpectedDatabaseUpdate(
-                            actual,
-                            expected,
-                        ) => RemoveRopError::UnexpectedDatabaseUpdate(
-                            actual, expected,
-                        ),
-                    })
+                    err.bail(RemoveRopError::Update(e))
                 } else {
                     e
                 }
             })?;
 
-            // Update the volume resource usage record for every
-            // read-only resource in the ROP
-            let crucible_targets = {
-                let mut crucible_targets = CrucibleTargets::default();
-                temp_volume.read_only_resources_associated_with_volume(
-                    &mut crucible_targets,
-                );
-                crucible_targets
+        // Update the volume resource usage record for every read-only resource
+        // in the ROP
+        let crucible_targets = {
+            let mut crucible_targets = CrucibleTargets::default();
+            temp_volume.read_only_resources_associated_with_volume(
+                &mut crucible_targets,
+            );
+            crucible_targets
+        };
+
+        for read_only_target in crucible_targets.read_only_targets {
+            let read_only_target = read_only_target
+                .parse()
+                .map_err(|e| err.bail(RemoveRopError::AddressParseError(e)))?;
+
+            let maybe_usage = Self::read_only_target_to_volume_resource_usage(
+                conn,
+                &read_only_target,
+            )
+            .await?;
+
+            let Some(usage) = maybe_usage else {
+                return Err(err.bail(RemoveRopError::CouldNotFindResource(
+                    format!(
+                        "could not find resource for \
+                        {read_only_target}"
+                    ),
+                )));
             };
 
-            for read_only_target in crucible_targets.read_only_targets {
-                let read_only_target =
-                    read_only_target.parse().map_err(|e| {
-                        err.bail(RemoveRopError::AddressParseError(e))
-                    })?;
-
-                let maybe_usage =
-                    Self::read_only_target_to_volume_resource_usage(
-                        conn,
-                        &read_only_target,
-                    )
-                    .await?;
-
-                let Some(usage) = maybe_usage else {
-                    return Err(err.bail(
-                        RemoveRopError::CouldNotFindResource(format!(
-                            "could not find resource for \
-                            {read_only_target}"
-                        )),
-                    ));
-                };
-
-                Self::swap_volume_usage_records_for_resources(
-                    conn,
-                    usage,
-                    volume_id,
-                    temp_volume_id,
-                )
-                .await
-                .map_err(|e| {
-                    err.bail_retryable_or_else(e, |e| {
-                        RemoveRopError::Public(public_error_from_diesel(
-                            e,
-                            ErrorHandler::Server,
-                        ))
-                    })
-                })?;
-            }
-
-            // After read-only parent removal, validate invariants for
-            // all volumes
-            #[cfg(any(test, feature = "testing"))]
-            Self::validate_volume_invariants(conn).await?;
-
-            Ok(true)
-        } else {
-            // Move already occurred XXX richer enum
-            Ok(false)
+            Self::swap_volume_usage_records_for_resources(
+                conn,
+                usage,
+                volume_id,
+                temp_volume_id,
+            )
+            .await
+            .map_err(|e| {
+                err.bail_retryable_or_else(e, |e| {
+                    RemoveRopError::Public(public_error_from_diesel(
+                        e,
+                        ErrorHandler::Server,
+                    ))
+                })
+            })?;
         }
+
+        // After read-only parent removal, validate invariants for
+        // all volumes
+        #[cfg(any(test, feature = "testing"))]
+        Self::validate_volume_invariants(conn).await?;
+
+        Ok(true)
     }
 
-    // Here we remove the read only parent from volume_id, and attach it
-    // to temp_volume_id.
-    //
-    // As this is part of a saga, it will be able to handle being replayed
-    // If we call this twice, any work done the first time through should
-    // not happen again, or be undone.
+    /// Here we remove the read only parent from volume_id, and attach it to
+    /// temp_volume_id.
+    ///
+    /// As this is part of a saga, it will be able to handle being replayed if
+    /// we call this twice, any work done the first time through should not
+    /// happen again, or be undone.
     pub async fn volume_remove_rop(
         &self,
         volume_id: VolumeUuid,
         temp_volume_id: VolumeUuid,
     ) -> Result<bool, Error> {
-        // In this single transaction:
-        // - Get the given volume from the volume_id from the database
-        // - Extract the volume.data into a VolumeConstructionRequest (VCR)
-        // - Create a new VCR, copying over anything from the original VCR,
-        //   but, replacing the read_only_parent with None.
-        // - Put the new VCR into volume.data, then update the volume in the
-        //   database.
-        // - Get the given volume from temp_volume_id from the database
-        // - Extract the temp volume.data into a VCR
-        // - Create a new VCR, copying over anything from the original VCR,
-        //   but, replacing the read_only_parent with the read_only_parent
-        //   data from original volume_id.
-        // - Put the new temp VCR into the temp volume.data, update the
-        //   temp_volume in the database.
-        let err = OptionalError::new();
+        // Use the same conn object for each retry
         let conn = self.pool_connection_unauthorized().await?;
-        self.transaction_retry_wrapper("volume_remove_rop")
-            .transaction(&conn, |conn| {
-                let err = err.clone();
-                async move {
-                    Self::volume_remove_rop_in_txn(
-                        &conn,
-                        err,
-                        volume_id,
-                        temp_volume_id,
-                    )
-                    .await
+
+        // Try several times to perform this operation
+        for _ in 0..4 {
+            let err = OptionalError::new();
+            match self
+                .volume_remove_rop_impl(
+                    &conn,
+                    err.clone(),
+                    volume_id,
+                    temp_volume_id,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+
+                Err(e) => {
+                    if let Some(e) = err.take() {
+                        match e {
+                            RemoveRopError::Public(e) => {
+                                return Err(e);
+                            }
+
+                            RemoveRopError::SerdeError(e) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+
+                            RemoveRopError::Update(e) => match e {
+                                VolumeUpdateError::SerdeError(e) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}",),
+                                    ));
+                                }
+
+                                VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                    _,
+                                    _,
+                                ) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}",),
+                                    ));
+                                }
+
+                                VolumeUpdateError::GenerationAlreadyUpdated(
+                                    _volume_id,
+                                ) => {
+                                    // XXX warn!
+                                    continue;
+                                }
+
+                                VolumeUpdateError::Deleted(volume_id) => {
+                                    return Err(Error::conflict(&format!(
+                                        "volume {volume_id} deleted"
+                                    )));
+                                }
+                            },
+
+                            RemoveRopError::AddressParseError(e) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+
+                            RemoveRopError::CouldNotFindResource(e) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+                        }
+                    } else {
+                        return Err(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ));
+                    }
                 }
-            })
-            .await
-            .map_err(|e| {
-                if let Some(err) = err.take() {
-                    return Error::internal_error(&format!(
-                        "Transaction error: {}",
-                        err
-                    ));
-                }
-                public_error_from_diesel(e, ErrorHandler::Server)
-            })
+            }
+        }
+
+        Err(Error::conflict(&format!(
+            "volume {volume_id} and temp volume {temp_volume_id} updated \
+            concurrently"
+        )))
     }
 
     /// Return all the read-write regions in a volume whose target address
