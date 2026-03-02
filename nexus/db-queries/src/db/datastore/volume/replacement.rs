@@ -2,6 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use super::Volume;
+use super::datastore::VolumeUpdateError;
 use crate::db::DataStore;
 use crate::db::model::VolumeResourceUsageRecord;
 use crate::db::model::to_db_typed_uuid;
@@ -70,8 +72,12 @@ enum ReplaceRegionError {
     #[error("Serde error during Volume region replacement: {0}")]
     SerdeError(#[from] serde_json::Error),
 
+    // XXX too generic
     #[error("Region replacement error: {0}")]
     RegionReplacementError(#[from] anyhow::Error),
+
+    #[error("Error from underlying update: {0}")]
+    Update(#[from] VolumeUpdateError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -105,13 +111,14 @@ enum ReplaceSnapshotError {
 }
 
 impl DataStore {
-    async fn volume_replace_region_in_txn(
+    async fn volume_replace_region_impl(
+        &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ReplaceRegionError>,
         existing: VolumeReplacementParams,
         replacement: VolumeReplacementParams,
     ) -> Result<VolumeReplaceResult, diesel::result::Error> {
-        // In a single transaction:
+        // At a high level:
         //
         // - set the existing region's volume id to the replacement's volume id
         // - set the replacement region's volume id to the existing's volume id
@@ -300,6 +307,53 @@ impl DataStore {
             )));
         }
 
+        // Update the existing volume's construction request to replace the
+        // existing region's SocketAddrV6 with the replacement region's
+
+        if let Err(e) = old_volume.replace_region_in_vcr(
+            existing.region_addr,
+            replacement.region_addr,
+        ) {
+            // XXX only error returned by above is "old region not found", can
+            // do better error type or check before?
+            return Err(err.bail(ReplaceRegionError::RegionReplacementError(e)));
+        }
+
+        let sub_err = OptionalError::new();
+
+        self.transaction_retry_wrapper("volume_replace_region")
+            .transaction(&conn, |conn| {
+                let sub_err = sub_err.clone();
+                let existing = existing.clone();
+                let old_volume = old_volume.clone();
+                let replacement = replacement.clone();
+
+                async move {
+                    Self::volume_replace_region_in_txn(
+                        &conn,
+                        sub_err,
+                        existing,
+                        old_volume,
+                        replacement,
+                    )
+                    .await
+                }
+            })
+            .await
+            .map_err(
+                |e| {
+                    if let Some(e) = sub_err.take() { err.bail(e) } else { e }
+                },
+            )
+    }
+
+    async fn volume_replace_region_in_txn(
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<ReplaceRegionError>,
+        existing: VolumeReplacementParams,
+        existing_volume: Volume,
+        replacement: VolumeReplacementParams,
+    ) -> Result<VolumeReplaceResult, diesel::result::Error> {
         use nexus_db_schema::schema::region::dsl as region_dsl;
 
         // Set the existing region's volume id to the replacement's volume id
@@ -335,25 +389,15 @@ impl DataStore {
                 })
             })?;
 
-        // Update the existing volume's construction request to replace the
-        // existing region's SocketAddrV6 with the replacement region's
-
-        if let Err(e) = old_volume.replace_region_in_vcr(
-            existing.region_addr,
-            replacement.region_addr,
-        ) {
-            return Err(err.bail(ReplaceRegionError::RegionReplacementError(e)));
-        }
-
         // Update the existing volume's data
         let sub_err = OptionalError::new();
 
-        Self::volume_update_impl(conn, sub_err.clone(), old_volume)
+        Self::volume_update_impl(conn, sub_err.clone(), existing_volume)
             .await
             .map_err(|e| {
                 err.bail_retryable_or_else(e, |e| {
                     if let Some(e) = sub_err.take() {
-                        ReplaceRegionError::RegionReplacementError(e.into())
+                        ReplaceRegionError::Update(e)
                     } else {
                         ReplaceRegionError::Public(public_error_from_diesel(
                             e,
@@ -362,6 +406,8 @@ impl DataStore {
                     }
                 })
             })?;
+
+        // XXX where's the replacement volume VCR update?
 
         // After region replacement, validate invariants for all volumes
         #[cfg(any(test, feature = "testing"))]
@@ -376,42 +422,89 @@ impl DataStore {
         existing: VolumeReplacementParams,
         replacement: VolumeReplacementParams,
     ) -> Result<VolumeReplaceResult, Error> {
-        let err = OptionalError::new();
-
+        // Use the same conn object for each retry
         let conn = self.pool_connection_unauthorized().await?;
-        self.transaction_retry_wrapper("volume_replace_region")
-            .transaction(&conn, |conn| {
-                let err = err.clone();
-                let existing = existing.clone();
-                let replacement = replacement.clone();
-                async move {
-                    Self::volume_replace_region_in_txn(
-                        &conn,
-                        err,
-                        existing,
-                        replacement,
-                    )
-                    .await
-                }
-            })
-            .await
-            .map_err(|e| {
-                if let Some(err) = err.take() {
-                    match err {
-                        ReplaceRegionError::Public(e) => e,
 
-                        ReplaceRegionError::SerdeError(_) => {
-                            Error::internal_error(&err.to_string())
-                        }
+        // Try several times to perform this operation
+        for _ in 0..4 {
+            let err = OptionalError::new();
+            let existing = existing.clone();
+            let replacement = replacement.clone();
 
-                        ReplaceRegionError::RegionReplacementError(_) => {
-                            Error::internal_error(&err.to_string())
+            match self
+                .volume_replace_region_impl(
+                    &conn,
+                    err.clone(),
+                    existing,
+                    replacement,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+
+                Err(e) => {
+                    if let Some(e) = err.take() {
+                        match e {
+                            ReplaceRegionError::Public(e) => {
+                                return Err(e);
+                            }
+
+                            ReplaceRegionError::SerdeError(e) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+
+                            ReplaceRegionError::RegionReplacementError(e) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+
+                            ReplaceRegionError::Update(e) => match e {
+                                VolumeUpdateError::SerdeError(e) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}",),
+                                    ));
+                                }
+
+                                VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                    _,
+                                    _,
+                                ) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}",),
+                                    ));
+                                }
+
+                                VolumeUpdateError::GenerationAlreadyUpdated(
+                                    _volume_id,
+                                ) => {
+                                    // XXX warn!
+                                    continue;
+                                }
+
+                                VolumeUpdateError::Deleted(volume_id) => {
+                                    return Err(Error::conflict(&format!(
+                                        "volume {volume_id} deleted"
+                                    )));
+                                }
+                            },
                         }
+                    } else {
+                        return Err(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ));
                     }
-                } else {
-                    public_error_from_diesel(e, ErrorHandler::Server)
                 }
-            })
+            }
+        }
+
+        Err(Error::conflict(&format!(
+            "existing volume {} and replacement volume {} updated concurrently",
+            existing.volume_id, replacement.volume_id,
+        )))
     }
 
     async fn volume_replace_snapshot_in_txn(
