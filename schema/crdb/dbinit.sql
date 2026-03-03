@@ -850,7 +850,7 @@ CREATE TABLE IF NOT EXISTS omicron.public.volume (
      * A generation number for optimistic concurrency when updating the
      * serialized Volume enum
      */
-    gen INT NOT NULL,
+    gen INT NOT NULL
 );
 
 /* Quickly find deleted volumes */

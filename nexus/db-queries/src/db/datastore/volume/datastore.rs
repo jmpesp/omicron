@@ -494,7 +494,7 @@ impl DataStore {
         // Check if the generation number has been updated by another change to
         // the Volume. If it has, then the higher level caller has to perform
         // the change again (and check that the Volume wasn't soft-deleted!)
-        if db_model.generation() != (volume.generation() + 1) {
+        if db_model.generation() != volume.generation() {
             return Err(err
                 .bail(VolumeUpdateError::GenerationAlreadyUpdated(volume_id)));
         }
