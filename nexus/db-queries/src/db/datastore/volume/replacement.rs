@@ -96,13 +96,7 @@ enum ReplaceSnapshotError {
     #[error("Replaced {0} targets, expected {1}")]
     UnexpectedReplacedTargets(usize, usize),
 
-    #[error("Updated {0} database rows, expected {1}")]
-    UnexpectedDatabaseUpdate(usize, usize),
-
-    #[error(
-        "Address parsing error during Volume snapshot \
-    replacement: {0}"
-    )]
+    #[error("Address parsing error during Volume snapshot replacement: {0}")]
     AddressParseError(#[from] AddrParseError),
 
     #[error("Could not match read-only resource to {0}")]
@@ -892,8 +886,6 @@ impl DataStore {
         // Try several times to perform this operation
         for _ in 0..4 {
             let err = OptionalError::new();
-            let existing = existing.clone();
-            let replacement = replacement.clone();
 
             match self
                 .volume_replace_snapshot_impl(
@@ -915,10 +907,6 @@ impl DataStore {
                             | ReplaceSnapshotError::SerdeError(_)
                             | ReplaceSnapshotError::SnapshotReplacementError(_)
                             | ReplaceSnapshotError::UnexpectedReplacedTargets(
-                                _,
-                                _,
-                            )
-                            | ReplaceSnapshotError::UnexpectedDatabaseUpdate(
                                 _,
                                 _,
                             )

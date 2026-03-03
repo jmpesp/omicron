@@ -1276,9 +1276,6 @@ enum SoftDeleteError {
 
     #[error("Address parsing error during Volume soft-delete: {0}")]
     AddressParseError(#[from] AddrParseError),
-
-    #[error("Invalid Volume: {0}")]
-    InvalidVolume(String),
 }
 
 impl DataStore {
