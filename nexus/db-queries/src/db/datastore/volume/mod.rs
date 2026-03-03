@@ -48,6 +48,18 @@ impl Volume {
         Volume::V1(VolumeV1 { db_model, volume_construction_request })
     }
 
+    pub fn replace_volume_construction_request(
+        &mut self,
+        volume_construction_request: VolumeConstructionRequest,
+    ) {
+        match self {
+            Volume::V1(volume) => {
+                volume.volume_construction_request =
+                    volume_construction_request;
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn new_from_only_construction_request(
         volume_construction_request: VolumeConstructionRequest,

@@ -5,6 +5,7 @@
 use super::Volume;
 use super::datastore::VolumeUpdateError;
 use crate::db::DataStore;
+use crate::db::model::VolumeResourceUsage;
 use crate::db::model::VolumeResourceUsageRecord;
 use crate::db::model::to_db_typed_uuid;
 use anyhow::anyhow;
@@ -88,6 +89,7 @@ enum ReplaceSnapshotError {
     #[error("Serde error during Volume snapshot replacement: {0}")]
     SerdeError(#[from] serde_json::Error),
 
+    // XXX too generic
     #[error("Snapshot replacement error: {0}")]
     SnapshotReplacementError(#[from] anyhow::Error),
 
@@ -108,6 +110,9 @@ enum ReplaceSnapshotError {
 
     #[error("Multiple volume resource usage records for {0}")]
     MultipleResourceUsageRecords(String),
+
+    #[error("Error from underlying update: {0}")]
+    Update(#[from] VolumeUpdateError),
 }
 
 impl DataStore {
@@ -507,7 +512,8 @@ impl DataStore {
         )))
     }
 
-    async fn volume_replace_snapshot_in_txn(
+    async fn volume_replace_snapshot_impl(
+        &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         err: OptionalError<ReplaceSnapshotError>,
         volume_id: VolumeWithTarget,
@@ -515,10 +521,8 @@ impl DataStore {
         replacement: ReplacementTarget,
         volume_to_delete_id: VolumeToDelete,
     ) -> Result<VolumeReplaceResult, diesel::result::Error> {
-        use nexus_db_schema::schema::volume_resource_usage::dsl as ru_dsl;
-
-        // Grab the old volume first
-        let maybe_old_volume = {
+        // Grab the volume first
+        let maybe_volume = {
             let sub_err = OptionalError::new();
 
             Self::volume_get_impl(conn, sub_err.clone(), volume_id.0)
@@ -532,8 +536,8 @@ impl DataStore {
                 })?
         };
 
-        let mut old_volume = if let Some(old_volume) = maybe_old_volume {
-            old_volume
+        let mut volume = if let Some(volume) = maybe_volume {
+            volume
         } else {
             // Existing volume was hard-deleted, so return here. We can't
             // perform the region snapshot replacement now, and this will
@@ -542,7 +546,7 @@ impl DataStore {
             return Ok(VolumeReplaceResult::ExistingVolumeHardDeleted);
         };
 
-        if old_volume.time_deleted().is_some() {
+        if volume.time_deleted().is_some() {
             // Existing volume was soft-deleted, so return here for the same
             // reason: the region snapshot replacement process should be
             // short-circuited now.
@@ -550,9 +554,8 @@ impl DataStore {
         }
 
         // Does it look like this replacement already happened?
-        let old_target_in_vcr = old_volume.read_only_target_in_vcr(&existing.0);
-        let new_target_in_vcr =
-            old_volume.read_only_target_in_vcr(&replacement.0);
+        let old_target_in_vcr = volume.read_only_target_in_vcr(&existing.0);
+        let new_target_in_vcr = volume.read_only_target_in_vcr(&replacement.0);
 
         if !old_target_in_vcr && new_target_in_vcr {
             // It does seem like the replacement happened
@@ -565,7 +568,7 @@ impl DataStore {
         // existing target's SocketAddrV6 with the replacement target's
 
         // Copy the old volume's VCR, changing out the old target for the new.
-        let replacements = match old_volume
+        let replacements = match volume
             .replace_read_only_target_in_vcr(existing, replacement)
         {
             Ok(replacements) => replacements,
@@ -588,27 +591,41 @@ impl DataStore {
             ));
         }
 
-        // Update the existing volume's data
-        let sub_err = OptionalError::new();
+        let maybe_volume_to_delete = {
+            let sub_err = OptionalError::new();
 
-        Self::volume_update_impl(conn, sub_err.clone(), old_volume)
-            .await
-            .map_err(|e| {
-                err.bail_retryable_or_else(e, |e| {
+            Self::volume_get_impl(conn, sub_err.clone(), volume_to_delete_id.0)
+                .await
+                .map_err(|e| {
                     if let Some(e) = sub_err.take() {
-                        ReplaceSnapshotError::SnapshotReplacementError(e.into())
+                        err.bail(ReplaceSnapshotError::SerdeError(e))
                     } else {
-                        ReplaceSnapshotError::Public(public_error_from_diesel(
-                            e,
-                            ErrorHandler::Server,
-                        ))
+                        e
                     }
-                })
-            })?;
+                })?
+        };
 
-        // Make a new VCR that will stash the target to delete. The values here
-        // don't matter, just that it gets fed into the volume_delete machinery
-        // later.
+        let mut volume_to_delete =
+            if let Some(volume_to_delete) = maybe_volume_to_delete {
+                volume_to_delete
+            } else {
+                // Existing volume was hard-deleted, so return here. We can't
+                // perform the region snapshot replacement now, and this will
+                // short-circuit the rest of the process.
+
+                return Ok(VolumeReplaceResult::ExistingVolumeHardDeleted);
+            };
+
+        if volume_to_delete.time_deleted().is_some() {
+            // Existing volume was soft-deleted, so return here for the same
+            // reason: the region snapshot replacement process should be
+            // short-circuited now.
+            return Ok(VolumeReplaceResult::ExistingVolumeSoftDeleted);
+        }
+
+        // Make a new VCR that will stash the target to delete and overwrite the
+        // existing data. The values here don't matter, just that it gets fed
+        // into the volume_delete machinery later.
         let vcr = VolumeConstructionRequest::Volume {
             id: *volume_to_delete_id.0.as_untyped_uuid(),
             block_size: 512,
@@ -633,26 +650,11 @@ impl DataStore {
             read_only_parent: None,
         };
 
-        let volume_data = serde_json::to_string(&vcr)
-            .map_err(|e| err.bail(ReplaceSnapshotError::SerdeError(e)))?;
+        // XXX this blows away what was there, which should be nothing
 
-        use nexus_db_schema::schema::volume::dsl as volume_dsl;
+        volume_to_delete.replace_volume_construction_request(vcr);
 
-        // Update the volume to delete data
-        let num_updated = diesel::update(volume_dsl::volume)
-            .filter(volume_dsl::id.eq(to_db_typed_uuid(volume_to_delete_id.0)))
-            .filter(volume_dsl::time_deleted.is_null())
-            .set(volume_dsl::data.eq(volume_data))
-            .execute_async(conn)
-            .await?;
-
-        if num_updated != 1 {
-            return Err(err.bail(
-                ReplaceSnapshotError::UnexpectedDatabaseUpdate(num_updated, 1),
-            ));
-        }
-
-        // Update the appropriate volume resource usage records - it could
+        // When updating the appropriate volume resource usage records, it could
         // either be a read-only region or a region snapshot, so determine what
         // it is first
 
@@ -662,27 +664,9 @@ impl DataStore {
 
         let Some(existing_usage) = maybe_existing_usage else {
             return Err(err.bail(ReplaceSnapshotError::CouldNotFindResource(
-                format!("could not find resource for {}", existing.0,),
+                format!("could not find resource for {}", existing.0),
             )));
         };
-
-        // The "existing" target moved into the volume to delete
-
-        Self::swap_volume_usage_records_for_resources(
-            conn,
-            existing_usage,
-            volume_id.0,
-            volume_to_delete_id.0,
-        )
-        .await
-        .map_err(|e| {
-            err.bail_retryable_or_else(e, |e| {
-                ReplaceSnapshotError::Public(public_error_from_diesel(
-                    e,
-                    ErrorHandler::Server,
-                ))
-            })
-        })?;
 
         let maybe_replacement_usage =
             Self::read_only_target_to_volume_resource_usage(
@@ -693,20 +677,9 @@ impl DataStore {
 
         let Some(replacement_usage) = maybe_replacement_usage else {
             return Err(err.bail(ReplaceSnapshotError::CouldNotFindResource(
-                format!("could not find resource for {}", existing.0,),
+                format!("could not find resource for {}", existing.0),
             )));
         };
-
-        // The intention leaving this transaction is that the correct volume
-        // resource usage records exist, so:
-        //
-        // - if no usage record existed for the replacement usage, then create a
-        //   new record that points to the volume id (this can happen if the
-        //   volume to delete was blank when coming into this function)
-        //
-        // - if records exist for the "replacement" usage, then one of those
-        //   will match the volume to delete id, so perform a swap instead to
-        //   the volume id
 
         let existing_replacement_volume_usage_records =
             Self::volume_usage_records_for_resource_query(
@@ -727,12 +700,122 @@ impl DataStore {
             .filter(|record| record.volume_id == volume_to_delete_id.0.into())
             .count();
 
+        let sub_err = OptionalError::new();
+
+        self.transaction_retry_wrapper("volume_replace_snapshot")
+            .transaction(&conn, |conn| {
+                let sub_err = sub_err.clone();
+                // XXX why are these clones required?
+                let volume = volume.clone();
+                let volume_to_delete = volume_to_delete.clone();
+                let existing_usage = existing_usage.clone();
+                let replacement_usage = replacement_usage.clone();
+
+                async move {
+                    Self::volume_replace_snapshot_in_txn(
+                        &conn,
+                        sub_err,
+                        volume,
+                        volume_to_delete,
+                        existing_usage,
+                        existing_replacement_volume_usage_records,
+                        replacement_usage,
+                    )
+                    .await
+                }
+            })
+            .await
+            .map_err(
+                |e| {
+                    if let Some(e) = sub_err.take() { err.bail(e) } else { e }
+                },
+            )
+    }
+
+    async fn volume_replace_snapshot_in_txn(
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<ReplaceSnapshotError>,
+        volume: Volume,
+        volume_to_delete: Volume,
+        existing_usage: VolumeResourceUsage,
+        existing_replacement_volume_usage_records: usize,
+        replacement_usage: VolumeResourceUsage,
+    ) -> Result<VolumeReplaceResult, diesel::result::Error> {
+        let volume_id = volume.id();
+        let volume_to_delete_id = volume_to_delete.id();
+
+        // Update the existing volume's data
+        let sub_err = OptionalError::new();
+
+        Self::volume_update_impl(conn, sub_err.clone(), volume).await.map_err(
+            |e| {
+                err.bail_retryable_or_else(e, |e| {
+                    if let Some(e) = sub_err.take() {
+                        ReplaceSnapshotError::Update(e)
+                    } else {
+                        ReplaceSnapshotError::Public(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ))
+                    }
+                })
+            },
+        )?;
+
+        // Update volume_to_delete
+        let sub_err = OptionalError::new();
+
+        Self::volume_update_impl(conn, sub_err.clone(), volume_to_delete)
+            .await
+            .map_err(|e| {
+                err.bail_retryable_or_else(e, |e| {
+                    if let Some(e) = sub_err.take() {
+                        ReplaceSnapshotError::Update(e)
+                    } else {
+                        ReplaceSnapshotError::Public(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ))
+                    }
+                })
+            })?;
+
+        // The intention leaving this transaction is that the correct volume
+        // resource usage records exist, so:
+        //
+        // - if no usage record existed for the replacement usage, then create a
+        //   new record that points to the volume id (this can happen if the
+        //   volume to delete was blank when coming into this function)
+        //
+        // - if records exist for the "replacement" usage, then one of those
+        //   will match the volume to delete id, so perform a swap instead to
+        //   the volume id
+
+        // The "existing" target moved into the volume to delete
+
+        Self::swap_volume_usage_records_for_resources(
+            conn,
+            existing_usage,
+            volume_id,
+            volume_to_delete_id,
+        )
+        .await
+        .map_err(|e| {
+            err.bail_retryable_or_else(e, |e| {
+                ReplaceSnapshotError::Public(public_error_from_diesel(
+                    e,
+                    ErrorHandler::Server,
+                ))
+            })
+        })?;
+
         // The "replacement" target moved into the volume
+        use nexus_db_schema::schema::volume_resource_usage::dsl as ru_dsl;
 
         if existing_replacement_volume_usage_records == 0 {
             // No matching record
             let new_record =
-                VolumeResourceUsageRecord::new(volume_id.0, replacement_usage);
+                VolumeResourceUsageRecord::new(volume_id, replacement_usage);
 
             diesel::insert_into(ru_dsl::volume_resource_usage)
                 .values(new_record)
@@ -751,8 +834,8 @@ impl DataStore {
             Self::swap_volume_usage_records_for_resources(
                 conn,
                 replacement_usage,
-                volume_to_delete_id.0,
-                volume_id.0,
+                volume_to_delete_id,
+                volume_id,
             )
             .await
             .map_err(|e| {
@@ -803,50 +886,86 @@ impl DataStore {
         replacement: ReplacementTarget,
         volume_to_delete_id: VolumeToDelete,
     ) -> Result<VolumeReplaceResult, Error> {
-        let err = OptionalError::new();
-
+        // Use the same conn object for each retry
         let conn = self.pool_connection_unauthorized().await?;
-        self.transaction_retry_wrapper("volume_replace_snapshot")
-            .transaction(&conn, |conn| {
-                let err = err.clone();
 
-                async move {
-                    Self::volume_replace_snapshot_in_txn(
-                        &conn,
-                        err,
-                        volume_id,
-                        existing,
-                        replacement,
-                        volume_to_delete_id,
-                    )
-                    .await
-                }
-            })
-            .await
-            .map_err(|e| {
-                if let Some(err) = err.take() {
-                    match err {
-                        ReplaceSnapshotError::Public(e) => e,
+        // Try several times to perform this operation
+        for _ in 0..4 {
+            let err = OptionalError::new();
+            let existing = existing.clone();
+            let replacement = replacement.clone();
 
-                        ReplaceSnapshotError::SerdeError(_)
-                        | ReplaceSnapshotError::SnapshotReplacementError(_)
-                        | ReplaceSnapshotError::UnexpectedReplacedTargets(
-                            _,
-                            _,
-                        )
-                        | ReplaceSnapshotError::UnexpectedDatabaseUpdate(
-                            _,
-                            _,
-                        )
-                        | ReplaceSnapshotError::AddressParseError(_)
-                        | ReplaceSnapshotError::CouldNotFindResource(_)
-                        | ReplaceSnapshotError::MultipleResourceUsageRecords(
-                            _,
-                        ) => Error::internal_error(&err.to_string()),
+            match self
+                .volume_replace_snapshot_impl(
+                    &conn,
+                    err.clone(),
+                    volume_id,
+                    existing,
+                    replacement,
+                    volume_to_delete_id,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+
+                Err(e) => {
+                    if let Some(e) = err.take() {
+                        match e {
+                            ReplaceSnapshotError::Public(_)
+                            | ReplaceSnapshotError::SerdeError(_)
+                            | ReplaceSnapshotError::SnapshotReplacementError(_)
+                            | ReplaceSnapshotError::UnexpectedReplacedTargets(
+                                _,
+                                _,
+                            )
+                            | ReplaceSnapshotError::UnexpectedDatabaseUpdate(
+                                _,
+                                _,
+                            )
+                            | ReplaceSnapshotError::AddressParseError(_)
+                            | ReplaceSnapshotError::CouldNotFindResource(_)
+                            | ReplaceSnapshotError::MultipleResourceUsageRecords(
+                                _,
+                            ) => return Err(Error::internal_error(&e.to_string())),
+
+                            ReplaceSnapshotError::Update(e) => match e {
+                                VolumeUpdateError::SerdeError(_) |
+                                VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                    _,
+                                    _,
+                                ) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}",),
+                                    ));
+                                }
+
+                                VolumeUpdateError::GenerationAlreadyUpdated(
+                                    _volume_id,
+                                ) => {
+                                    // XXX warn!
+                                    continue;
+                                }
+
+                                VolumeUpdateError::Deleted(volume_id) => {
+                                    return Err(Error::conflict(&format!(
+                                        "volume {volume_id} deleted"
+                                    )));
+                                }
+                            },
+                        }
+                    } else {
+                        return Err(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ));
                     }
-                } else {
-                    public_error_from_diesel(e, ErrorHandler::Server)
                 }
-            })
+            }
+        }
+
+        Err(Error::conflict(&format!(
+            "volume {} and volume to delete {} updated concurrently",
+            volume_id.0, volume_to_delete_id.0,
+        )))
     }
 }
