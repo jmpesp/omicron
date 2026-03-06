@@ -463,7 +463,7 @@ impl DataStore {
                             ReplaceRegionError::Update(e) => match e {
                                 VolumeUpdateError::SerdeError(e) => {
                                     return Err(Error::internal_error(
-                                        &format!("Transaction error: {e}",),
+                                        &format!("Transaction error: {e}"),
                                     ));
                                 }
 
@@ -472,7 +472,7 @@ impl DataStore {
                                     _,
                                 ) => {
                                     return Err(Error::internal_error(
-                                        &format!("Transaction error: {e}",),
+                                        &format!("Transaction error: {e}"),
                                     ));
                                 }
 
