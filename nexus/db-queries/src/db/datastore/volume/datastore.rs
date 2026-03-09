@@ -1276,11 +1276,15 @@ enum SoftDeleteError {
 
     #[error("Address parsing error during Volume soft-delete: {0}")]
     AddressParseError(#[from] AddrParseError),
+
+    #[error("Error from underlying update: {0}")]
+    Update(#[from] VolumeUpdateError),
 }
 
 impl DataStore {
     // See comment for `soft_delete_volume`
-    async fn soft_delete_volume_in_txn(
+    async fn soft_delete_volume_impl(
+        &self,
         conn: &async_bb8_diesel::Connection<DbConnection>,
         volume_id: VolumeUuid,
         err: OptionalError<SoftDeleteError>,
@@ -1299,10 +1303,11 @@ impl DataStore {
                 {
                     Ok(volume) => volume,
                     Err(e) => {
-                        if let Some(e) = sub_err.take() {
-                            return Err(
-                                err.bail(SoftDeleteError::SerdeError(e))
-                            );
+                        if let Some(sub_err) = sub_err.take() {
+                            return Err(err.bail_retryable_or(
+                                e,
+                                SoftDeleteError::SerdeError(sub_err),
+                            ));
                         }
                         return Err(e);
                     }
@@ -1341,8 +1346,10 @@ impl DataStore {
         };
 
         // Grab all the targets that the volume construction request references.
-        // Do this _inside_ the transaction, as the data inside volumes can
-        // change as a result of region / region snapshot replacement.
+        // Do this outside the transaction: the data inside volumes can change
+        // as a result of region / region snapshot replacement, but the
+        // resulting generation number mismatch will cause this function to be
+        // rerun and will re-gather all the read-only resources.
         let crucible_targets = {
             let mut crucible_targets = CrucibleTargets::default();
             volume.read_only_resources_associated_with_volume(
@@ -1351,18 +1358,11 @@ impl DataStore {
             crucible_targets
         };
 
-        // Decrease the number of references for each resource that a volume
-        // references, collecting the regions and region snapshots that were
-        // freed up for deletion.
-
         let num_read_write_subvolumes = volume.count_read_write_sub_volumes();
 
         let mut regions: Vec<Uuid> = Vec::with_capacity(
             REGION_REDUNDANCY_THRESHOLD * num_read_write_subvolumes,
         );
-
-        let mut region_snapshots: Vec<RegionSnapshotV3> =
-            Vec::with_capacity(crucible_targets.read_only_targets.len());
 
         // First, grab read-write regions - they're not shared, but they are
         // not candidates for deletion if there are region snapshots
@@ -1389,24 +1389,15 @@ impl DataStore {
                 )));
             };
 
-            // Filter out regions that have any region-snapshots
-            let region_snapshot_count: i64 = {
-                use nexus_db_schema::schema::region_snapshot::dsl;
-                dsl::region_snapshot
-                    .filter(dsl::region_id.eq(region.id()))
-                    .count()
-                    .get_result_async::<i64>(conn)
-                    .await?
-            };
-
-            if region_snapshot_count == 0 {
-                regions.push(region.id());
-            }
+            regions.push(region.id());
         }
 
-        for read_only_target in &crucible_targets.read_only_targets {
-            use nexus_db_schema::schema::volume_resource_usage::dsl as ru_dsl;
+        let mut usages = Vec::with_capacity(
+            REGION_REDUNDANCY_THRESHOLD
+                * crucible_targets.read_only_targets.len(),
+        );
 
+        for read_only_target in &crucible_targets.read_only_targets {
             let read_only_target = read_only_target
                 .parse()
                 .map_err(|e| err.bail(SoftDeleteError::AddressParseError(e)))?;
@@ -1423,9 +1414,93 @@ impl DataStore {
                 )));
             };
 
-            // For each read-only resource, remove the associated volume
-            // resource usage record for this volume. Only return a resource for
-            // deletion if no more associated volume usage records are found.
+            usages.push((read_only_target, usage));
+        }
+
+        let sub_err = OptionalError::new();
+
+        self.transaction_retry_wrapper("soft_delete_volume")
+            .transaction(&conn, |conn| {
+                let sub_err = sub_err.clone();
+                let volume = volume.clone();
+                let regions = regions.clone();
+                let usages = usages.clone();
+
+                async move {
+                    Self::soft_delete_volume_in_txn(
+                        &conn, sub_err, volume, regions, usages,
+                    )
+                    .await
+                }
+            })
+            .await
+            .map_err(|e| {
+                if let Some(sub_err) = sub_err.take() {
+                    err.bail_retryable_or(e, sub_err)
+                } else {
+                    e
+                }
+            })
+    }
+
+    async fn soft_delete_volume_in_txn(
+        conn: &async_bb8_diesel::Connection<DbConnection>,
+        err: OptionalError<SoftDeleteError>,
+        volume: volume::Volume,
+        unfiltered_regions: Vec<Uuid>,
+        usages: Vec<(SocketAddrV6, VolumeResourceUsage)>,
+    ) -> Result<CrucibleResources, diesel::result::Error> {
+        use nexus_db_schema::schema::volume_resource_usage::dsl as ru_dsl;
+
+        let volume_id = volume.id();
+
+        {
+            use nexus_db_schema::schema::volume::dsl;
+
+            // Has the generation number changed?
+            let db_model = dsl::volume
+                .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
+                .select(model::Volume::as_select())
+                .first_async(conn)
+                .await?;
+
+            if db_model.generation() != volume.generation() {
+                return Err(err.bail(SoftDeleteError::Update(
+                    VolumeUpdateError::GenerationAlreadyUpdated(volume_id),
+                )));
+            }
+        }
+
+        // Decrease the number of references for each resource that a volume
+        // references, collecting the regions and region snapshots that were
+        // freed up for deletion.
+
+        let mut regions = Vec::with_capacity(unfiltered_regions.len());
+
+        for region_id in unfiltered_regions {
+            // Filter out regions that have any region-snapshots
+            let region_snapshot_count: i64 = {
+                use nexus_db_schema::schema::region_snapshot::dsl;
+                dsl::region_snapshot
+                    .filter(dsl::region_id.eq(region_id))
+                    .count()
+                    .get_result_async::<i64>(conn)
+                    .await?
+            };
+
+            if region_snapshot_count == 0 {
+                regions.push(region_id);
+            }
+        }
+
+        // For each read-only resource, remove the associated volume resource
+        // usage record for this volume. Only return a resource for deletion if
+        // no more associated volume usage records are found.
+
+        let mut region_snapshots: Vec<RegionSnapshotV3> =
+            Vec::with_capacity(usages.len());
+
+        for (read_only_target, usage) in usages {
             match usage {
                 VolumeResourceUsage::ReadOnlyRegion { region_id } => {
                     let updated_rows =
@@ -1616,45 +1691,37 @@ impl DataStore {
             }
         }
 
+        // Soft-delete the volume, and serialize the resources to delete.
+
         let resources_to_delete = CrucibleResources::V3(CrucibleResourcesV3 {
             regions,
             region_snapshots,
         });
 
-        // Soft-delete the volume, and serialize the resources to delete.
         let serialized_resources = serde_json::to_string(&resources_to_delete)
             .map_err(|e| err.bail(e.into()))?;
 
         {
             use nexus_db_schema::schema::volume::dsl;
 
-            // Has the generation number changed? XXX do we need to check this
-            // if soft-delete operates in a txn? what if we only make a few
-            // things opportunistically concurrent?
-            /*
-            let db_model = dsl::volume
-                .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
-                .select(model::Volume::as_select())
-                .first_async(conn)
-                .await?;
-            */
-
             let updated_rows = diesel::update(dsl::volume)
                 .filter(dsl::id.eq(to_db_typed_uuid(volume_id)))
+                .filter(dsl::r#gen.eq(volume.generation()))
                 .set((
                     dsl::time_deleted.eq(Utc::now()),
+                    dsl::r#gen.eq(volume.generation() + 1),
                     dsl::resources_to_clean_up.eq(Some(serialized_resources)),
                 ))
                 .execute_async(conn)
                 .await?;
 
             if updated_rows != 1 {
-                return Err(err.bail(
-                    SoftDeleteError::UnexpectedDatabaseUpdate(
+                return Err(err.bail(SoftDeleteError::Update(
+                    VolumeUpdateError::UnexpectedDatabaseUpdate(
                         updated_rows,
-                        "volume".into(),
+                        1,
                     ),
-                ));
+                )));
             }
         }
 
@@ -1673,23 +1740,75 @@ impl DataStore {
         &self,
         volume_id: VolumeUuid,
     ) -> Result<CrucibleResources, Error> {
-        let err = OptionalError::new();
+        // Use the same conn object for each retry
         let conn = self.pool_connection_unauthorized().await?;
-        self.transaction_retry_wrapper("soft_delete_volume")
-            .transaction(&conn, |conn| {
-                let err = err.clone();
-                async move {
-                    Self::soft_delete_volume_in_txn(&conn, volume_id, err).await
+
+        // Try several times to perform this operation
+        for _ in 0..4 {
+            let err = OptionalError::new();
+
+            match self
+                .soft_delete_volume_impl(&conn, volume_id, err.clone())
+                .await
+            {
+                Ok(resources) => {
+                    return Ok(resources);
                 }
-            })
-            .await
-            .map_err(|e| {
-                if let Some(err) = err.take() {
-                    Error::internal_error(&format!("{err}"))
-                } else {
-                    public_error_from_diesel(e, ErrorHandler::Server)
+
+                Err(e) => {
+                    // XXX
+                    assert!(!nexus_db_errors::retryable(&e));
+
+                    if let Some(e) = err.take() {
+                        match e {
+                            SoftDeleteError::SerdeError(_)
+                            | SoftDeleteError::UnexpectedDatabaseUpdate(_, _)
+                            | SoftDeleteError::CouldNotFindResource(_)
+                            | SoftDeleteError::AddressParseError(_) => {
+                                return Err(Error::internal_error(&format!(
+                                    "Transaction error: {e}",
+                                )));
+                            }
+
+                            SoftDeleteError::Update(e) => match e {
+                                VolumeUpdateError::SerdeError(_)
+                                | VolumeUpdateError::UnexpectedDatabaseUpdate(
+                                    _,
+                                    _,
+                                ) => {
+                                    return Err(Error::internal_error(
+                                        &format!("Transaction error: {e}"),
+                                    ));
+                                }
+
+                                VolumeUpdateError::GenerationAlreadyUpdated(
+                                    _volume_id,
+                                ) => {
+                                    // XXX warn!
+                                    continue;
+                                }
+
+                                VolumeUpdateError::Deleted(volume_id) => {
+                                    // This is ok - run through the function
+                                    // again, which should return the serialized
+                                    // resources to delete.
+                                    continue;
+                                }
+                            },
+                        }
+                    } else {
+                        return Err(public_error_from_diesel(
+                            e,
+                            ErrorHandler::Server,
+                        ));
+                    }
                 }
-            })
+            }
+        }
+
+        Err(Error::conflict(&format!(
+            "volume {volume_id} updated concurrently"
+        )))
     }
 
     async fn volume_remove_rop_impl(
@@ -2597,8 +2716,9 @@ pub enum VolumeCookedResult {
 /// Return all volumes (even soft-deleted), filtering based on some provided Fn
 async fn return_all_volumes(
     conn: &async_bb8_diesel::Connection<DbConnection>,
+    err: OptionalError<Error>,
     insert_filter: impl Fn(&volume::Volume) -> bool,
-) -> Result<Vec<volume::Volume>, Error> {
+) -> Result<Vec<volume::Volume>, diesel::result::Error> {
     use nexus_db_schema::schema::volume::dsl;
 
     let mut volumes = vec![];
@@ -2610,26 +2730,28 @@ async fn return_all_volumes(
         let haystack = paginated(dsl::volume, dsl::id, &p.current_pagparams())
             .select(dsl::id)
             .get_results_async::<Uuid>(conn)
-            .await
-            .map_err(|e| public_error_from_diesel(e, ErrorHandler::Server))?;
+            .await?;
 
         paginator = p.found_batch(&haystack, &|r| *r);
 
         for volume_id in haystack {
-            let err = OptionalError::new();
-
             let volume_id = VolumeUuid::from_untyped_uuid(volume_id);
 
+            let sub_err = OptionalError::new();
+
             let volume =
-                DataStore::volume_get_impl(conn, err.clone(), volume_id)
+                DataStore::volume_get_impl(conn, sub_err.clone(), volume_id)
                     .await
                     .map_err(|e| {
-                        if let Some(e) = err.take() {
-                            Error::internal_error(&format!(
-                                "volume_get_impl returned {e}",
-                            ))
+                        if let Some(sub_err) = sub_err.take() {
+                            err.bail_retryable_or(
+                                e,
+                                Error::internal_error(&format!(
+                                    "volume_get_impl returned {sub_err}",
+                                )),
+                            )
                         } else {
-                            public_error_from_diesel(e, ErrorHandler::Server)
+                            e
                         }
                     })?;
 
@@ -2665,8 +2787,11 @@ impl DataStore {
             SocketAddr::V6(addr) => addr,
         };
 
+        let err = OptionalError::new();
+
         return_all_volumes(
             &*self.pool_connection_authorized(opctx).await?,
+            err.clone(),
             |volume| {
                 let rw_reference = volume.region_in_vcr(&needle);
                 let ro_reference = volume.read_only_target_in_vcr(&needle);
@@ -2675,6 +2800,13 @@ impl DataStore {
             },
         )
         .await
+        .map_err(|e| {
+            if let Some(err) = err.take() {
+                err
+            } else {
+                public_error_from_diesel(e, ErrorHandler::Server)
+            }
+        })
     }
 
     pub async fn find_volumes_referencing_ipv6_addr(
@@ -2684,11 +2816,21 @@ impl DataStore {
     ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
+        let err = OptionalError::new();
+
         return_all_volumes(
             &*self.pool_connection_authorized(opctx).await?,
+            err.clone(),
             |volume| volume.ipv6_addr_referenced_in_vcr(&needle),
         )
         .await
+        .map_err(|e| {
+            if let Some(err) = err.take() {
+                err
+            } else {
+                public_error_from_diesel(e, ErrorHandler::Server)
+            }
+        })
     }
 
     pub async fn find_volumes_referencing_ipv6_net(
@@ -2698,11 +2840,21 @@ impl DataStore {
     ) -> ListResultVec<volume::Volume> {
         opctx.check_complex_operations_allowed()?;
 
+        let err = OptionalError::new();
+
         return_all_volumes(
             &*self.pool_connection_authorized(opctx).await?,
+            err.clone(),
             |volume| volume.ipv6_net_referenced_in_vcr(&needle),
         )
         .await
+        .map_err(|e| {
+            if let Some(err) = err.take() {
+                err
+            } else {
+                public_error_from_diesel(e, ErrorHandler::Server)
+            }
+        })
     }
 
     /// Returns Some(bool) depending on if a read-only target exists in a
@@ -2878,11 +3030,22 @@ impl DataStore {
     pub(crate) async fn validate_volume_invariants(
         conn: &async_bb8_diesel::Connection<DbConnection>,
     ) -> Result<(), diesel::result::Error> {
-        let volumes =
-            return_all_volumes(conn, |_| true).await.map_err(|e| {
-                // This isn't the best error variant, but this is only used in
-                // tests right now so I'm going with it :)
-                Self::volume_invariant_violated(format!("{e}"))
+        let err = OptionalError::new();
+
+        let volumes = return_all_volumes(conn, err.clone(), |_| true)
+            .await
+            .map_err(|e| {
+                if nexus_db_errors::retryable(&e) {
+                    e
+                } else {
+                    if let Some(err) = err.take() {
+                        // This isn't the best error variant, but this is only
+                        // used in tests right now so I'm going with it :)
+                        Self::volume_invariant_violated(format!("{err}"))
+                    } else {
+                        e
+                    }
+                }
             })?;
 
         for volume in volumes {
