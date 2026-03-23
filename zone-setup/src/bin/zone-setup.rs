@@ -315,11 +315,11 @@ async fn switch_zone_setup(
     let deserialized_baseboard: Baseboard = serde_json::from_value(info)?;
 
     let frostypaws: bool = match &deserialized_baseboard {
-        Baseboard::Pc { identifier, .. } => identifier.contains("frostypaws"),
+        Baseboard::Pc { identifier, .. } => identifier.contains("20000004"), // frostypaws
         _ => false,
     };
     let kibblesnbits: bool = match &deserialized_baseboard {
-        Baseboard::Pc { identifier, .. } => identifier.contains("kibblesnbits"),
+        Baseboard::Pc { identifier, .. } => identifier.contains("20000002"), // kibblesnbits
         _ => false,
     };
 

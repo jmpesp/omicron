@@ -684,6 +684,7 @@ fn monitor_tofino(
 /// the smbios. This allows us to match the generated certificates used for
 /// sprockets so that trust quorum works in a4x2.
 fn get_pc_baseboard(log: &Logger, root_node: &str) -> Baseboard {
+    /*
     let pc_baseboard = read_smbios(log).unwrap_or_else(|| {
         Baseboard::new_pc(
             gethostname()
@@ -692,6 +693,20 @@ fn get_pc_baseboard(log: &Logger, root_node: &str) -> Baseboard {
             root_node.to_string(),
         )
     });
+    info!(log, "Generated i86pc baseboard {:?}", pc_baseboard);
+    pc_baseboard
+    */
+    let hostname = gethostname().into_string().unwrap();
+    let serial = match hostname.as_str() {
+        "dinnerbone" => "20000001".to_string(),
+        "kibblesnbits" => "20000002".to_string(),
+        "gravytrain" => "20000003".to_string(),
+        "frostypaws" => "20000004".to_string(),
+
+        _ => panic!("hostname not recognized!"),
+    };
+    let part = String::from("000-0000000");
+    let pc_baseboard = Baseboard::new_pc(serial, part);
     info!(log, "Generated i86pc baseboard {:?}", pc_baseboard);
     pc_baseboard
 }
