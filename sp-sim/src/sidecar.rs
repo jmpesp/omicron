@@ -1387,6 +1387,7 @@ impl FakeIgnition {
         for _ in &config.sidecar {
             state.push(initial_ignition_state(ignition::SystemType::Sidecar));
         }
+
         for _ in &config.gimlet {
             state.push(initial_ignition_state(ignition::SystemType::Gimlet));
         }
@@ -1395,6 +1396,7 @@ impl FakeIgnition {
             state.len() <= Self::NUM_IGNITION_TARGETS,
             "too many simulated SPs"
         );
+
         while state.len() < Self::NUM_IGNITION_TARGETS {
             state.push(IgnitionState {
                 receiver: ignition::ReceiverStatus {
@@ -1405,6 +1407,17 @@ impl FakeIgnition {
                 target: None,
             });
         }
+
+        // XXX for canada region, specify that the first four slots are on
+        // (same slots as what the GZ sp-sim for those sleds report). this is in
+        // lieu of having a more intelligent way to determine which GZ sp-sim
+        // are up and answering. consult smf/mgs-sim/config.toml to find
+        // ignition-target -> switch port mapping
+
+        state[3] = initial_ignition_state(ignition::SystemType::Gimlet); // sled 0
+        state[4] = initial_ignition_state(ignition::SystemType::Gimlet); // sled 1
+        state[5] = initial_ignition_state(ignition::SystemType::Gimlet); // sled 2
+        state[6] = initial_ignition_state(ignition::SystemType::Gimlet); // sled 3
 
         Self {
             state,
