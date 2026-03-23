@@ -16,14 +16,14 @@ use omicron_sled_agent::updates::ConfigUpdates;
 use omicron_common::address::IpRange;
 use omicron_common::address::Ipv4Range;
 use omicron_common::address::Ipv6Range;
-use omicron_common::api::internal::shared::RackNetworkConfig;
-use omicron_common::api::internal::shared::PortSpeed;
-use omicron_common::api::internal::shared::PortFec;
-use omicron_common::api::internal::shared::PortConfigV2;
-use omicron_common::api::internal::shared::SwitchLocation;
+use sled_agent_types::early_networking::RackNetworkConfig;
+use sled_agent_types::early_networking::PortSpeed;
+use sled_agent_types::early_networking::PortFec;
+use sled_agent_types::early_networking::PortConfig;
+use sled_agent_types::early_networking::SwitchSlot;
 use omicron_common::api::internal::shared::AllowedSourceIps;
-use omicron_common::api::internal::shared::UplinkAddressConfig;
-use omicron_common::api::internal::shared::RouteConfig;
+use sled_agent_types::early_networking::UplinkAddressConfig;
+use sled_agent_types::early_networking::RouteConfig;
 use omicron_common::zpool_name::ZpoolName;
 use omicron_common::zpool_name::ZPOOL_EXTERNAL_PREFIX;
 use omicron_common::zpool_name::ZPOOL_INTERNAL_PREFIX;
@@ -53,6 +53,7 @@ use omicron_common::disk::DiskVariant;
 use sprockets_tls::keys::AttestConfig;
 use sprockets_tls::keys::ResolveSetting;
 use sprockets_tls::keys::SprocketsConfig;
+use sprockets_tls::keys::MeasurementConnectionPolicy;
 use omicron_gateway::RetryConfig;
 use uuid::Uuid;
 use sp_sim::config::EreportConfig;
@@ -131,6 +132,7 @@ fn main() -> Result<()> {
 
         let rss_config = RackInitializeRequest {
             trust_quorum_peers: Some(vec![
+            /*
                 Baseboard::new_pc(
                     String::from("dinnerbone"),
                     String::from("i86pc"),
@@ -146,6 +148,23 @@ fn main() -> Result<()> {
                 Baseboard::new_pc(
                     String::from("frostypaws"),
                     String::from("i86pc"),
+                ),
+            */
+                Baseboard::new_pc(
+                    String::from("20000001"),
+                    String::from("000-0000000"),
+                ),
+                Baseboard::new_pc(
+                    String::from("20000002"),
+                    String::from("000-0000000"),
+                ),
+                Baseboard::new_pc(
+                    String::from("20000003"),
+                    String::from("000-0000000"),
+                ),
+                Baseboard::new_pc(
+                    String::from("20000004"),
+                    String::from("000-0000000"),
                 ),
                 // non-existent: will cause `Fsm error= RackInitTimeout { unacked_peers: {Pc { identifier: "meowmix", model: "i86pc" }} }`
                 // Baseboard::new_pc(String::from("meowmix"), String::from("i86pc")),
@@ -206,29 +225,32 @@ fn main() -> Result<()> {
                 infra_ip_last: "192.168.1.150".parse().unwrap(),
 
                 ports: vec![
-                    PortConfigV2 {
+                    PortConfig {
                         routes: vec![RouteConfig {
                             destination: "0.0.0.0/0".parse().unwrap(),
                             // fancyfeast interface connected to 10G network
                             nexthop: "192.168.1.1".parse().unwrap(),
                             vlan_id: None,
-                            rib_priority: None,
+                            // XXX is this the cause of route flapping?
+                            rib_priority: Some(1),
                         }],
 
                         addresses: vec![UplinkAddressConfig {
                             // address from the infra ip pool to assign to the qsfp port
-                            address: "192.168.1.100/24".parse().unwrap(),
+                            address: Some("192.168.1.100/24".parse().unwrap()),
                             vlan_id: None,
                         }],
 
                         // the frostypaws uplink should have 192.168.1.1
-                        switch: SwitchLocation::Switch0,
+                        switch: SwitchSlot::Switch0,
 
                         // the name of the qsfp interface to use for reaching the
                         // default gateway (generally qsfp0)
                         port: String::from("qsfp0"),
                         uplink_port_speed: PortSpeed::Speed10G,
-                        uplink_port_fec: None,
+                        // XXX otherwise see
+                        //   dpd: Failed to plumb link: Missing("no default FEC defined for this port's xcvr")
+                        uplink_port_fec: Some(PortFec::Rs),
                         bgp_peers: vec![],
                         autoneg: false,
                         lldp: None,
@@ -497,7 +519,7 @@ fn main() -> Result<()> {
                 )),
 
                 cert_chain: Utf8PathBuf::from(format!(
-                    "/home/james/omicron/sprockets_tls/{hostname}.cert.pem"
+                    "/home/james/omicron/sprockets_tls/{hostname}.certlist.pem"
                 )),
             },
 
@@ -511,13 +533,21 @@ fn main() -> Result<()> {
                 )),
 
                 cert_chain: Utf8PathBuf::from(format!(
-                    "/home/james/omicron/sprockets_tls/{hostname}.cert.pem"
+                    "/home/james/omicron/sprockets_tls/{hostname}.certlist.pem"
                 )),
 
                 log: Utf8PathBuf::from(
                     "/home/james/omicron/sprockets_tls/attest.bin",
                 ),
+
+                test_corpus: vec![
+                    Utf8PathBuf::from(
+                        "/home/james/omicron/sprockets_tls/corim.cbor",
+                    )
+                ],
             },
+
+            enforce: MeasurementConnectionPolicy::Enforced,
         },
 
         control_plane_memory_earmark_mb: Some(6144),
@@ -543,9 +573,33 @@ fn main() -> Result<()> {
                 digest,
             }],
         };
+
         // Write out the log document to the filesystem
         let out = attest_mock::log::mock(attest_log_doc).unwrap();
         std::fs::write("/home/james/omicron/sprockets_tls/attest.bin", &out)?;
+
+        let corim_doc = attest_mock::corim::Document {
+            vendor: "Test Bed".into(),
+            tag_id: "test-v0.0.99999".into(),
+            id: "corim-test-v0.0.99999".into(),
+            measurements: vec![
+                // fake SP digest from the log
+                attest_mock::corim::Measurement {
+                    mkey: "fake-sp".into(),
+                    algorithm: 10,
+                    digest: "be4df4e085175f3de0c8ac4837e1c2c9a34e8983209dac6b549e94154f7cdd9c".into()
+                },          
+                // fake fwid from the cert-chain (this is constant currently)
+                attest_mock::corim::Measurement {
+                    mkey: "fake-fwid".into(),
+                    algorithm: 10,
+                    digest: "72fa8f8ea84a42251031366002cbb36281d0131f78cd680436116a720cdd9de5".into()
+                },          
+            ],          
+        };              
+
+        let corim = attest_mock::corim::mock(corim_doc).unwrap();
+        std::fs::write("/home/james/omicron/sprockets_tls/corim.cbor", &corim).unwrap();
     }
 
     // Simulated SP in the switch zone for the sled
@@ -566,7 +620,7 @@ fn main() -> Result<()> {
                         ]),
 
                         // has to match mgs location map, and has to be switch0
-                        // or switch1 (due to SwitchLocation enum?)
+                        // or switch1 (due to SwitchSlot enum?)
                         serial_number: match hostname {
                             "frostypaws" => String::from("switch0"),
                             "kibblesnbits" => String::from("switch1"),
@@ -663,7 +717,14 @@ fn main() -> Result<()> {
                         },
                     ]),
 
-                    serial_number: hostname.to_string(),
+                    serial_number: match hostname {
+                        "dinnerbone" => "20000001".to_string(),
+                        "kibblesnbits" => "20000002".to_string(),
+                        "gravytrain" => "20000003".to_string(),
+                        "frostypaws" => "20000004".to_string(),
+
+                        _ => panic!("hostname not recognized!"),
+                    },
 
                     // can ignore
                     manufacturing_root_cert_seed:
@@ -738,7 +799,7 @@ fn main() -> Result<()> {
 
                     cabooses: None,
 
-                    part_number: sp_sim::FAKE_GIMLET_MODEL.to_string(),
+                    part_number: "000-0000000".to_string(),
                 }},
             ],
         },
