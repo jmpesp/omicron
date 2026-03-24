@@ -30,7 +30,10 @@ use crate::app::sagas::region_snapshot_replacement_step::*;
 use crate::app::sagas::region_snapshot_replacement_step_garbage_collect::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use nexus_db_model::ReadOnlyTargetReplacement;
+use nexus_db_model::RegionSnapshotReplacement;
 use nexus_db_model::RegionSnapshotReplacementStep;
+use nexus_db_model::VolumeResourceUsage;
 use nexus_db_queries::context::OpContext;
 use nexus_db_queries::db::DataStore;
 use nexus_db_queries::db::datastore::region_snapshot_replacement::*;
@@ -201,7 +204,80 @@ impl RegionSnapshotReplacementFindAffected {
             }
         };
 
-        for request in requests {
+        // Sort requests by how many volumes there are left to process:
+        // prioritize requests that are almost done so they can be completed and
+        // the amount of work this background task has to iterate over
+        // decreases.
+
+        let requests_iter = {
+            struct SortableRequest {
+                request: RegionSnapshotReplacement,
+                references_left: usize,
+            }
+
+            let mut sortable_requests = Vec::with_capacity(requests.len());
+
+            for request in requests {
+                let result = match request.replacement_type() {
+                    ReadOnlyTargetReplacement::RegionSnapshot {
+                        dataset_id,
+                        region_id,
+                        snapshot_id,
+                    } => self
+                        .datastore
+                        .volume_usage_records_for_resource(
+                            VolumeResourceUsage::RegionSnapshot {
+                                dataset_id: dataset_id.into(),
+                                region_id,
+                                snapshot_id,
+                            },
+                        )
+                        .await
+                        .map(|vec| vec.len()),
+
+                    ReadOnlyTargetReplacement::ReadOnlyRegion { region_id } => {
+                        self.datastore
+                            .volume_usage_records_for_resource(
+                                VolumeResourceUsage::ReadOnlyRegion {
+                                    region_id,
+                                },
+                            )
+                            .await
+                            .map(|vec| vec.len())
+                    }
+                };
+
+                let references_left = match result {
+                    Ok(references_left) => references_left,
+                    Err(e) => {
+                        let s = format!(
+                            "volume_usage_records_for_resource failed: {e}",
+                        );
+
+                        error!(&log, "{s}");
+                        status.errors.push(s);
+
+                        // Do not return here: continue in an attempt to do as
+                        // much work as this background task can to progress the
+                        // list of replacements forward.
+                        continue;
+                    }
+                };
+
+                sortable_requests
+                    .push(SortableRequest { request, references_left });
+            }
+
+            sortable_requests.sort_by_key(|sortable_request| {
+                sortable_request.references_left
+            });
+
+            sortable_requests
+                .into_iter()
+                .map(|sortable_request| sortable_request.request)
+        };
+
+        for request in requests_iter {
             let replacement = request.replacement_type();
 
             // Find all volumes that reference the replaced read-only target
@@ -210,10 +286,10 @@ impl RegionSnapshotReplacementFindAffected {
                     Ok(Some(address)) => address,
 
                     Ok(None) => {
-                        // If the associated region snapshot or read-only region was
-                        // deleted, then there are no more volumes that reference
-                        // it. This is not an error! Continue processing the other
-                        // requests.
+                        // If the associated region snapshot or read-only region
+                        // was deleted, then there are no more volumes that
+                        // reference it. This is not an error! Continue
+                        // processing the other requests.
                         let s = format!(
                             "read-only target for {} not found",
                             request.id,

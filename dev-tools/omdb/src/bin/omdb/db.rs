@@ -96,6 +96,7 @@ use nexus_db_model::RegionSnapshot;
 use nexus_db_model::RegionSnapshotReplacement;
 use nexus_db_model::RegionSnapshotReplacementState;
 use nexus_db_model::RegionSnapshotReplacementStep;
+use nexus_db_model::RegionSnapshotReplacementStepState;
 use nexus_db_model::Sled;
 use nexus_db_model::Snapshot;
 use nexus_db_model::SnapshotState;
@@ -5881,6 +5882,21 @@ async fn cmd_db_region_snapshot_replacement_list(
 
     check_limit(&requests, limit, ctx);
 
+    let volume_repair_records: Vec<_> = datastore
+        .pool_connection_for_tests()
+        .await?
+        .transaction_async(async move |conn| {
+            use nexus_db_schema::schema::volume_repair::dsl;
+
+            conn.batch_execute_async(ALLOW_FULL_TABLE_SCAN_SQL).await?;
+
+            dsl::volume_repair
+                .select(VolumeRepair::as_select())
+                .load_async(&conn)
+                .await
+        })
+        .await?;
+
     #[derive(Tabled)]
     #[tabled(rename_all = "SCREAMING_SNAKE_CASE")]
     struct Row {
@@ -5888,15 +5904,98 @@ async fn cmd_db_region_snapshot_replacement_list(
         #[tabled(display_with = "datetime_rfc3339_concise")]
         pub request_time: DateTime<Utc>,
         pub replacement_state: String,
+        pub references_left: usize,
+        pub can_make_progress: bool,
     }
 
     let mut rows = Vec::with_capacity(requests.len());
 
+    let conn = datastore.pool_connection_for_tests().await?;
+
     for request in requests {
+        // Of all the volume ids still containing references to the read-only
+        // resource being replaced, can this request make progress (aka is it
+        // holding the volume repair lock on one of those volumes)?
+
+        let volume_ids: Vec<_> = match request.replacement_type() {
+            ReadOnlyTargetReplacement::RegionSnapshot {
+                dataset_id,
+                region_id,
+                snapshot_id,
+            } => datastore
+                .volume_usage_records_for_resource(
+                    VolumeResourceUsage::RegionSnapshot {
+                        dataset_id: dataset_id.into(),
+                        region_id,
+                        snapshot_id,
+                    },
+                )
+                .await?
+                .into_iter()
+                .map(|vrur| vrur.volume_id.into_untyped_uuid())
+                .collect(),
+
+            ReadOnlyTargetReplacement::ReadOnlyRegion { region_id } => {
+                datastore
+                    .volume_usage_records_for_resource(
+                        VolumeResourceUsage::ReadOnlyRegion { region_id },
+                    )
+                    .await?
+                    .into_iter()
+                    .map(|vrur| vrur.volume_id.into_untyped_uuid())
+                    .collect()
+            }
+        };
+
+        let mut can_make_progress = false;
+
+        for volume_id in &volume_ids {
+            let maybe_volume_repair_record =
+                volume_repair_records.iter().find(|record| {
+                    record.volume_id.into_untyped_uuid() == *volume_id
+                });
+
+            if let Some(volume_repair_record) = maybe_volume_repair_record {
+                let lock_holder = get_volume_lock_holder(
+                    &conn,
+                    volume_repair_record.repair_id,
+                )
+                .await?;
+
+                // Is this replacement the one holding the lock?
+                let held_by_us = match lock_holder {
+                    VolumeLockHolder::RegionReplacement { .. } => false,
+
+                    VolumeLockHolder::RegionSnapshotReplacement { id } => {
+                        request.id == id
+                    }
+
+                    VolumeLockHolder::RegionSnapshotReplacementStep {
+                        request_id,
+                        ..
+                    } => request.id == request_id,
+
+                    VolumeLockHolder::Unknown => false,
+                };
+
+                if held_by_us {
+                    can_make_progress = true;
+                    break;
+                }
+            } else {
+                // Here, nothing holds the lock on that volume, so this request
+                // can make progress.
+                can_make_progress = true;
+                break;
+            }
+        }
+
         rows.push(Row {
             id: request.id,
             request_time: request.request_time,
             replacement_state: format!("{:?}", request.replacement_state),
+            references_left: volume_ids.len(),
+            can_make_progress,
         });
     }
 
@@ -6020,6 +6119,181 @@ async fn cmd_db_region_snapshot_replacement_info(
     println!("     in-progress steps left: {:?}", steps_left);
     println!();
 
+    // Print out all steps, completed or not
+
+    let conn = datastore.pool_connection_for_tests().await?;
+
+    println!("steps:");
+
+    let steps = {
+        use nexus_db_schema::schema::region_snapshot_replacement_step::dsl;
+
+        dsl::region_snapshot_replacement_step
+            .filter(dsl::request_id.eq(request.id))
+            .select(RegionSnapshotReplacementStep::as_select())
+            .get_results_async(&*conn)
+            .await?
+    };
+
+    #[derive(Tabled)]
+    #[tabled(rename_all = "SCREAMING_SNAKE_CASE")]
+    struct Row {
+        id: Uuid,
+        request_id: Uuid,
+        request_time: DateTime<Utc>,
+        volume_id: Uuid,
+        #[tabled(display_with = "option_impl_display")]
+        old_snapshot_volume_id: Option<Uuid>,
+        replacement_state: String,
+        #[tabled(display_with = "option_impl_display")]
+        operating_saga_id: Option<Uuid>,
+    }
+
+    let mut rows: Vec<_> = steps
+        .into_iter()
+        .map(|step| Row {
+            id: step.id,
+            request_id: step.request_id,
+            request_time: step.request_time,
+            volume_id: step.volume_id.into_untyped_uuid(),
+            old_snapshot_volume_id: step
+                .old_snapshot_volume_id
+                .map(|x| x.into_untyped_uuid()),
+            replacement_state: String::from(match step.replacement_state {
+                RegionSnapshotReplacementStepState::Requested => "requested",
+                RegionSnapshotReplacementStepState::Running => "running",
+                RegionSnapshotReplacementStepState::Complete => "complete",
+                RegionSnapshotReplacementStepState::VolumeDeleted => {
+                    "volume_deleted"
+                }
+            }),
+            operating_saga_id: step.operating_saga_id,
+        })
+        .collect();
+
+    rows.sort_by_key(|row| row.request_time);
+
+    let table = tabled::Table::new(rows)
+        .with(tabled::settings::Style::empty())
+        .with(tabled::settings::Padding::new(0, 1, 0, 0))
+        .to_string();
+
+    println!("{}", table);
+    println!();
+
+    // Also print out references left for the read-only resource being replaced
+
+    println!("references left:");
+
+    let volume_ids: Vec<Uuid> = match request.replacement_type() {
+        ReadOnlyTargetReplacement::RegionSnapshot {
+            dataset_id,
+            region_id,
+            snapshot_id,
+        } => datastore
+            .volume_usage_records_for_resource(
+                VolumeResourceUsage::RegionSnapshot {
+                    dataset_id: dataset_id.into(),
+                    region_id,
+                    snapshot_id,
+                },
+            )
+            .await?
+            .into_iter()
+            .map(|vrur| vrur.volume_id.into_untyped_uuid())
+            .collect(),
+
+        ReadOnlyTargetReplacement::ReadOnlyRegion { region_id } => datastore
+            .volume_usage_records_for_resource(
+                VolumeResourceUsage::ReadOnlyRegion { region_id },
+            )
+            .await?
+            .into_iter()
+            .map(|vrur| vrur.volume_id.into_untyped_uuid())
+            .collect(),
+    };
+
+    let volume_repair_records: Vec<_> = datastore
+        .pool_connection_for_tests()
+        .await?
+        .transaction_async(async move |conn| {
+            use nexus_db_schema::schema::volume_repair::dsl;
+
+            conn.batch_execute_async(ALLOW_FULL_TABLE_SCAN_SQL).await?;
+
+            dsl::volume_repair
+                .select(VolumeRepair::as_select())
+                .load_async(&conn)
+                .await
+        })
+        .await?;
+
+    #[derive(Tabled)]
+    #[tabled(rename_all = "SCREAMING_SNAKE_CASE")]
+    struct ReferenceRow {
+        volume_id: Uuid,
+
+        #[tabled(display_with = "option_impl_display")]
+        locked_by_type: Option<String>,
+
+        #[tabled(display_with = "option_impl_display")]
+        locked_by_details: Option<String>,
+
+        held_by_us: bool,
+    }
+
+    let mut rows = Vec::with_capacity(volume_ids.len());
+
+    for volume_id in volume_ids {
+        let maybe_volume_repair_record = volume_repair_records
+            .iter()
+            .find(|record| record.volume_id.into_untyped_uuid() == volume_id);
+
+        if let Some(volume_repair_record) = maybe_volume_repair_record {
+            let lock_holder =
+                get_volume_lock_holder(&conn, volume_repair_record.repair_id)
+                    .await?;
+
+            // Is this replacement the one holding the lock?
+            let held_by_us = match lock_holder {
+                VolumeLockHolder::RegionReplacement { .. } => false,
+
+                VolumeLockHolder::RegionSnapshotReplacement { id } => {
+                    request.id == id
+                }
+
+                VolumeLockHolder::RegionSnapshotReplacementStep {
+                    request_id,
+                    ..
+                } => request.id == request_id,
+
+                VolumeLockHolder::Unknown => false,
+            };
+
+            rows.push(ReferenceRow {
+                volume_id,
+                locked_by_type: Some(lock_holder.type_string()),
+                locked_by_details: Some(lock_holder.details()),
+                held_by_us,
+            });
+        } else {
+            rows.push(ReferenceRow {
+                volume_id,
+                locked_by_type: None,
+                locked_by_details: None,
+                held_by_us: false,
+            });
+        }
+    }
+
+    let table = tabled::Table::new(rows)
+        .with(tabled::settings::Style::empty())
+        .with(tabled::settings::Padding::new(0, 1, 0, 0))
+        .to_string();
+
+    println!("{}", table);
+    println!();
+
     Ok(())
 }
 
@@ -6101,6 +6375,8 @@ async fn cmd_db_region_snapshot_replacement_waiting(
     let running_replacements =
         datastore.get_running_region_snapshot_replacements(opctx).await?;
 
+    let conn = datastore.pool_connection_for_tests().await?;
+
     for replacement in running_replacements {
         let read_only_target_volume_references =
             match replacement.replacement_type() {
@@ -6132,8 +6408,6 @@ async fn cmd_db_region_snapshot_replacement_waiting(
         // There should be a step record created for each of these referenced
         // volumes. Check if there's a lock holder for these volumes that isn't
         // the replacement itself.
-
-        let conn = datastore.pool_connection_for_tests().await?;
 
         for reference in read_only_target_volume_references {
             let maybe_volume_repair_record = {
@@ -6233,6 +6507,13 @@ async fn cmd_db_region_snapshot_replacement_waiting(
         .to_string();
 
     println!("{}", table);
+
+    // If there's a cycle in the graph, it means that there are two replacements
+    // waiting on each other.
+
+    if petgraph::algo::is_cyclic_directed(&g) {
+        println!("=== CYCLE DETECTED ===");
+    }
 
     Ok(())
 }
