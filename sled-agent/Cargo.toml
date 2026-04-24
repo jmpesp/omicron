@@ -82,7 +82,6 @@ repo-depot-client.workspace = true
 reqwest = { workspace = true, features = ["rustls", "stream"] }
 reqwest012 = { workspace = true }
 serde.workspace = true
-serde_human_bytes.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 signal-hook.workspace = true
