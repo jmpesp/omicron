@@ -7,8 +7,9 @@ use dropshot::ConfigLogging;
 use dropshot::ConfigLoggingIfExists;
 use dropshot::ConfigLoggingLevel;
 use illumos_utils::dladm::PhysicalLink;
-use sled_agent_types::rack_init::BootstrapAddressDiscovery;
-use sled_agent_types::rack_init::RackInitializeRequest;
+use bootstrap_agent_lockstep_types::BootstrapAddressDiscovery;
+use bootstrap_agent_lockstep_types::RackInitializeRequest;
+use bootstrap_agent_lockstep_types::RecoverySiloConfig;
 use omicron_sled_agent::config::Config as SledConfig;
 use omicron_sled_agent::config::SledMode;
 use omicron_sled_agent::config::SidecarRevision;
@@ -23,6 +24,7 @@ use sled_agent_types::early_networking::PortConfig;
 use sled_agent_types::early_networking::SwitchSlot;
 use omicron_common::api::internal::shared::AllowedSourceIps;
 use sled_agent_types::early_networking::UplinkAddressConfig;
+use sled_agent_types::early_networking::UplinkAddress;
 use sled_agent_types::early_networking::RouteConfig;
 use omicron_common::zpool_name::ZpoolName;
 use omicron_common::zpool_name::ZPOOL_EXTERNAL_PREFIX;
@@ -35,8 +37,7 @@ use std::path::PathBuf;
 use sled_hardware::disk::UnparsedDisk;
 use sled_hardware::DiskFirmware;
 use sled_hardware_types::Baseboard;
-use sled_hardware_types::underlay::mac_to_bootstrap_ip;
-use sled_agent_types::rack_init::RecoverySiloConfig;
+use sled_hardware::underlay::mac_to_bootstrap_ip;
 use omicron_common::api::external::UserId;
 use omicron_passwords::NewPasswordHash;
 use omicron_passwords::Hasher;
@@ -237,7 +238,9 @@ fn main() -> Result<()> {
 
                         addresses: vec![UplinkAddressConfig {
                             // address from the infra ip pool to assign to the qsfp port
-                            address: Some("192.168.1.100/24".parse().unwrap()),
+                            address: UplinkAddress::Static {
+                                ip_net: "192.168.1.100/24".parse().unwrap(),
+                            },
                             vlan_id: None,
                         }],
 
