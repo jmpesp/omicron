@@ -1079,25 +1079,26 @@ opt-level = 3
 # [patch."https://github.com/oxidecomputer/diesel-dtrace"]
 # diesel-dtrace = { path = "../diesel-dtrace" }
 
-[patch."https://github.com/oxidecomputer/propolis"]
-bhyve_api = { path = "../propolis/crates/bhyve-api" }
-propolis-client = { path = "../propolis/lib/propolis-client" }
-propolis-mock-server = { path = "../propolis/bin/mock-server" }
-propolis_api_types = { path = "../propolis/crates/propolis-api-types" }
+#[patch."https://github.com/oxidecomputer/propolis"]
+#bhyve_api = { path = "../propolis/crates/bhyve-api" }
+#propolis-api-types-versions = { path = "../propolis/crates/propolis-api-types-versions" }
+#propolis-client = { path = "../propolis/lib/propolis-client" }
+#propolis-mock-server = { path = "../propolis/bin/mock-server" }
+#propolis_api_types = { path = "../propolis/crates/propolis-api-types" }
 
-[patch."https://github.com/oxidecomputer/crucible"]
-crucible-agent-client = { path = "../crucible/agent-client" }
+#[patch."https://github.com/oxidecomputer/crucible"]
+#crucible-agent-client = { path = "../crucible/agent-client" }
 #crucible-client-types = { path = "../crucible/crucible-client-types" }
-crucible-pantry-client = { path = "../crucible/pantry-client" }
-crucible-smf = { path = "../crucible/smf" }
+#crucible-pantry-client = { path = "../crucible/pantry-client" }
+#crucible-smf = { path = "../crucible/smf" }
 #crucible = { path = "../crucible/upstairs" }
 
-[patch."https://github.com/oxidecomputer/opte"]
-oxide-vpc = { path = "../opte/lib/oxide-vpc" }
-opte-ioctl = { path = "../opte/lib/opte-ioctl" }
-
-[patch."https://github.com/oxidecomputer/falcon"]
-libfalcon = { path = "../falcon/lib" }
+#[patch."https://github.com/oxidecomputer/opte"]
+#oxide-vpc = { path = "../opte/lib/oxide-vpc" }
+#opte-ioctl = { path = "../opte/lib/opte-ioctl" }
+#
+#[patch."https://github.com/oxidecomputer/falcon"]
+#libfalcon = { path = "../falcon/lib" }
 
 # [patch."https://github.com/oxidecomputer/propolis"]
 # propolis-client = { path = "../propolis/lib/propolis-client" }
@@ -1142,11 +1143,11 @@ path = "workspace-hack"
 # See also: uuid-kinds/README.adoc.
 [patch."https://github.com/oxidecomputer/omicron"]
 omicron-uuid-kinds = { path = "uuid-kinds" }
-omicron-common = { path = "common" }
+#omicron-common = { path = "common" }
 #internal-dns = { path = "internal-dns" }
 #nexus-client = { path = "nexus-client" }
-oximeter-producer = { path = "oximeter/producer" }
-oximeter = { path = "oximeter/oximeter" }
+#oximeter-producer = { path = "oximeter/producer" }
+#oximeter = { path = "oximeter/oximeter" }
 
 [patch.crates-io.zone]
 git = 'https://github.com/oxidecomputer/zone'
@@ -1158,10 +1159,15 @@ branch = 'state-derive-eq-hash'
 [patch."https://github.com/oxidecomputer/sprockets.git"]
 sprockets-tls = { path = "../sprockets/tls" }
 
-[patch."https://github.com/oxidecomputer/daft"]
-daft = { path = "../daft/daft" }
-daft-derive = { path = "../daft/daft-derive" }
+#[patch."https://github.com/oxidecomputer/daft"]
+#daft = { path = "../daft/daft" }
+#daft-derive = { path = "../daft/daft-derive" }
 
-[patch.crates-io.oxnet]
-path = "../oxnet"
+#[patch.crates-io.oxnet]
+#path = "../oxnet"
 
+#[patch."https://github.com/oxidecomputer/dice-util"]
+#attest-data = { path = "../dice-util/attest-data" }
+#attest-mock = { path = "../dice-util/attest-mock" }
+#dice-mfg-msgs = { path = "../dice-util/dice-mfg-msgs" }
+#dice-verifier = { path = "../dice-util/verifier" }
