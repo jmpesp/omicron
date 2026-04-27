@@ -81,6 +81,7 @@ api_versions!([
     // |  date-based version should be at the top of the list.
     // v
     // (next_yyyy_mm_dd_nn, IDENT),
+    (2026_04_27_00, USER_DATA_EXPORT),
     (2026_04_19_00, INLINE_ROUTER_PEER_IP_ADDR),
     (2026_04_16_00, STRONGER_BGP_UNNUMBERED_TYPES),
     (2026_03_25_00, SUBNET_POOL_UTILIZATION_REMAINING),
@@ -5438,6 +5439,20 @@ pub trait NexusExternalApi {
         query_params: Query<latest::project::OptionalProjectSelector>,
     ) -> Result<HttpResponseOk<latest::image::Image>, HttpError>;
 
+    /// Read blocks from an image
+    #[endpoint {
+        method = GET,
+        path = "/v1/images/{image}/read",
+        tags = ["images"],
+        versions = VERSION_USER_DATA_EXPORT..,
+    }]
+    async fn image_read(
+        rqctx: RequestContext<Self::Context>,
+        headers: Header<headers::RangeRequest>,
+        path_params: Path<latest::path_params::ImagePath>,
+        query_params: Query<latest::project::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError>;
+
     /// Delete image
     ///
     /// Permanently delete an image from a project. This operation cannot be undone.
@@ -5993,6 +6008,20 @@ pub trait NexusExternalApi {
         path_params: Path<latest::path_params::SnapshotPath>,
         query_params: Query<latest::project::OptionalProjectSelector>,
     ) -> Result<HttpResponseOk<latest::snapshot::Snapshot>, HttpError>;
+
+    /// Read blocks from a snapshot
+    #[endpoint {
+        method = GET,
+        path = "/v1/snapshots/{snapshot}/read",
+        tags = ["snapshots"],
+        versions = VERSION_USER_DATA_EXPORT..,
+    }]
+    async fn snapshot_read(
+        rqctx: RequestContext<Self::Context>,
+        headers: Header<headers::RangeRequest>,
+        path_params: Path<latest::path_params::SnapshotPath>,
+        query_params: Query<latest::project::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError>;
 
     /// Delete snapshot
     #[endpoint {

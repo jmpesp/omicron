@@ -4807,6 +4807,48 @@ impl NexusExternalApi for NexusExternalApiImpl {
             .await
     }
 
+    async fn image_read(
+        rqctx: RequestContext<ApiContext>,
+        headers: Header<RangeRequest>,
+        path_params: Path<path_params::ImagePath>,
+        query_params: Query<project::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let path = path_params.into_inner();
+            let query = query_params.into_inner();
+
+            let image_lookup = nexus
+                .image_lookup(
+                    &opctx,
+                    image::ImageSelector {
+                        image: path.image,
+                        project: query.project,
+                    },
+                )
+                .await?;
+
+            let range = headers
+                .into_inner()
+                .range
+                .map(|r| PotentialRange::new(r.as_bytes()));
+
+            let response = nexus
+                .user_data_export_for_image(&opctx, &image_lookup, range)
+                .await?;
+
+            Ok(response)
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
     async fn image_delete(
         rqctx: RequestContext<ApiContext>,
         path_params: Path<path_params::ImagePath>,
@@ -5414,6 +5456,46 @@ impl NexusExternalApi for NexusExternalApiImpl {
                 .fetch()
                 .await?;
             Ok(HttpResponseOk(snapshot.into()))
+        };
+        apictx
+            .context
+            .external_latencies
+            .instrument_dropshot_handler(&rqctx, handler)
+            .await
+    }
+
+    async fn snapshot_read(
+        rqctx: RequestContext<Self::Context>,
+        headers: Header<RangeRequest>,
+        path_params: Path<path_params::SnapshotPath>,
+        query_params: Query<project::OptionalProjectSelector>,
+    ) -> Result<Response<Body>, HttpError> {
+        let apictx = rqctx.context();
+        let handler = async {
+            let opctx =
+                crate::context::op_context_for_external_api(&rqctx).await?;
+            let nexus = &apictx.context.nexus;
+            let path = path_params.into_inner();
+            let query = query_params.into_inner();
+
+            let snapshot_selector = snapshot::SnapshotSelector {
+                project: query.project,
+                snapshot: path.snapshot,
+            };
+
+            let snapshot_lookup =
+                nexus.snapshot_lookup(&opctx, snapshot_selector)?;
+
+            let range = headers
+                .into_inner()
+                .range
+                .map(|r| PotentialRange::new(r.as_bytes()));
+
+            let response = nexus
+                .user_data_export_for_snapshot(&opctx, &snapshot_lookup, range)
+                .await?;
+
+            Ok(response)
         };
         apictx
             .context
