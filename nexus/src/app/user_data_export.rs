@@ -100,6 +100,7 @@ async fn user_data_export_blocks_read_task(
                 Ok(response) => response,
 
                 Err(e) => {
+                    // XXX short response here?
                     error!(log, "{e}");
                     return;
                 }
