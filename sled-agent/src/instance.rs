@@ -1222,7 +1222,7 @@ impl InstanceRunner {
             }
         };
 
-        debug!(self.log, "Sending ensure request to propolis: {:?}", request);
+        info!(self.log, "Sending ensure request to propolis: {:?}", request);
         let result = client.instance_ensure().body(request).send().await;
         info!(self.log, "result of instance_ensure call is {:?}", result);
         result?;
@@ -2159,6 +2159,8 @@ impl InstanceRunner {
         &mut self,
         migration_params: Option<InstanceMigrationTargetParams>,
     ) -> Result<(), Error> {
+        info!(&self.log, "propolis_ensure");
+
         // If there's already a Propolis zone, send the request there. This
         // allows Propolis to reject requests to initialize a VM with parameters
         // that are incompatible with a previous initialization request.
@@ -2186,6 +2188,8 @@ impl InstanceRunner {
             }
         };
 
+        info!(&self.log, "propolis zone setup ok");
+
         if let Err(e) = self
             .send_propolis_instance_ensure(
                 &setup.client,
@@ -2198,10 +2202,15 @@ impl InstanceRunner {
             return Err(e);
         }
 
+        info!(&self.log, "send propolis instance ensure ok");
+
         // Move ownership of the zone into the instance and set up state
         // monitoring. This prevents the zone from being shut down when this
         // routine returns.
         self.install_running_state(setup).await;
+
+        info!(&self.log, "install running state ok");
+
         Ok(())
     }
 
@@ -2210,6 +2219,13 @@ impl InstanceRunner {
         state: VmmStateRequested,
     ) -> Result<SledVmmState, Error> {
         use propolis_client::types::InstanceStateRequested as PropolisRequest;
+
+        info!(
+            &self.log,
+            "put state called with {state}, self.running_state {}",
+            self.running_state,
+        );
+
         let (propolis_request, next_published) = match state {
             VmmStateRequested::MigrationTarget(migration_params) => {
                 if let Err(e) =
@@ -2268,6 +2284,16 @@ impl InstanceRunner {
                 )
             }
         };
+
+        if self.running_state.is_none() {
+            error!(
+                self.log,
+                "about to panic!";
+                "propolis_request" => ?propolis_request,
+                "next_published" => ?next_published,
+                "state" => ?state,
+            );
+        }
 
         // All the arms above should either create a Propolis zone on success or
         // check that one already exists. Note that the calls that create the
@@ -2547,8 +2573,11 @@ impl InstanceRunner {
     /// Forcibly moves this VMM to the Failed state, then goes through the
     /// runner termination sequence.
     async fn fail_vmm_and_terminate(&mut self) {
+        info!(&self.log, "fail vmm and terminate");
         self.state.force_state_to_failed();
+        info!(&self.log, "force_state_to_failed");
         self.terminate().await;
+        info!(&self.log, "terminate");
     }
 
     /// Ensures that no Propolis zone exists for this instance runner and sets
