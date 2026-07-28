@@ -78,10 +78,9 @@ impl SledInventory {
                     );
                     return None;
                 };
-                let baseboard = Baseboard::new_gimlet(
+                let baseboard = Baseboard::new_pc(
                     state.serial_number.clone(),
                     state.model.clone(),
-                    state.revision,
                 );
                 let bootstrap_ip =
                     ddm_discovered_sleds.get(&baseboard).copied();
