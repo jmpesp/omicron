@@ -518,7 +518,8 @@ digest = "0.10.7"
 dns-server = { path = "dns-server" }
 dns-server-api = { path = "dns-server-api" }
 dns-service-client = { path = "clients/dns-service-client" }
-dpd-client = { git = "https://github.com/oxidecomputer/dendrite", rev = "04a52a3240a26c58f03e1cf40353d67ff69d76b6" }
+#dpd-client = { git = "https://github.com/oxidecomputer/dendrite", rev = "04a52a3240a26c58f03e1cf40353d67ff69d76b6" }
+dpd-client = { git = "https://github.com/oxidecomputer/dendrite", rev = "c0bf0a3b536baab0393c96fec3204b32e4f9368b" } # lbs_dpd
 dropshot = { version = "0.17.1", features = [ "usdt-probes" ] }
 dropshot-api-manager = "0.7.2"
 dropshot-api-manager-types = "0.7.2"
@@ -892,7 +893,7 @@ unicode-width = "0.1.13"
 update-common = { path = "update-common" }
 url = "2.5.4"
 usdt = "0.5.0"
-uuid = { version = "1.17.0", features = ["serde", "v4"] }
+uuid = { version = "1.18.0", features = ["serde", "v4"] }
 uzers = "0.12"
 vergen-gitcl = { version = "1.0.8" }
 walkdir = "2.5"
@@ -1114,6 +1115,27 @@ opt-level = 3
 # [patch."https://github.com/oxidecomputer/diesel-dtrace"]
 # diesel-dtrace = { path = "../diesel-dtrace" }
 
+#[patch."https://github.com/oxidecomputer/propolis"]
+#bhyve_api = { path = "../propolis/crates/bhyve-api" }
+#propolis-api-types-versions = { path = "../propolis/crates/propolis-api-types-versions" }
+#propolis-client = { path = "../propolis/lib/propolis-client" }
+#propolis-mock-server = { path = "../propolis/bin/mock-server" }
+#propolis_api_types = { path = "../propolis/crates/propolis-api-types" }
+
+#[patch."https://github.com/oxidecomputer/crucible"]
+#crucible-agent-client = { path = "../crucible/agent-client" }
+#crucible-client-types = { path = "../crucible/crucible-client-types" }
+#crucible-pantry-client = { path = "../crucible/pantry-client" }
+#crucible-smf = { path = "../crucible/smf" }
+#crucible = { path = "../crucible/upstairs" }
+
+#[patch."https://github.com/oxidecomputer/opte"]
+#oxide-vpc = { path = "../opte/lib/oxide-vpc" }
+#opte-ioctl = { path = "../opte/lib/opte-ioctl" }
+#
+#[patch."https://github.com/oxidecomputer/falcon"]
+#libfalcon = { path = "../falcon/lib" }
+
 # [patch."https://github.com/oxidecomputer/propolis"]
 # bhyve_api = { path = "../propolis/crates/bhyve-api" }
 # propolis-api-types-versions = { path = "../propolis/crates/propolis-api-types-versions" }
@@ -1160,4 +1182,31 @@ path = "workspace-hack"
 # See also: uuid-kinds/README.adoc.
 [patch."https://github.com/oxidecomputer/omicron"]
 omicron-uuid-kinds = { path = "uuid-kinds" }
-omicron-common = { path = "common" }
+#omicron-common = { path = "common" }
+#internal-dns = { path = "internal-dns" }
+#nexus-client = { path = "nexus-client" }
+#oximeter-producer = { path = "oximeter/producer" }
+#oximeter = { path = "oximeter/oximeter" }
+
+[patch.crates-io.zone]
+git = 'https://github.com/oxidecomputer/zone'
+branch = 'state-derive-eq-hash'
+
+#[patch."https://github.com/oxidecomputer/falcon"]
+#libfalcon = { path = "../falcon/lib" }
+
+[patch."https://github.com/oxidecomputer/sprockets.git"]
+sprockets-tls = { path = "../sprockets/tls" }
+
+#[patch."https://github.com/oxidecomputer/daft"]
+#daft = { path = "../daft/daft" }
+#daft-derive = { path = "../daft/daft-derive" }
+
+#[patch.crates-io.oxnet]
+#path = "../oxnet"
+
+#[patch."https://github.com/oxidecomputer/dice-util"]
+#attest-data = { path = "../dice-util/attest-data" }
+#attest-mock = { path = "../dice-util/attest-mock" }
+#dice-mfg-msgs = { path = "../dice-util/dice-mfg-msgs" }
+#dice-verifier = { path = "../dice-util/verifier" }
