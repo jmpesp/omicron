@@ -30,6 +30,7 @@ cfg-if.workspace = true
 chrono.workspace = true
 clap.workspace = true
 clickhouse-admin-types.workspace = true
+cockroach-admin-client.workspace = true
 derive_more.workspace = true
 dice-verifier = { workspace = true, features = ["ipcc", "mock"] }
 display-error-chain.workspace = true
@@ -76,14 +77,11 @@ oxnet.workspace = true
 propolis-client.workspace = true
 propolis-mock-server.workspace = true # Only used by the simulated sled agent
 propolis_api_types.workspace = true
-rand = { workspace = true, features = ["os_rng"] }
 range-requests.workspace = true
 repo-depot-api.workspace = true
 repo-depot-client.workspace = true
 reqwest = { workspace = true, features = ["rustls", "stream"] }
-schemars = { workspace = true, features = ["chrono", "uuid1"] }
 serde.workspace = true
-serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 sha3.workspace = true
 signal-hook.workspace = true
@@ -114,7 +112,6 @@ strum.workspace = true
 tar.workspace = true
 thiserror.workspace = true
 tofino.workspace = true
-tokio = { workspace = true, features = ["full"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
 toml.workspace = true
@@ -123,7 +120,6 @@ trust-quorum-protocol.workspace = true
 transient-dns-server.workspace = true
 trust-quorum-types.workspace = true
 tufaceous-artifact.workspace = true
-tufaceous-brand-metadata.workspace = true
 usdt.workspace = true
 uuid.workspace = true
 walkdir.workspace = true
@@ -136,12 +132,28 @@ zone.workspace = true
 crucible-agent-client.workspace = true
 crucible-client-types.workspace = true
 
+# sled-config
+gateway-messages.workspace = true
+omicron-gateway.workspace = true
+omicron-passwords.workspace = true
+omicron-zone-package.workspace = true
+once_cell.workspace = true
+tufaceous-brand-metadata.workspace = true
+attest-mock = { git = "https://github.com/oxidecomputer/dice-util", rev = "10952e8d9599b735b85d480af3560a11700e5b64" }
+
+rand = { workspace = true, features = ["os_rng"] }
+schemars = { workspace = true, features = ["chrono", "uuid1"] }
+serde_json = { workspace = true, features = ["raw_value"] }
+tokio = { workspace = true, features = ["full"] }
+
 [target.'cfg(target_os = "illumos")'.dependencies]
 fmd-adm.workspace = true
 # Direct dep on fmd-adm-sys so this crate sees DEP_FMD_ADM_LIBDIRS in build.rs
 # and can configure RPATH via omicron-rpaths.
 fmd-adm-sys.workspace = true
 opte-ioctl.workspace = true
+# use illumos-devinfo ?
+devinfo = { git = "https://github.com/illumos/devinfo-rs", branch = "main" }
 
 [dev-dependencies]
 assert_matches.workspace = true
