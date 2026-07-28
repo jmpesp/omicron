@@ -22,6 +22,7 @@ use omicron_common::cmd::fatal;
 use oxnet::Ipv6Net;
 use sled_agent_types::sled::SWITCH_ZONE_BASEBOARD_FILE;
 use slog::{Logger, info};
+use sled_hardware_types::Baseboard;
 use std::fmt::Write as _;
 use std::fs::{OpenOptions, metadata, read_to_string, set_permissions, write};
 use std::io::Write as _;
@@ -72,6 +73,9 @@ struct CommonNetworkingArgs {
     /// list of static addresses
     #[arg(short, long, num_args = 1..)]
     static_addrs: Vec<Ipv6Addr>,
+    // for the canada region, set up some forwarding rules
+    #[arg(short, long)]
+    forwarding: bool,
 }
 
 #[derive(Debug, Args)]
@@ -176,7 +180,6 @@ async fn do_run() -> anyhow::Result<()> {
     .context("failed to construct stderr logger")?;
 
     let args = ZoneSetup::parse();
-
     match args.command {
         ZoneSetupCommand::CommonNetworking(args) => {
             common_nw_set_up(args, &log).await
@@ -189,6 +192,18 @@ async fn do_run() -> anyhow::Result<()> {
             switch_zone_setup(args, &log).await
         }
     }
+}
+
+pub fn command(exe: &'static str, args: &[&str]) -> anyhow::Result<String> {
+    use anyhow::bail;
+    let cmd = std::process::Command::new(exe).args(args).output()?;
+    if !cmd.status.success() {
+        let stdout = String::from_utf8(cmd.stdout)?.trim_end().to_string();
+        let stderr = String::from_utf8(cmd.stderr)?.trim_end().to_string();
+        bail!("{} {:?} failed! out {} err {}", exe, args, stdout, stderr);
+    }
+
+    Ok(String::from_utf8(cmd.stdout)?.trim_end().to_string())
 }
 
 async fn switch_zone_setup(
@@ -209,7 +224,7 @@ async fn switch_zone_setup(
         "baseboard file" => %file.display(),
         "baseboard info" => ?info,
     );
-    generate_switch_zone_baseboard_file(&file, info)?;
+    generate_switch_zone_baseboard_file(&file, info.clone())?;
 
     info!(log, "Setting up the users required for wicket and support");
     let wicket_user = SwitchZoneUser::new(
@@ -291,6 +306,76 @@ async fn switch_zone_setup(
              to {gz_local_link_addr}"
         )
     })?;
+
+    // JWM - support the Canada region, now that the switch zone is
+    // self-assembling!
+
+    // Depending on the machine, forward boundary services to the fancyfeast
+    // interface
+    let deserialized_baseboard: Baseboard = serde_json::from_value(info)?;
+
+    let frostypaws: bool = match &deserialized_baseboard {
+        Baseboard::Pc { identifier, .. } => identifier.contains("20000004"), // frostypaws
+        _ => false,
+    };
+    let kibblesnbits: bool = match &deserialized_baseboard {
+        Baseboard::Pc { identifier, .. } => identifier.contains("20000002"), // kibblesnbits
+        _ => false,
+    };
+
+    if frostypaws {
+        // program in routes to fancyfeast for startup dendrite programming
+        // (nexus using OPTE now)
+        // the next hop is enp1s0 on fancyfeast
+        info!(&log, "(frostypaws) boundary services route");
+        command("route", &[
+            "add",
+            "-inet6",
+            "fd00:99::/64", // XXX hard coded boundary services value
+            "fe80::21b:21ff:fec1:fb30",
+            "-ifp",
+            "ixgbe5",
+        ])?;
+
+        // program in a specific route to put geneve traffic through opte
+        // the next hop is ixgbe3 in GZ
+        info!(&log, "(frostypaws) opte route");
+        command("route", &[
+            "add",
+            "-inet6",
+            "fd00:1122:3344:104::1/128",
+            "fe80::8261:5fff:fe11:ab31",
+            "-ifp",
+            "ixgbe4",
+        ])?;
+    } else if kibblesnbits {
+        // program in routes to fancyfeast for startup dendrite programming
+        // (nexus using OPTE now)
+        // next hop is enp4s0 on fancyfeast
+        info!(&log, "(kibblesnbits) boundary services route");
+        command("route", &[
+            "add",
+            "-inet6",
+            "fd00:99::/64", // XXX hard coded boundary services value
+            "fe80::4a22:54ff:fe40:8790",
+            "-ifp",
+            "e1000g4",
+        ])?;
+
+        // program in a specific route to put geneve traffic through opte
+        // next hop is e1000g5 in GZ
+        info!(&log, "(kibblesnbits) opte route");
+        command("route", &[
+            "add",
+            "-inet6",
+            "fd00:1122:3344:102::1/128",
+            "fe80::6a05:caff:fe15:bdec",
+            "-ifp",
+            "e1000g3",
+        ])?;
+    } else {
+        // wat?
+    }
 
     Ok(())
 }
@@ -617,7 +702,7 @@ async fn common_nw_set_up(
 ) -> anyhow::Result<()> {
     let zonename =
         zone::current().await.context("could not determine local zone name")?;
-    let CommonNetworkingArgs { datalink, gateway, static_addrs } = args;
+    let CommonNetworkingArgs { datalink, gateway, static_addrs, forwarding } = args;
 
     info!(
         log,
@@ -713,6 +798,13 @@ async fn common_nw_set_up(
 
     write(HOSTS_FILE, hosts_contents)
         .with_context(|| format!("failed to write hosts file {HOSTS_FILE}"))?;
+
+    // JWM - support the Canada region, now that the switch zone is
+    // self-assembling!
+    if forwarding {
+        info!(&log, "Enable ipv6-forwarding (for Canada region)");
+        command("routeadm", &["-e", "ipv6-forwarding", "-u"])?;
+    }
 
     Ok(())
 }
