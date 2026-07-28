@@ -294,6 +294,9 @@ pub enum Error {
 
     #[error("internal error: sled-agent started multiple times")]
     SledAgentStartedMultipleTimes,
+
+    #[error("Error setting linkprop")]
+    SetLinkprop(#[from] illumos_utils::dladm::SetLinkpropError),
 }
 
 impl Error {
@@ -1004,6 +1007,7 @@ impl ServiceManager {
                     // If on a non-gimlet, sled-agent can be configured to map
                     // links into the switch zone. Validate those links here.
                     for link in &self.inner.switch_zone_maghemite_links {
+                        let name = link;
                         match self
                             .inner
                             .system_api
@@ -1012,6 +1016,10 @@ impl ServiceManager {
                             .await
                         {
                             Ok(link) => {
+                                // Set MTU to 9000 before use, so as not to
+                                // fragment packets!
+                                Dladm::set_linkprop(&name.to_string(), "mtu", "9000").await?;
+
                                 // Link local addresses should be created in the
                                 // zone so that maghemite can listen on them.
                                 links.push((link, true));
