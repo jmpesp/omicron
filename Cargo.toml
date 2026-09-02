@@ -1176,3 +1176,7 @@ path = "workspace-hack"
 omicron-common = { path = "common" }
 omicron-generation-kinds = { path = "generation-kinds" }
 omicron-uuid-kinds = { path = "uuid-kinds" }
+
+# temporary
+[patch."https://github.com/oxidecomputer/sprockets"]
+sprockets-tls = { path = "../sprockets/tls" }
